@@ -1,7 +1,11 @@
 import { writeSync } from "node:fs";
 import pkg from "../package.json" with { type: "json" };
 import { allow, type IArgs, parseArgs } from "./args.ts";
+import { agentCmd } from "./commands/agent.ts";
+import { archiveCmd } from "./commands/archive.ts";
+import { checkCmd } from "./commands/check.ts";
 import { flowCmd } from "./commands/flow.ts";
+import { gateCmd } from "./commands/gate.ts";
 import {
   COMMANDS,
   commandHelp,
@@ -10,6 +14,13 @@ import {
   helpCmd,
   type ICommandSpec,
 } from "./commands/help.ts";
+import { logCmd } from "./commands/log.ts";
+import { phaseCmd } from "./commands/phase.ts";
+import { sessionCmd } from "./commands/session.ts";
+import { setCmd } from "./commands/set.ts";
+import { showCmd } from "./commands/show.ts";
+import { stateCmd } from "./commands/state.ts";
+import { waitCmd } from "./commands/wait.ts";
 import { envelope, type ICtx, type IHandler, type IResult, newResult } from "./context.ts";
 import { type IOpenOptions, openDb, openForRead, type TDatabase } from "./db.ts";
 import { findRoot, type IRoot, type TEnv } from "./env.ts";
@@ -26,9 +37,20 @@ const versionCmd: IHandler = {
 };
 
 export const HANDLERS: Readonly<Record<string, IHandler>> = {
+  agent: agentCmd,
+  archive: archiveCmd,
+  check: checkCmd,
   flow: flowCmd,
+  gate: gateCmd,
   help: helpCmd,
+  log: logCmd,
+  phase: phaseCmd,
+  session: sessionCmd,
+  set: setCmd,
+  show: showCmd,
+  state: stateCmd,
   version: versionCmd,
+  wait: waitCmd,
 };
 
 export interface IRunOutput {
