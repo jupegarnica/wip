@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main, v1]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - run: bunx tsc --noEmit
+      - run: bunx biome check .
+      - run: bun test
+
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            targets: linux-x64,linux-arm64,windows-x64
+            name: linux-windows
+          - os: macos-latest
+            targets: darwin-arm64,darwin-x64
+            name: darwin
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      # build.ts fails when a binary is over 120 MB and signs the darwin binaries ad hoc.
+      - run: bun scripts/build.ts --targets ${{ matrix.targets }} --out dist --pack
+      - if: runner.os == 'macOS'
+        run: |
+          codesign -v dist/npm/wip-darwin-arm64/bin/wip
+          codesign -v dist/npm/wip-darwin-x64/bin/wip
+      - run: ls -la dist/npm/*/bin dist/*.tgz
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tarballs-${{ matrix.name }}
+          path: dist/*.tgz
+          if-no-files-found: error
+
+  smoke:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x64
+          - os: ubuntu-24.04-arm
+            platform: linux-arm64
+          - os: macos-latest
+            platform: darwin-arm64
+          - os: macos-15-intel
+            platform: darwin-x64
+          - os: windows-latest
+            platform: windows-x64
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: tarballs-*
+          merge-multiple: true
+          path: tarballs
+      # --omit=optional keeps npm away from the registry: the platform package is installed from
+      # its tarball as a sibling, where the launcher resolves it.
+      - name: Install from the tarballs
+        run: |
+          main=$(ls tarballs/garndev-wip-[0-9]*.tgz)
+          platform=$(ls tarballs/garndev-wip-${{ matrix.platform }}-*.tgz)
+          npm i -g --omit=optional --prefix "$RUNNER_TEMP/npm-prefix" "$main" "$platform"
+      - name: wip --version through the launcher
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then bin="$RUNNER_TEMP/npm-prefix"; else bin="$RUNNER_TEMP/npm-prefix/bin"; fi
+          "$bin/wip" --version
+      - name: wip --version from the binary, without Node or Bun
+        run: |
+          mkdir -p "$RUNNER_TEMP/unpacked"
+          tar -xzf tarballs/garndev-wip-${{ matrix.platform }}-*.tgz -C "$RUNNER_TEMP/unpacked"
+          if [ "$RUNNER_OS" = "Windows" ]; then exe=wip.exe; else exe=wip; fi
+          PATH=/usr/bin:/bin "$RUNNER_TEMP/unpacked/package/bin/$exe" --version

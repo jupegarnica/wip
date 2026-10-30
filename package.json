@@ -1,0 +1,25 @@
+{
+  "name": "@garndev/wip-dev",
+  "version": "0.1.0",
+  "private": true,
+  "description": "wip: per-project workflow state for coding agents (development workspace)",
+  "license": "UNLICENSED",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jupegarnica/wip.git"
+  },
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "scripts": {
+    "dev": "bun src/cli.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "build": "bun scripts/build.ts --targets host --out dist --pack"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.6.4",
+    "@types/bun": "1.4.4",
+    "typescript": "7.0.2"
+  }
+}
