@@ -1,0 +1,163 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wip show <ID> --json",
+  "type": "object",
+  "required": ["ok", "item", "events", "warnings", "message", "data"],
+  "additionalProperties": false,
+  "definitions": {
+    "item": {
+      "type": "object",
+      "required": [
+        "id",
+        "flow",
+        "title",
+        "phase",
+        "waiting_on",
+        "next",
+        "status",
+        "artifact_dir",
+        "fields",
+        "created_at",
+        "updated_at",
+        "archived_at"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "flow": { "type": "string" },
+        "title": { "type": ["string", "null"] },
+        "phase": { "type": "string" },
+        "waiting_on": { "type": ["string", "null"] },
+        "next": { "type": ["string", "null"] },
+        "status": { "enum": ["open", "archived"] },
+        "artifact_dir": { "type": ["string", "null"] },
+        "fields": { "type": "object" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "archived_at": { "type": ["string", "null"] }
+      }
+    },
+    "event": {
+      "type": "object",
+      "required": ["id", "item_id", "ts", "phase", "kind", "actor", "text", "data"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer" },
+        "item_id": { "type": ["string", "null"] },
+        "ts": { "type": "string" },
+        "phase": { "type": ["string", "null"] },
+        "kind": { "type": "string" },
+        "actor": { "type": ["string", "null"] },
+        "text": { "type": ["string", "null"] },
+        "data": { "type": "object" }
+      }
+    },
+    "signals": {
+      "type": "object",
+      "required": ["attention", "incoherent"],
+      "additionalProperties": false,
+      "properties": {
+        "attention": { "type": "boolean" },
+        "incoherent": { "type": "array", "items": { "enum": ["I1", "I2f", "I2", "I3", "I4"] } }
+      }
+    }
+  },
+  "properties": {
+    "ok": { "type": "boolean" },
+    "item": { "$ref": "#/definitions/item" },
+    "events": { "type": "array", "items": { "$ref": "#/definitions/event" } },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+      }
+    },
+    "message": { "type": ["string", "null"] },
+    "data": {
+      "type": "object",
+      "required": ["agent_runs", "gates", "signals", "totals"],
+      "additionalProperties": false,
+      "properties": {
+        "agent_runs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "item_id",
+              "phase",
+              "agent",
+              "handle",
+              "session_id",
+              "started_at",
+              "finished_at",
+              "status",
+              "duration_s",
+              "summary"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "integer" },
+              "item_id": { "type": "string" },
+              "phase": { "type": "string" },
+              "agent": { "type": "string" },
+              "handle": { "type": ["string", "null"] },
+              "session_id": { "type": ["string", "null"] },
+              "started_at": { "type": "string" },
+              "finished_at": { "type": ["string", "null"] },
+              "status": {
+                "enum": ["running", "done", "blocked", "needs-input", "stopped", "orphaned"]
+              },
+              "duration_s": { "type": ["integer", "null"] },
+              "summary": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "gates": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "item_id",
+              "phase",
+              "opened_at",
+              "closed_at",
+              "question",
+              "detail_path",
+              "answer",
+              "decision"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "integer" },
+              "item_id": { "type": "string" },
+              "phase": { "type": "string" },
+              "opened_at": { "type": "string" },
+              "closed_at": { "type": ["string", "null"] },
+              "question": { "type": ["string", "null"] },
+              "detail_path": { "type": ["string", "null"] },
+              "answer": { "type": ["string", "null"] },
+              "decision": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "signals": { "$ref": "#/definitions/signals" },
+        "totals": {
+          "type": "object",
+          "required": ["runs", "running", "agent_seconds", "gates", "user_wait_seconds"],
+          "additionalProperties": false,
+          "properties": {
+            "runs": { "type": "integer" },
+            "running": { "type": "integer" },
+            "agent_seconds": { "type": "integer" },
+            "gates": { "type": "integer" },
+            "user_wait_seconds": { "type": "integer" }
+          }
+        }
+      }
+    }
+  }
+}

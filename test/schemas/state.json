@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wip state --json",
+  "type": "object",
+  "required": ["ok", "item", "events", "warnings", "message", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "ok": { "type": "boolean" },
+    "item": { "type": "null" },
+    "events": { "type": "array", "items": { "type": "object" } },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+      }
+    },
+    "message": { "type": ["string", "null"] },
+    "data": {
+      "type": "object",
+      "required": ["items"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "flow",
+              "title",
+              "phase",
+              "waiting_on",
+              "next",
+              "status",
+              "artifact_dir",
+              "fields",
+              "updated_at",
+              "archived_at",
+              "agents",
+              "open_gates",
+              "signals"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": { "type": "string" },
+              "flow": { "type": "string" },
+              "title": { "type": ["string", "null"] },
+              "phase": { "type": "string" },
+              "waiting_on": { "type": ["string", "null"] },
+              "next": { "type": ["string", "null"] },
+              "status": { "enum": ["open", "archived"] },
+              "artifact_dir": { "type": ["string", "null"] },
+              "fields": { "type": "object" },
+              "updated_at": { "type": "string" },
+              "archived_at": { "type": ["string", "null"] },
+              "agents": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["agent", "phase", "handle", "started_at"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "agent": { "type": "string" },
+                    "phase": { "type": "string" },
+                    "handle": { "type": ["string", "null"] },
+                    "started_at": { "type": "string" }
+                  }
+                }
+              },
+              "open_gates": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["phase", "question", "opened_at"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "phase": { "type": "string" },
+                    "question": { "type": ["string", "null"] },
+                    "opened_at": { "type": "string" }
+                  }
+                }
+              },
+              "signals": {
+                "type": "object",
+                "required": ["attention", "incoherent"],
+                "additionalProperties": false,
+                "properties": {
+                  "attention": { "type": "boolean" },
+                  "incoherent": {
+                    "type": "array",
+                    "items": { "enum": ["I1", "I2f", "I2", "I3", "I4"] }
+                  }
+                }
+              },
+              "matches": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["id", "ts", "phase", "kind", "text"],
+                  "properties": {
+                    "id": { "type": "integer" },
+                    "ts": { "type": "string" },
+                    "phase": { "type": ["string", "null"] },
+                    "kind": { "type": "string" },
+                    "text": { "type": ["string", "null"] }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
