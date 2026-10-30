@@ -14,7 +14,11 @@ export interface IRoot {
   items: string;
   backups: string;
   tmp: string;
+  agents: string;
+  flows: string;
 }
+
+export const DEFS_DIR = ".agents";
 
 function isDirectory(path: string): boolean {
   try {
@@ -33,6 +37,8 @@ function rootAt(project: string): IRoot {
     items: join(wip, "items"),
     backups: join(wip, "backups"),
     tmp: join(wip, "tmp"),
+    agents: join(project, DEFS_DIR, "agents"),
+    flows: join(project, DEFS_DIR, "flows"),
   };
 }
 

@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 import pkg from "../package.json" with { type: "json" };
 import { allow, type IArgs, parseArgs } from "./args.ts";
+import { flowCmd } from "./commands/flow.ts";
 import {
   COMMANDS,
   commandHelp,
@@ -25,6 +26,7 @@ const versionCmd: IHandler = {
 };
 
 export const HANDLERS: Readonly<Record<string, IHandler>> = {
+  flow: flowCmd,
   help: helpCmd,
   version: versionCmd,
 };
