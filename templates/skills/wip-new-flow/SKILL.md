@@ -1,0 +1,101 @@
+---
+name: wip-new-flow
+description: "Create a new flow in .agents/flows/ or change an existing one: proposal, gate, backup, write, wip flow lint, restore on failure, wip check, and what happens to live items. Use when the user asks for a new flow, a new phase, or a change in how a flow moves."
+---
+
+# Creating or changing a flow
+
+A flow is one file, `.agents/flows/<flow>.md`: a title, a short description, one `wip-flow` block (the only source
+of phases), a `## Subagents` section and one `### <phase>` section per phase. The CLI discovers a new file on the
+next command; a file that does not pass lint is never used (the CLI keeps using the last valid version and warns).
+
+## Steps
+
+1. **Understand the request.** What the items of this flow are, how each one starts and ends, which phases need a
+   user decision and which subagent does each phase. For a change: `wip state --flow <flow>` lists the live items
+   it affects.
+2. **Propose** (gate, per `wip-coordinate`): the phases in order with their `gate`, `next`, `agent` and `writes`; the
+   `fields`; and, for a change, what happens to each live item in a phase that changes or disappears. Options:
+   Approve · Change · Stop. A literal order of the user on one line of an existing flow skips the gate (steps 3-6
+   still apply).
+3. **Back up** an existing file before writing: copy it to `.wip/backups/defs/flows/<flow>.md.<timestamp>`
+   (timestamp `YYYYMMDDHHMMSS`, UTC).
+4. **Write** the file. For a new flow, start from a copy of `.agents/flows/wip.md` and change what the proposal says.
+   Present tense, no history: the file describes the flow as it is, never what it replaced.
+5. **Lint:** `wip flow lint <flow>`. Exit 1 → restore the backup (or delete the new file), tell the user what failed,
+   and go back to step 2 or fix the obvious mistake and lint again.
+6. **Check:** `wip check`. The next command on an item of this flow already uses the new version.
+7. **Live items** in a phase that no longer exists: lint reports them and the flow is not activated. With the user's
+   decision recorded (`wip log <ID> "<their words>" --kind user`), move each one first with
+   `wip phase <ID> <phase> --force --reason "<why>"`, then write the flow again.
+
+`.agents/` is versioned with the project: the user reviews the change as any other diff.
+
+## The block
+
+```wip-flow
+version: 1
+id_pattern: "[a-z][a-z0-9-]{1,30}"
+fields:
+  title: string
+links:
+  - pattern: "^T([0-9]+)$"
+    url: "https://tracker.example.com/t/$1"
+phases:
+  - name: intake
+    gate: none
+    next: [plan]
+    waiting_default: user
+  - name: plan
+    gate: ask
+    next: [execute]
+    agent: thinker
+    writes: artifacts
+  - name: execute
+    gate: auto
+    next: [done]
+    agent: efficient
+    writes: project
+  - name: done
+    kind: terminal
+```
+
+Top-level keys (any other key is an error):
+
+| Key | Required | Value |
+|---|---|---|
+| `version` | no | `1` |
+| `id_pattern` | no | a regular expression the whole item ID must match; the safe default (letters, digits, `.`, `_`, `-`, up to 64) always applies too |
+| `fields` | no | `name: type`; types `string`, `int`, `list`, `ts`, `enum(a\|b\|c)`; lowercase names; `title` always exists |
+| `links` | no | list of `{pattern, url}`: a regular expression over the item ID and an `http(s)` URL with `$1`… |
+| `phases` | yes | the list below, in order; the first phase is where items start |
+
+Phase keys:
+
+| Key | Default | Value |
+|---|---|---|
+| `name` | — | lowercase, unique; it names folders |
+| `kind` | `work` | `work`, `wait` (someone outside the session) or `terminal` (exactly one) |
+| `gate` | `none` | `ask` (the user approves the result), `auto` (moves on when `done`), `none` |
+| `next` | — | phases it may move to; required except in the terminal phase, never itself |
+| `waiting_default` | `agent` | who it waits on when it starts: `agent`, `user`, `external`, `none` (terminal only) |
+| `stage` | — | optional column for the web board; when every phase has one, equal stages must be contiguous |
+| `agent` | — | the default agent of the phase; its file `.agents/agents/<agent>.md` must exist with `name` and `description` |
+| `writes` | `artifacts` | what its subagent may write: `artifacts` (only its `ARTIFACT_DIR`) or `project` (also project files) |
+
+Other phase keys are tolerated and not validated. Every phase must be reachable from the first through `next`.
+
+**Choosing `agent:`.** The generic agents are the default options, from cheapest to most capable: `fast` (mechanical,
+fully specified), `efficient` (a clear plan or written criteria), `thinker` (decisions, plans, investigation),
+`wise` (high ambiguity or risk; never a template default). A project-specific agent made with `wip-new-agent` can be
+named as well. **Choosing `writes:`.** `project` only for the phases that are meant to change the project; plans,
+reviews and verifications stay `artifacts`.
+
+## The text around the block
+
+- A title and two or three lines on what an item of this flow is and how it ends.
+- `## Subagents`: which agent each phase uses and when the coordinator should choose another one; extra prompt
+  fields the subagents need.
+- `### <phase>` for each phase: inputs, the artifact it produces, what the gate shows, where it goes next. The
+  coordinator reads it before every phase.
+- No table of phases: the block is the only source, and a second copy drifts.

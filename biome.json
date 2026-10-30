@@ -5,7 +5,15 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/*.tgz", "!**/.wip", "!test/fixtures"]
+    "includes": [
+      "**",
+      "!**/node_modules",
+      "!**/dist",
+      "!**/*.tgz",
+      "!**/.wip",
+      "!test/fixtures",
+      "!templates"
+    ]
   },
   "formatter": {
     "enabled": true,
