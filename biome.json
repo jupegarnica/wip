@@ -5,7 +5,7 @@
   },
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!**/node_modules", "!**/dist", "!**/*.tgz", "!**/.wip"]
+    "includes": ["**", "!**/node_modules", "!**/dist", "!**/*.tgz", "!**/.wip", "!test/fixtures"]
   },
   "formatter": {
     "enabled": true,

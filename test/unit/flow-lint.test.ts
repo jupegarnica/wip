@@ -1,0 +1,288 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { existsSync, rmSync } from "node:fs";
+import { EXIT } from "../../src/errors.ts";
+import { type ILiveItem, lintFlow } from "../../src/flow/lint.ts";
+import {
+  agentsDir,
+  fixture,
+  minimalFlow,
+  putAgent,
+  putFlow,
+  putItems,
+  putValidAgents,
+} from "../helpers/defs.ts";
+import { type IProject, makeProject, scratch } from "../helpers/project.ts";
+import { loadSchema, validate } from "../helpers/schema.ts";
+
+let dir = "";
+let p: IProject | null = null;
+
+afterEach(() => {
+  if (dir) rmSync(dir, { recursive: true, force: true });
+  dir = "";
+  p?.cleanup();
+  p = null;
+});
+
+function lint(name: string, text: string = fixture("flows", name), liveItems: ILiveItem[] = []) {
+  dir ||= scratch("flow-lint");
+  return lintFlow({ name, text, agentsDir: agentsDir(dir), liveItems }).problems;
+}
+
+function lintWithAgents(name: string, text?: string, liveItems: ILiveItem[] = []) {
+  dir = scratch("flow-lint");
+  putValidAgents(dir);
+  return lint(name, text, liveItems);
+}
+
+describe("flow lint rules (F-FLU-12)", () => {
+  test("the valid fixture passes, its phase table that differs from the block included (D5)", () => {
+    expect(lintWithAgents("valid")).toEqual([]);
+  });
+
+  test("schema: unknown keys and invalid values", () => {
+    expect(lint("bad-schema").length).toBeGreaterThanOrEqual(7);
+    expect(lint("bad-schema")).toContain(
+      "unknown key 'polling' (version, id_pattern, fields, links, phases)",
+    );
+  });
+
+  test("an unreachable phase", () => {
+    expect(lint("unreachable")).toEqual(["unreachable from todo: orphan (no next leads there)"]);
+  });
+
+  test("no terminal phase", () => {
+    expect(lint("no-terminal")).toEqual(["no terminal phase: exactly one phase has kind terminal"]);
+  });
+
+  test("two terminal phases", () => {
+    expect(lint("two-terminals")).toEqual(["2 terminal phases (done, dropped): exactly one"]);
+  });
+
+  test("next to a phase that does not exist", () => {
+    expect(lint("next-missing")).toEqual(["phase todo: next 'review' is not a phase"]);
+  });
+
+  test("next to the phase itself", () => {
+    expect(lint("x", minimalFlow("next: [todo, done]").replace("    next: [done]\n", ""))).toEqual([
+      "phase todo: next names the phase itself",
+    ]);
+  });
+
+  test("an invalid waiting_default", () => {
+    expect(lint("bad-waiting")).toEqual([
+      "phase todo: waiting_default: 'human-reviewer' is not one of agent | user | external | none",
+    ]);
+  });
+
+  test("waiting_default none outside the terminal, and a terminal that waits or has next", () => {
+    const text = [
+      "```wip-flow",
+      "phases:",
+      "  - name: todo",
+      "    next: [done]",
+      "    waiting_default: none",
+      "  - name: done",
+      "    kind: terminal",
+      "    waiting_default: user",
+      "    next: [todo]",
+      "```",
+    ].join("\n");
+    expect(lint("x", text)).toEqual([
+      "phase todo: waiting_default none is only for the terminal phase",
+      "phase done: a terminal phase has no next",
+      "phase done: a terminal phase waits on none",
+    ]);
+  });
+
+  test("a non-terminal phase without next", () => {
+    const text = "```wip-flow\nphases:\n  - name: todo\n  - name: done\n    kind: terminal\n```\n";
+    expect(lint("x", text)).toEqual([
+      "phase todo: no next, the item could never leave it",
+      "unreachable from todo: done (no next leads there)",
+    ]);
+  });
+
+  test("links with an invalid regular expression or a non-http url", () => {
+    expect(lint("bad-links")[0]).toStartWith("links[0].pattern is not a valid regular expression");
+    const text = minimalFlow().replace(
+      "phases:",
+      "links:\n  - pattern: x\n    url: ftp://a\nphases:",
+    );
+    expect(lint("x", text)).toEqual(["links[0].url must start with http(s)://"]);
+  });
+
+  test("an invalid id_pattern", () => {
+    const text = minimalFlow().replace("phases:", 'id_pattern: "T[0-9"\nphases:');
+    expect(lint("x", text)[0]).toStartWith("id_pattern is not a valid regular expression");
+  });
+
+  test("writes outside artifacts | project", () => {
+    expect(lint("bad-writes")).toEqual([
+      "phase todo: writes: 'everything' is not one of artifacts | project",
+    ]);
+  });
+
+  test("stages that are not contiguous when every phase declares one", () => {
+    const text = [
+      "```wip-flow",
+      "phases:",
+      "  - {name: a, next: [b], stage: one}",
+      "  - {name: b, next: [c], stage: two}",
+      "  - {name: c, next: [d], stage: one}",
+      "  - {name: d, kind: terminal, stage: two}",
+      "```",
+    ].join("\n");
+    expect(lint("x", text)).toEqual([
+      "stages must be contiguous in phase order: one → two → one → two",
+    ]);
+  });
+
+  test("stage on some phases only is allowed", () => {
+    expect(lint("x", minimalFlow("stage: doing"))).toEqual([]);
+  });
+
+  test("a missing or broken wip-flow block", () => {
+    expect(lint("no-block")).toEqual(["no ```wip-flow block"]);
+    expect(lint("bad-yaml")[0]).toStartWith("the wip-flow block is not valid YAML");
+  });
+});
+
+describe("agent: of a phase (D6)", () => {
+  test("an agent with no file", () => {
+    expect(lint("x", minimalFlow("agent: ghost"))).toEqual([
+      "phase todo: agent ghost: no agent file .agents/agents/ghost.md",
+    ]);
+  });
+
+  test("an agent without name", () => {
+    dir = scratch("flow-lint");
+    putAgent(dir, "no-name");
+    expect(lint("x", minimalFlow("agent: no-name"))).toEqual([
+      "phase todo: agent no-name: frontmatter has no name",
+    ]);
+  });
+
+  test("an agent whose name differs from its file", () => {
+    dir = scratch("flow-lint");
+    putAgent(dir, "other-name");
+    expect(lint("x", minimalFlow("agent: other-name"))).toEqual([
+      "phase todo: agent other-name: frontmatter name 'someone-else' differs from the file name 'other-name'",
+    ]);
+  });
+
+  test("an agent without description", () => {
+    dir = scratch("flow-lint");
+    putAgent(dir, "no-description");
+    expect(lint("x", minimalFlow("agent: no-description"))).toEqual([
+      "phase todo: agent no-description: frontmatter has no description",
+    ]);
+  });
+
+  test("an agent with model and unknown keys passes", () => {
+    dir = scratch("flow-lint");
+    putAgent(dir, "thinker");
+    expect(lint("x", minimalFlow("agent: thinker"))).toEqual([]);
+  });
+
+  test("unknown keys of a phase (runtime keys such as model) are tolerated", () => {
+    expect(lint("x", minimalFlow("model: big\ntimeout: 30"))).toEqual([]);
+  });
+});
+
+describe("live items (F-FLU-12)", () => {
+  test("an open item in a phase the flow no longer has", () => {
+    expect(
+      lint("minimal", undefined, [
+        { id: "T1", phase: "review" },
+        { id: "T2", phase: "todo" },
+      ]),
+    ).toEqual(["item T1 is in phase review, which the flow no longer has"]);
+  });
+});
+
+describe("wip flow lint (command)", () => {
+  test("with no flows it is exit 0 and says so", () => {
+    p = makeProject("cmd-empty");
+    const out = p.wip(["flow", "lint"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.stdout).toBe("no flows in .agents/flows/\n");
+  });
+
+  test("without an argument it lints every flow and is exit 1 if one fails", () => {
+    p = makeProject("cmd-all");
+    putValidAgents(p.dir);
+    putFlow(p.dir, "valid", fixture("flows", "valid"));
+    putFlow(p.dir, "minimal", fixture("flows", "minimal"));
+    expect(p.wip(["flow", "lint"])).toEqual({
+      code: EXIT.OK,
+      stdout: "OK minimal\nOK valid\n",
+      stderr: "",
+    });
+    putFlow(p.dir, "broken", fixture("flows", "two-terminals"));
+    const out = p.wip(["flow", "lint"]);
+    expect(out.code).toBe(EXIT.FINDINGS);
+    expect(out.stdout).toBe(
+      "broken · 2 terminal phases (done, dropped): exactly one\nOK minimal\nOK valid\n",
+    );
+    expect(out.stderr).toContain("flow broken does not pass");
+  });
+
+  test("with a flow name it lints only that one", () => {
+    p = makeProject("cmd-one");
+    putFlow(p.dir, "minimal", fixture("flows", "minimal"));
+    putFlow(p.dir, "broken", fixture("flows", "unreachable"));
+    expect(p.wip(["flow", "lint", "minimal"]).code).toBe(EXIT.OK);
+    expect(p.wip(["flow", "lint", "broken"]).code).toBe(EXIT.FINDINGS);
+  });
+
+  test("an unknown flow is exit 4, a bad subcommand or extra argument exit 2", () => {
+    p = makeProject("cmd-usage");
+    expect(p.wip(["flow", "lint", "ghost"]).code).toBe(EXIT.NOT_FOUND);
+    expect(p.wip(["flow"]).code).toBe(EXIT.USAGE);
+    expect(p.wip(["flow", "check"]).code).toBe(EXIT.USAGE);
+    expect(p.wip(["flow", "lint", "a", "b"]).code).toBe(EXIT.USAGE);
+  });
+
+  test("--json is the envelope with one entry per flow", () => {
+    p = makeProject("cmd-json");
+    putFlow(p.dir, "minimal", fixture("flows", "minimal"));
+    putFlow(p.dir, "broken", fixture("flows", "next-missing"));
+    const env = p.json(["flow", "lint"]);
+    expect(validate(loadSchema("envelope"), env)).toEqual([]);
+    expect(env.ok).toBe(false);
+    const flows = (env.data as { flows: Record<string, unknown>[] }).flows;
+    expect(flows.map((f) => [f.name, f.ok, f.using])).toEqual([
+      ["broken", false, null],
+      ["minimal", true, "file"],
+    ]);
+    expect(flows[0]?.problems).toEqual(["phase todo: next 'review' is not a phase"]);
+    expect(flows[1]?.path).toBe(".agents/flows/minimal.md");
+    expect(flows[1]?.hash).toMatch(/^[0-9a-f]{16}$/);
+    expect((env.warnings as { code: string }[]).map((w) => w.code)).toEqual(["flow_invalid"]);
+  });
+
+  test("it is a reader: it never creates the database", () => {
+    p = makeProject("cmd-reader");
+    putFlow(p.dir, "minimal", fixture("flows", "minimal"));
+    p.wip(["flow", "lint"]);
+    expect(existsSync(p.dbPath)).toBe(false);
+  });
+
+  test("it reports an open item in a phase the file no longer has", () => {
+    p = makeProject("cmd-items");
+    putFlow(p.dir, "minimal", fixture("flows", "minimal"));
+    putItems(p.dbPath, "minimal", [{ id: "T1", phase: "review" }]);
+    const out = p.wip(["flow", "lint", "minimal"]);
+    expect(out.code).toBe(EXIT.FINDINGS);
+    expect(out.stdout).toBe("minimal · item T1 is in phase review, which the flow no longer has\n");
+  });
+
+  test("it reads agents from the project's .agents/agents/", () => {
+    p = makeProject("cmd-agents");
+    putFlow(p.dir, "x", minimalFlow("agent: thinker"));
+    expect(p.wip(["flow", "lint"]).code).toBe(EXIT.FINDINGS);
+    putAgent(p.dir, "thinker");
+    expect(p.wip(["flow", "lint"]).code).toBe(EXIT.OK);
+  });
+});
