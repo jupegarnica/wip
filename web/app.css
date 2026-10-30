@@ -1,0 +1,904 @@
+:root {
+  --bg: #f6f5f2;
+  --surface: #ffffff;
+  --text: #1c1b19;
+  --muted: #6b675f;
+  --border: #dcd8cf;
+  --ok: #1f7a3a;
+  --off: #7a776f;
+  --error: #b3261e;
+  --error-bg: #fde7e5;
+  --gate: #9a5b00;
+  --gate-bg: #fff1d6;
+  --gate-border: #e8b04a;
+  --dim-color: var(--muted);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161514;
+    --surface: #211f1d;
+    --text: #ece9e3;
+    --muted: #a39e94;
+    --border: #3a3733;
+    --ok: #6fcf8b;
+    --off: #a39e94;
+    --error: #ff8a80;
+    --error-bg: #3d1d1a;
+    --gate: #ffc46b;
+    --gate-bg: #352612;
+    --gate-border: #8a5f1c;
+    color-scheme: dark;
+  }
+}
+/* One colour per heading level, ≥ 4.5:1 on --surface in each theme; the dark set is redeclared below. */
+.viewer pre.md {
+  --h1-color: #b42318;
+  --h2-color: #8a5300;
+  --h3-color: #1f7a3a;
+  --h4-color: #0b6e78;
+  --h5-color: #5b3fc4;
+  --h6-color: #a3267e;
+}
+.viewer pre.md .rline.r-h1 {
+  color: var(--h1-color);
+}
+.viewer pre.md .rline.r-h2 {
+  color: var(--h2-color);
+}
+.viewer pre.md .rline.r-h3 {
+  color: var(--h3-color);
+}
+.viewer pre.md .rline.r-h4 {
+  color: var(--h4-color);
+}
+.viewer pre.md .rline.r-h5 {
+  color: var(--h5-color);
+}
+.viewer pre.md .rline.r-h6 {
+  color: var(--h6-color);
+}
+/* @garndev/markdown 0.3 paints everything through named custom properties; the dark palette lives here, scoped to the
+   highlighted <pre> so /view and the panel preview share it. Colour, opacity and background only: no metric. */
+@media (prefers-color-scheme: dark) {
+  .viewer pre.md {
+    --link-color: #7ab7ff;
+    --link-hover-line: #7ab7ff;
+    --inline-code-color: #f0b27a;
+    --inline-code-bg: rgba(255, 255, 255, 0.1);
+    --code-block-color: #d8d4ca;
+    --code-block-bg: rgba(255, 255, 255, 0.06);
+    --table-header-bg: rgba(255, 255, 255, 0.06);
+    --table-delim-color: var(--muted);
+    --quote-color: #b9b3a8;
+    --hr-color: var(--muted);
+    --ref-color: #9fb8b0;
+    --html-color: #c4a7d9;
+    --dim-opacity: 0.7;
+    --task-done-color: #6fcf8b;
+    --h1-color: #ff9e8a;
+    --h2-color: #f5d36b;
+    --h3-color: #8ed39a;
+    --h4-color: #6fd3d8;
+    --h5-color: #b8a4ff;
+    --h6-color: #e59ad6;
+  }
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  color: var(--text);
+  font:
+    14px / 1.4 -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    system-ui,
+    sans-serif;
+}
+.top {
+  position: static;
+  flex-shrink: 0;
+  padding: 12px 16px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+.top-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+/* Open gates: above «Your turn», one line each; the section is hidden without gates. */
+.gates {
+  margin-top: 8px;
+  max-height: 25vh;
+  overflow-y: auto;
+  padding: 6px 10px;
+  background: var(--gate-bg);
+  border: 1px solid var(--gate-border);
+  border-left: 5px solid var(--gate);
+  border-radius: 6px;
+  font-size: 15px;
+}
+.gates[hidden] {
+  display: none;
+}
+.gates h2 {
+  margin: 0 0 2px;
+  font-size: 13px;
+  color: var(--gate);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.gates-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.gates-list li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+  align-items: baseline;
+  margin: 2px 0;
+  overflow-wrap: anywhere;
+}
+.gates-list .btn--small {
+  margin: 0;
+}
+.gates-list a {
+  color: inherit;
+}
+.gate-id {
+  font-weight: 700;
+}
+.gate-link {
+  font-size: 13px;
+}
+.gate-phase {
+  font-size: 12px;
+  padding: 0 6px;
+  border-radius: 3px;
+  border: 1px solid var(--gate-border);
+  color: var(--gate);
+  font-weight: 600;
+}
+.gate-q {
+  flex: 1 1 240px;
+}
+.gate-age {
+  font-size: 13px;
+  color: var(--gate);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+/* Header: «Your turn» only, never taller than a third of the window. */
+.env {
+  margin-top: 8px;
+  max-height: 33vh;
+  overflow-y: auto;
+  font-size: 17px;
+  line-height: 1.55;
+}
+.env h2 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.env-list {
+  margin: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+ol.env-list {
+  padding-left: 28px;
+}
+.env-list li {
+  margin: 3px 0;
+}
+.env-list a {
+  color: inherit;
+  font-weight: 600;
+}
+.env-list strong {
+  font-weight: 700;
+}
+.env-list code,
+.kv code {
+  font-size: 0.85em;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 3px;
+}
+.env-list .next {
+  color: var(--muted);
+}
+/* Footer: running agents, in normal flow after the board; the body column pushes it to the bottom. */
+.foot {
+  position: static;
+  flex-shrink: 0;
+  max-height: 25vh;
+  overflow-y: auto;
+  padding: 6px 16px;
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+.foot-agents {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: stretch;
+}
+.foot-count {
+  color: var(--ok);
+}
+.foot-run {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+@media (min-width: 1200px) {
+  body.with-panel .foot {
+    margin-right: 560px;
+  }
+}
+.muted {
+  color: var(--muted);
+}
+.btn,
+.linkish {
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.btn {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.btn--small {
+  font-size: 11px;
+  padding: 0 6px;
+  margin: 0 4px;
+}
+.linkish {
+  border: 0;
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+}
+.btn:focus-visible,
+.linkish:focus-visible,
+.card:focus-visible {
+  outline: 2px solid var(--ok);
+  outline-offset: 1px;
+}
+.top h1 {
+  margin: 0;
+  font-size: 18px;
+}
+.status {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.status--ok {
+  color: var(--ok);
+}
+.status--off {
+  color: var(--off);
+}
+.status--error {
+  color: var(--error);
+  font-weight: 600;
+}
+.status--wait {
+  color: var(--muted);
+}
+.views {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.views button {
+  font: inherit;
+  font-size: 13px;
+  padding: 4px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+.views button + button {
+  border-left: 1px solid var(--border);
+}
+.views button[aria-pressed="true"] {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 600;
+}
+.views button:focus-visible {
+  outline: 2px solid var(--ok);
+  outline-offset: -2px;
+}
+/* A display rule on .board or .history would beat the hidden attribute. */
+.board[hidden],
+.history[hidden] {
+  display: none;
+}
+.board {
+  padding: 8px 16px;
+  min-width: 0;
+  flex-grow: 1;
+}
+.flow {
+  margin: 16px 0 24px;
+  min-width: 0;
+}
+.flow h2 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  color: var(--muted);
+  font-weight: 600;
+}
+.stages {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+}
+.stage {
+  flex: 1 0 180px;
+  min-width: 180px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-top: 4px solid var(--stage, var(--border));
+  border-radius: 6px;
+  padding: 8px;
+}
+.stage h3 {
+  margin: 0 0 6px;
+  font-size: 13px;
+  display: flex;
+  justify-content: space-between;
+}
+.stage h3 .count {
+  color: var(--muted);
+  font-weight: 400;
+}
+/* Expanded: many fixed-width columns; the board scrolls sideways, never the page. */
+.stages--expanded {
+  max-width: 100%;
+}
+.stage--phase {
+  flex: 0 0 220px;
+  min-width: 220px;
+}
+.stage--phase h3 {
+  overflow-wrap: anywhere;
+  gap: 6px;
+}
+.card--full {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+.card--full .row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  overflow-wrap: anywhere;
+}
+.card--full .detail,
+.card--full .wait,
+.card--full .flag {
+  font-size: 12px;
+}
+.card--full .detail {
+  color: var(--muted);
+}
+.card--full .ph-full {
+  font-weight: 600;
+  color: var(--text);
+}
+.card--attention .detail,
+.card--attention .ph-full {
+  color: inherit;
+}
+.card--full .incoherent {
+  align-self: flex-start;
+  font-weight: 600;
+}
+.phase {
+  margin: 8px 0 2px;
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.empty {
+  color: var(--muted);
+  font-size: 12px;
+}
+.card {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--stage, var(--border));
+  border-radius: 4px;
+  background: var(--surface);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+}
+.card a {
+  color: inherit;
+}
+.card .id {
+  font-weight: 600;
+}
+.card .ext,
+.card .wait,
+.card .ph {
+  font-size: 12px;
+}
+.card .title {
+  flex-basis: 100%;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.card .ph {
+  color: var(--muted);
+}
+.card--attention {
+  background: var(--stage);
+  color: var(--on-stage);
+  border-color: var(--stage);
+}
+.card--attention .ph {
+  color: inherit;
+  opacity: 0.85;
+}
+.incoherent {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--error);
+  background: var(--error-bg);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.card[data-id] {
+  cursor: pointer;
+}
+.card--open {
+  box-shadow: 0 0 0 2px var(--text);
+}
+/* Item panel: a side sheet over the board; the board keeps its scroll. */
+.panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: min(560px, 100vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.15);
+}
+.panel[hidden] {
+  display: none;
+}
+@media (min-width: 1200px) {
+  body.with-panel .board {
+    margin-right: 560px;
+  }
+}
+.panel-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.panel-head h2 {
+  margin: 0;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.panel-head h2 a {
+  color: inherit;
+}
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 16px 32px;
+}
+.psec {
+  margin: 12px 0 16px;
+}
+.psec h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+.psec .title {
+  margin: 0 0 6px;
+  font-weight: 600;
+}
+.psec .big {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.psec p {
+  margin: 2px 0;
+}
+.kv {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  align-items: baseline;
+  margin: 2px 0;
+  font-size: 13px;
+}
+.kv .k {
+  min-width: 80px;
+  color: var(--muted);
+}
+.kv .v {
+  overflow-wrap: anywhere;
+}
+.kv a {
+  color: inherit;
+}
+.split {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.split span {
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.arts {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.arts li {
+  margin: 2px 0;
+}
+.arts .small {
+  font-size: 11px;
+  margin-left: 6px;
+  color: var(--muted);
+}
+.arts .art-age {
+  font-size: 11px;
+  margin-left: 6px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.arts li .viewer {
+  margin: 0 0 8px;
+}
+.viewer pre {
+  margin: 6px 0 0;
+  padding: 8px;
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+/* tokens.css sizes each line for a <textarea> grid (32px, no wrap); here there is no textarea to align with. */
+.viewer pre.md .rline {
+  height: auto;
+  min-height: 1.5em;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow: visible;
+  overflow-wrap: anywhere;
+}
+body.mod-key .viewer pre.md .tok-link {
+  cursor: pointer;
+  text-decoration: underline;
+}
+.viewer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.viewer-notice {
+  margin: 0 8px;
+  font-size: 12px;
+  color: var(--ok);
+  overflow-wrap: anywhere;
+}
+/* /view/…: the document is the whole window; the page never scrolls, the main does. */
+html:has(.page-view) {
+  height: 100%;
+}
+.page-view {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.viewer--page {
+  margin: 0;
+  width: 100vw;
+  height: 100vh;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  background: var(--surface);
+  --link-hover-tip-bg: var(--text);
+  --link-hover-tip-color: var(--surface);
+}
+.viewer--page > p {
+  margin: 0;
+  padding: 12px 16px;
+}
+.viewer--page pre {
+  max-height: none;
+  margin: 0;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  font-size: 16px;
+  font-family: Menlo, "PT Mono", "Andale Mono", "Courier New", monospace;
+}
+/* Fixed grid for the link hover: markdown.js wraps to the measured columns, one div.rline per visual line. The
+   container's top edge is the first line (no padding-top). markdown.js reads the row height from the pre's
+   line-height (measureGrid), so every div.rline and the hover share --rline-height. */
+.viewer--page pre.md {
+  --rline-height: 25px;
+  position: relative;
+  margin: 12px 0;
+  padding: 0 16px;
+  line-height: var(--rline-height);
+  white-space: pre;
+  overflow-wrap: normal;
+}
+/* attachLinkHover draws the underline 8px above the line's bottom (tuned for 32px lines): in a 25px line at 16px the
+   baseline is ~7px above the bottom, so lower it 2.5px to sit just under the baseline. */
+.viewer--page pre.md > .link-hover {
+  inset: 2.5px 0 -2.5px 0;
+}
+.viewer--page pre.md .rline {
+  height: var(--rline-height);
+  min-height: 0;
+  line-height: var(--rline-height);
+  white-space: pre;
+  overflow: hidden;
+  overflow-wrap: normal;
+}
+.page-view > .viewer-notice {
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  z-index: 10;
+  margin: 0;
+  padding: 4px 8px;
+  max-width: min(480px, calc(100vw - 24px));
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.page-view > .viewer-notice:empty {
+  display: none;
+}
+.timeline {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12px;
+}
+.timeline li {
+  margin: 2px 0;
+  padding-left: 4px;
+  overflow-wrap: anywhere;
+}
+.timeline .ts {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  margin-right: 6px;
+}
+.timeline .tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 4px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+}
+.timeline .phase-sep {
+  margin: 10px 0 2px;
+  padding: 0;
+  font-weight: 600;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.timeline .ev--user {
+  border-left: 3px solid var(--ok);
+}
+.timeline .ev--gate_open,
+.timeline .open-gate {
+  border-left: 3px solid var(--error);
+}
+.timeline .ev--phase {
+  font-weight: 600;
+}
+.changed {
+  animation: flash 1s ease-out;
+}
+@keyframes flash {
+  from {
+    box-shadow: 0 0 0 3px var(--ok);
+  }
+  to {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .changed {
+    animation: none;
+    outline: 2px solid var(--ok);
+  }
+}
+/* History: every item, newest date first; a row opens the item panel. */
+.history {
+  padding: 8px 16px 16px;
+  min-width: 0;
+  flex-grow: 1;
+}
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: baseline;
+  margin: 8px 0;
+  font-size: 13px;
+}
+.history-filters select,
+.history-filters input[type="search"] {
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.history-filters input[type="search"] {
+  width: min(260px, 60vw);
+}
+.history-scroll {
+  overflow-x: auto;
+}
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 13px;
+}
+.history-table th,
+.history-table td {
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: baseline;
+}
+.history-table th {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.history-table a {
+  color: inherit;
+}
+.hrow {
+  cursor: pointer;
+}
+.hrow:hover {
+  background: var(--bg);
+}
+.hrow:focus-visible {
+  outline: 2px solid var(--ok);
+  outline-offset: -2px;
+}
+.hrow .hid {
+  font-weight: 600;
+  white-space: nowrap;
+}
+.hrow .htitle {
+  min-width: 200px;
+  overflow-wrap: anywhere;
+}
+.hrow .hdate {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.hrow--discarded {
+  color: var(--muted);
+}
+/* Open items: the stage colour of the kanban, as a stripe on the id and a chip on the phase. */
+.hrow--active > .hid {
+  border-left: 4px solid var(--stage, var(--border));
+}
+.hphase {
+  display: inline-block;
+  padding: 0 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--stage, var(--surface));
+  color: var(--on-stage, var(--text));
+  white-space: nowrap;
+}
+.history-include {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  border: 0;
+}
+.row--open {
+  box-shadow: inset 4px 0 0 var(--text);
+}
+.history-pager {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+@media (min-width: 1200px) {
+  body.with-panel .history {
+    margin-right: 560px;
+  }
+}

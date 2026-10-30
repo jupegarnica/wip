@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>wip</title>
+  <link rel="stylesheet" href="/lib/garndev-markdown/tokens.css">
+  <link rel="stylesheet" href="/app.css">
+  <script src="/markdown.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <div class="top-row">
+      <h1 id="title">wip</h1>
+      <fieldset class="views" aria-label="View">
+        <button type="button" data-view="grouped" aria-pressed="true" title="Open items: one column per stage">Grouped</button>
+        <button type="button" data-view="expanded" aria-pressed="false" title="Open items: one column per phase, with every detail">Expanded</button>
+        <button type="button" data-view="history" aria-pressed="false" title="Every item of every flow, open and archived">History</button>
+      </fieldset>
+      <span id="status" class="status status--wait" role="status" aria-live="polite">loading…</span>
+    </div>
+    <section id="gates" class="gates" aria-label="Open gates" hidden><h2>✋ Open gates</h2><ul id="gates-list" class="gates-list"></ul></section>
+    <section id="env" class="env" aria-label="Your turn">
+      <div class="env-block env-tetoca"><h2>👉 Your turn</h2><ol id="env-tetoca" class="env-list"><li class="muted">loading…</li></ol></div>
+    </section>
+  </header>
+  <main id="board" class="board"></main>
+  <main id="history" class="history" hidden aria-label="History">
+    <form id="history-filters" class="history-filters" aria-label="Filters">
+      <label>Flow <select id="history-flow"><option value="">all</option></select></label>
+      <label>Search <input id="history-q" type="search" maxlength="100" placeholder="ID or title" autocomplete="off"></label>
+      <fieldset class="history-include" aria-label="Include">
+        <label><input id="history-active" type="checkbox" checked> open</label>
+        <label><input id="history-archived" type="checkbox" checked> archived</label>
+        <label><input id="history-discarded" type="checkbox"> discarded</label>
+      </fieldset>
+      <span id="history-count" class="muted"></span>
+    </form>
+    <div class="history-scroll">
+      <table class="history-table">
+        <thead><tr><th scope="col">ID</th><th scope="col">Flow</th><th scope="col">Title</th><th scope="col">Phase</th><th scope="col">Date</th><th scope="col">Links</th></tr></thead>
+        <tbody id="history-rows"><tr><td colspan="6" class="muted">loading…</td></tr></tbody>
+      </table>
+    </div>
+    <div class="history-pager">
+      <button type="button" id="history-prev" class="btn" disabled>← newer</button>
+      <button type="button" id="history-next" class="btn" disabled>older →</button>
+    </div>
+  </main>
+  <footer id="foot" class="foot"><div id="env-agents" class="foot-agents muted">loading…</div></footer>
+  <aside id="panel" class="panel" hidden aria-labelledby="panel-title">
+    <div class="panel-head">
+      <h2 id="panel-title">Item</h2>
+      <button type="button" id="panel-close" class="btn" title="Close (Esc)" aria-label="Close">✕</button>
+    </div>
+    <div id="panel-body" class="panel-body"></div>
+  </aside>
+</body>
+</html>

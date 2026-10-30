@@ -32,6 +32,18 @@
       "quoteStyle": "double"
     }
   },
+  "overrides": [
+    {
+      "includes": ["web/app.css"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noDescendingSpecificity": "off"
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "enabled": true,
     "actions": {

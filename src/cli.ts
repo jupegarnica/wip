@@ -22,6 +22,7 @@ import { setCmd } from "./commands/set.ts";
 import { showCmd } from "./commands/show.ts";
 import { stateCmd } from "./commands/state.ts";
 import { waitCmd } from "./commands/wait.ts";
+import { webMain } from "./commands/web.ts";
 import { envelope, type ICtx, type IHandler, type IResult, newResult } from "./context.ts";
 import { type IOpenOptions, openDb, openForRead, type TDatabase } from "./db.ts";
 import { findRoot, type IRoot, type TEnv } from "./env.ts";
@@ -53,7 +54,21 @@ export const HANDLERS: Readonly<Record<string, IHandler>> = {
   state: stateCmd,
   version: versionCmd,
   wait: waitCmd,
+  web: {
+    db: "none",
+    run: () => {
+      throw usage("`wip web` serves in the foreground: run it from the command line");
+    },
+  },
 };
+
+/** `wip web` (not its --help) is asynchronous and long-lived: the entry point runs it outside run(). */
+export function isWebServe(argv: readonly string[]): boolean {
+  const [first, ...rest] = argv;
+  const dashdash = rest.indexOf("--");
+  const head = dashdash < 0 ? rest : rest.slice(0, dashdash);
+  return first === "web" && !head.includes("--help") && !head.includes("-h");
+}
 
 export interface IRunOutput {
   code: TExitCode;
@@ -178,7 +193,9 @@ function writeAll(fd: number, text: string): void {
 }
 
 if (import.meta.main) {
-  const out = run(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (isWebServe(argv)) process.exit(await webMain(argv.slice(1)));
+  const out = run(argv);
   if (out.stdout) writeAll(1, out.stdout);
   if (out.stderr) writeAll(2, out.stderr);
   process.exit(out.code);
