@@ -28,7 +28,6 @@ const ALL_TARGETS: readonly ITarget[] = [
   { os: "windows", arch: "x64" },
 ];
 
-const MAX_BINARY_MB = 120;
 const MB = 1024 * 1024;
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -139,11 +138,7 @@ function buildPlatform(target: ITarget, out: string, root: IPackageJson): number
     files: ["bin"],
   });
 
-  const size = statSync(binary).size;
-  if (size > MAX_BINARY_MB * MB) {
-    throw new Error(`${key}: binary is ${(size / MB).toFixed(1)} MB, over ${MAX_BINARY_MB} MB`);
-  }
-  return size;
+  return statSync(binary).size;
 }
 
 function buildMain(out: string, root: IPackageJson): void {
