@@ -14,6 +14,7 @@ import {
   helpCmd,
   type ICommandSpec,
 } from "./commands/help.ts";
+import { initCmd } from "./commands/init.ts";
 import { logCmd } from "./commands/log.ts";
 import { phaseCmd } from "./commands/phase.ts";
 import { sessionCmd } from "./commands/session.ts";
@@ -43,6 +44,7 @@ export const HANDLERS: Readonly<Record<string, IHandler>> = {
   flow: flowCmd,
   gate: gateCmd,
   help: helpCmd,
+  init: initCmd,
   log: logCmd,
   phase: phaseCmd,
   session: sessionCmd,

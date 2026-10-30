@@ -28,7 +28,7 @@ function isDirectory(path: string): boolean {
   }
 }
 
-function rootAt(project: string): IRoot {
+export function rootAt(project: string): IRoot {
   const wip = join(project, WIP_DIR);
   return {
     project,

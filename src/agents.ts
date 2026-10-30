@@ -27,6 +27,36 @@ export function parseFrontmatter(text: string): Record<string, unknown> | null {
   return parsed as Record<string, unknown>;
 }
 
+const GENERIC_LINE_RE = /^wip:\s*["']?generic["']?\s*(#.*)?$/m;
+const MODEL_LINE_RE = /^model:.*$/m;
+const DESCRIPTION_LINE_RE = /^description:.*$/m;
+
+/** The `wip: generic` mark, read line by line when the frontmatter's YAML does not parse. */
+export function hasGenericMark(source: string): boolean {
+  try {
+    return parseFrontmatter(source)?.wip === GENERIC_MARK;
+  } catch {
+    return GENERIC_LINE_RE.test(source.match(FRONTMATTER_RE)?.[1] ?? "");
+  }
+}
+
+/** The raw `model:` line of the frontmatter, as written. */
+export function modelLine(source: string): string | null {
+  return source.match(FRONTMATTER_RE)?.[1]?.match(MODEL_LINE_RE)?.[0] ?? null;
+}
+
+/** Puts `line` in place of the frontmatter's `model:` line, or right after `description:`. */
+export function withModelLine(source: string, line: string): string {
+  const block = source.match(FRONTMATTER_RE)?.[1];
+  if (block === undefined) return source;
+  let next: string;
+  if (MODEL_LINE_RE.test(block)) next = block.replace(MODEL_LINE_RE, () => line);
+  else if (DESCRIPTION_LINE_RE.test(block)) {
+    next = block.replace(DESCRIPTION_LINE_RE, (d) => `${d}\n${line}`);
+  } else next = `${block}\n${line}`;
+  return source.replace(block, () => next);
+}
+
 function text(value: unknown): string | null {
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }

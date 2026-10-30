@@ -186,6 +186,34 @@ first. End every turn that has nothing else to say with one line:
 `🟦 INFO · What next? · <2-4 suggestions from wip state --attention, separated by « · »>`, or
 `🟦 INFO · What next? · nothing waiting on you`. Then end the turn and wait for the user.
 
+## Model onboarding
+
+The four generic agents (`wip: generic` in their frontmatter) run on the model their `model:` line names. `wip init`
+writes them without one; the user chooses it once, and the choice lives in `.agents/`, so whoever clones a project
+already set up is not asked again.
+
+1. **When:** at startup, if `wip check --json` has the warning `models_unset`, before launching any subagent; also
+   whenever the user asks to change the model of a generic agent. Its `agents` list says which ones to ask for.
+2. **The question:** one question on one topic, models; it is not an item gate, so no `wip gate open` and no item.
+   With the runtime's `ask`, one question per generic agent without a model. If you know the runtime's models, offer
+   them as options ordered by cost, suggesting the cheapest for `fast` and the most capable for `wise`, plus
+   `inherit` (the coordinator's own model) and free text. If you do not know them, ask in free text with the format
+   `agent=model`, one per line. Add the option «Later»: the session goes on with the runtime's default model and the
+   question comes back at the next startup. In a runtime without subagents, recommend `inherit` for the four: you
+   run every phase yourself, so only the level paragraph changes.
+3. **Writing:** for each answered agent, first copy `.agents/agents/<name>.md` to
+   `.wip/backups/defs/agents/<name>.md.<timestamp>`; then add `model: <value>` on the line right after
+   `description:`, or replace the `model:` line that is already there. Quote the value if it has a `:` or a space.
+   Nothing else in the file changes.
+4. **Validation:** the diff between the file and its backup is exactly that line; `wip flow lint` exits 0;
+   `wip check --json` no longer lists the agent in `models_unset`. If any of the three fails, restore the backup and
+   say so in a 🟨 message with what failed; that agent stays without a model.
+5. **Report:** a 🟦 message with topic `models` and `agent=model` for each one written, and whether the runtime
+   needs a restart to pick them up (see the runtime interface). Then go on with the startup.
+
+A runtime that takes its subagents' model from somewhere else ignores `model:`. Say so in the question and write the
+answer anyway: it stays in `.agents/` and applies wherever the runtime reads it.
+
 ## Runtime interface
 
 wip never calls the runtime: you do. These are the five capabilities the protocol uses, and what to do without
@@ -212,6 +240,9 @@ each one.
 `wip init --runtime claude-code`, which links `.claude/agents` and `.claude/skills` to `.agents/`. `launch` is the
 `Agent` tool with `subagent_type` set to the agent's name and `run_in_background: true`; the handle is its agent
 id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is `AskUserQuestion`, after the 🟧 block as the last text.
+Claude Code reads `model:` from each agent's frontmatter through the `.claude/agents` link. It accepts an alias
+(`haiku`, `sonnet`, `opus`, cheapest first), `inherit` or a full model ID. If the running session does not pick up a
+model written during onboarding, ask the user to open `/agents` or to restart the session.
 
 **Without subagents** (no capability 4): you run each phase yourself, in the foreground, reading the agent's `.md`
 (`.agents/agents/<agent>.md`) and `.agents/rules/subagents.md` as if you were it, with the phase's `Writes:`. Record
