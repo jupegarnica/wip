@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
+import { putAgent } from "../helpers/defs.ts";
 import { itemInPlan, itemsProject, ok, useProject, wipJson } from "../helpers/items.ts";
 import type { IProject } from "../helpers/project.ts";
 import { makeProject } from "../helpers/project.ts";
@@ -75,7 +76,7 @@ describe("wip check (F-INV-08)", () => {
     writeFileSync(join(p.dir, ".agents", "flows", "valid.md"), "no block\n");
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.OK);
-    expect(body.warnings.map((w) => w.code)).toEqual(["flow_invalid"]);
+    expect(body.warnings.map((w) => w.code)).toEqual(["flow_invalid", "models_unset"]);
     expect(p.wip(["check"]).stderr).toContain("warning: flow valid does not pass");
   });
 
@@ -85,7 +86,7 @@ describe("wip check (F-INV-08)", () => {
     rmSync(join(p.dir, ".agents", "flows", "valid.md"));
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.OK);
-    expect(body.warnings.map((w) => w.code)).toEqual(["flow_missing"]);
+    expect(body.warnings.map((w) => w.code)).toEqual(["flow_missing", "models_unset"]);
   });
 
   test("an item whose flow has no valid version is an I1 finding", () => {
@@ -100,5 +101,61 @@ describe("wip check (F-INV-08)", () => {
     const p = ctx.set(makeProject("check-reader"));
     p.wip(["check"]);
     expect(existsSync(p.dbPath)).toBe(false);
+  });
+});
+
+describe("wip check: generic agents (F-NEW-07)", () => {
+  const generic = (name: string, model = ""): string =>
+    `---\nname: ${name}\ndescription: generic ${name}\n${model ? `model: ${model}\n` : ""}wip: generic\n---\n\nBody.\n`;
+
+  function modelsWarning(p: IProject): { code: number; agents: unknown } {
+    const { code, body } = wipJson(p, ["check"]);
+    return { code, agents: body.warnings.find((w) => w.code === "models_unset")?.agents ?? null };
+  }
+
+  test("generics without model are a models_unset warning, alphabetical, with exit 0", () => {
+    const p = ctx.set(makeProject("check-models"));
+    for (const name of ["wise", "fast", "thinker", "efficient"])
+      putAgent(p.dir, name, generic(name));
+    expect(modelsWarning(p)).toEqual({
+      code: EXIT.OK,
+      agents: ["efficient", "fast", "thinker", "wise"],
+    });
+    expect(p.wip(["check"]).stderr).toContain("warning: generic agents without model: efficient");
+  });
+
+  test("it lists only the generics still without model, and disappears with all four set", () => {
+    const p = ctx.set(makeProject("check-models-partial"));
+    putAgent(p.dir, "fast", generic("fast", "cheap"));
+    putAgent(p.dir, "wise", generic("wise", '"vendor:big"'));
+    putAgent(p.dir, "efficient", generic("efficient"));
+    putAgent(p.dir, "thinker", generic("thinker"));
+    expect(modelsWarning(p).agents).toEqual(["efficient", "thinker"]);
+    putAgent(p.dir, "efficient", generic("efficient", "inherit"));
+    putAgent(p.dir, "thinker", generic("thinker", "mid"));
+    expect(modelsWarning(p)).toEqual({ code: EXIT.OK, agents: null });
+  });
+
+  test("an agent without wip: generic and without model is not listed", () => {
+    const p = ctx.set(makeProject("check-models-custom"));
+    putAgent(p.dir, "custom");
+    expect(modelsWarning(p)).toEqual({ code: EXIT.OK, agents: null });
+  });
+
+  test("a generic with a broken frontmatter is an agent_invalid finding with exit 1", () => {
+    const p = ctx.set(makeProject("check-agent-invalid"));
+    putAgent(p.dir, "fast", "---\nname: fast\ndescription: [unclosed\nwip: generic\n---\n");
+    putAgent(p.dir, "broken");
+    putAgent(p.dir, "plain");
+    const { code, body } = wipJson(p, ["check"]);
+    expect(code).toBe(EXIT.FINDINGS);
+    const list = (body.data?.findings ?? []) as { code: string; agent: string }[];
+    expect(list.map((f) => [f.code, f.agent])).toEqual([
+      ["agent_invalid", "broken"],
+      ["agent_invalid", "fast"],
+    ]);
+    expect(p.wip(["check"]).stdout).toContain(
+      "agent_invalid · .agents/agents/fast.md · invalid frontmatter",
+    );
   });
 });

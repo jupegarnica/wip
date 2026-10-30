@@ -215,6 +215,28 @@ describe("rules and skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", 
     expect(GENERIC_AGENTS).toEqual(["fast", "efficient", "thinker", "wise"]);
   });
 
+  test("wip-coordinate carries the model onboarding: when, question, backup, one-line diff, validation (F-NEW-07)", () => {
+    const onboarding = section(template("skills/wip-coordinate/SKILL.md"), "## Model onboarding");
+    for (const clause of [
+      "`models_unset`",
+      "before launching any subagent",
+      "`inherit`",
+      "«Later»",
+      "`agent=model`",
+      "`.wip/backups/defs/agents/<name>.md.<timestamp>`",
+      "right after\n   `description:`",
+      "exactly that line",
+      "`wip flow lint` exits 0",
+      "restore the backup",
+      "without subagents, recommend `inherit` for the four",
+    ]) {
+      expect({ clause, found: onboarding.includes(clause) }).toEqual({ clause, found: true });
+    }
+    const runtime = section(template("skills/wip-coordinate/SKILL.md"), RUNTIME_SECTION);
+    expect(runtime).toContain("reads `model:`");
+    expect(runtime).toContain("`/agents`");
+  });
+
   test("wip-new-agent reserves wip's names and never marks a project agent as generic", () => {
     const skill = template("skills/wip-new-agent/SKILL.md");
     for (const name of RESERVED_AGENTS) expect(skill).toContain(`\`${name}\``);
