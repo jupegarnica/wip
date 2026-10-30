@@ -1,0 +1,180 @@
+import type { IHandler } from "../context.ts";
+import { usage } from "../errors.ts";
+
+export interface ICommandSpec {
+  name: string;
+  summary: string;
+  usage: readonly string[];
+  options: readonly string[];
+  /** Options that take no value. */
+  flags: readonly string[];
+}
+
+export const COMMANDS: readonly ICommandSpec[] = [
+  {
+    name: "init",
+    summary: "Create .wip/ and the default definitions in .agents/",
+    usage: ["wip init [<path>] [--force] [--runtime claude-code]"],
+    options: ["runtime"],
+    flags: ["force"],
+  },
+  {
+    name: "phase",
+    summary: "Create an item or move it to the next phase of its flow",
+    usage: [
+      "wip phase <ID> <phase> [--flow F] [--wait W] [--next T] [--note T] [--force --reason R]",
+    ],
+    options: ["flow", "wait", "next", "note", "reason"],
+    flags: ["force"],
+  },
+  {
+    name: "set",
+    summary: "Set item fields (key=value, int +N, list +a/-a, ts now/none)",
+    usage: ["wip set <ID> <key>=<value> …"],
+    options: [],
+    flags: [],
+  },
+  {
+    name: "wait",
+    summary: "Record who the item waits on",
+    usage: ["wip wait <ID> <user|external|none|agent:<a>[,<b>]> [--next T]"],
+    options: ["next"],
+    flags: [],
+  },
+  {
+    name: "log",
+    summary: "Add a note to the item's history",
+    usage: ['wip log <ID> "<text>" [--kind note|user|milestone:<name>]'],
+    options: ["kind"],
+    flags: [],
+  },
+  {
+    name: "show",
+    summary: "Show one item with its runs, gates, history and totals",
+    usage: ["wip show <ID> [--log N | --since ISO]"],
+    options: ["log", "since"],
+    flags: [],
+  },
+  {
+    name: "state",
+    summary: "List items and what each one waits on",
+    usage: ["wip state [--flow F] [--waiting W] [--attention] [--archived] [--grep T]"],
+    options: ["flow", "waiting", "grep"],
+    flags: ["attention", "archived"],
+  },
+  {
+    name: "agent",
+    summary: "Record a subagent run starting or finishing",
+    usage: [
+      "wip agent start <ID> <agent> [--phase F] [--handle H]",
+      "wip agent stop <ID> <agent|handle> --status done|blocked|needs-input|stopped [--summary T] [--next T]",
+    ],
+    options: ["phase", "handle", "status", "summary", "next"],
+    flags: [],
+  },
+  {
+    name: "gate",
+    summary: "Open or close a user decision on an item",
+    usage: [
+      "wip gate open <ID> [<phase>] --question Q [--detail PATH]",
+      "wip gate close <ID> [<phase>] --answer A [--decision D] [--wait W] [--next T]",
+    ],
+    options: ["question", "detail", "answer", "decision", "wait", "next"],
+    flags: [],
+  },
+  {
+    name: "archive",
+    summary: "Archive an item with no running agents nor open gates",
+    usage: ["wip archive <ID> [--force --reason R]"],
+    options: ["reason"],
+    flags: ["force"],
+  },
+  {
+    name: "session",
+    summary: "Start a coordinator session; runs left running become orphaned",
+    usage: ["wip session start [--id S]"],
+    options: ["id"],
+    flags: [],
+  },
+  {
+    name: "check",
+    summary: "Check the invariants of every item or of one (exit 1 on findings)",
+    usage: ["wip check [<ID>]"],
+    options: [],
+    flags: [],
+  },
+  {
+    name: "flow",
+    summary: "Validate the flows in .agents/flows/ (exit 1 on findings)",
+    usage: ["wip flow lint [<flow>]"],
+    options: [],
+    flags: [],
+  },
+  {
+    name: "web",
+    summary: "Serve the project's kanban, read-only",
+    usage: ["wip web [--port N] [--open] [--local]"],
+    options: ["port"],
+    flags: ["open", "local"],
+  },
+  {
+    name: "help",
+    summary: "List the commands, or show one",
+    usage: ["wip help [<command>]", "wip <command> --help"],
+    options: [],
+    flags: [],
+  },
+  {
+    name: "version",
+    summary: "Print the version",
+    usage: ["wip --version"],
+    options: [],
+    flags: [],
+  },
+];
+
+export function findCommand(
+  name: string,
+  commands: readonly ICommandSpec[] = COMMANDS,
+): ICommandSpec | undefined {
+  return commands.find((spec) => spec.name === name);
+}
+
+export function overview(commands: readonly ICommandSpec[] = COMMANDS): string {
+  const width = Math.max(...commands.map((spec) => spec.name.length));
+  const rows = commands.map((spec) => `  ${spec.name.padEnd(width)}  ${spec.summary}`);
+  return [
+    "Usage: wip <command> [arguments] [--json]",
+    "",
+    "Commands:",
+    ...rows,
+    "",
+    "Every command accepts --json (envelope: ok, item, events, warnings, message, data) and --help.",
+    "Exit codes: 0 ok · 1 findings · 2 usage · 3 rejected · 4 not found (or no .wip/) · 10 database.",
+  ].join("\n");
+}
+
+export function commandHelp(spec: ICommandSpec): string {
+  return [`${spec.summary}.`, "", "Usage:", ...spec.usage.map((line) => `  ${line}`)].join("\n");
+}
+
+export function describeCommand(spec: ICommandSpec): Record<string, unknown> {
+  return { name: spec.name, summary: spec.summary, usage: spec.usage };
+}
+
+export const helpCmd: IHandler = {
+  db: "none",
+  run: (ctx, args) => {
+    const [name, extra] = args.pos;
+    if (extra !== undefined) throw usage("wip help takes at most one command");
+    if (name === undefined) {
+      ctx.result.lines.push(overview());
+      ctx.result.data = { commands: COMMANDS.map(describeCommand) };
+      return;
+    }
+    const spec = findCommand(name);
+    if (!spec) throw usage(`unknown command '${name}'; run \`wip help\``);
+    ctx.result.lines.push(commandHelp(spec));
+    ctx.result.data = { command: describeCommand(spec) };
+  },
+};
