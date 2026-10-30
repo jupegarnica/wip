@@ -90,11 +90,11 @@ describe("exit codes", () => {
     expect(out.stderr).toContain("wip help");
   });
 
-  test("a v1 command whose handler is not in this build yet is exit 2", () => {
-    p = makeProject("exit-pending");
+  test("`wip web` through the synchronous run() is exit 2: only the entry point serves", () => {
+    p = makeProject("exit-web");
     const out = p.wip(["web", "--local"]);
     expect(out.code).toBe(EXIT.USAGE);
-    expect(out.stderr).toContain("not available in this build yet");
+    expect(out.stderr).toContain("serves in the foreground");
   });
 });
 
