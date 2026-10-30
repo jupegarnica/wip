@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wip --json envelope",
+  "type": "object",
+  "required": ["ok", "item", "events", "warnings", "message", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "ok": { "type": "boolean" },
+    "item": { "type": ["object", "null"] },
+    "events": { "type": "array", "items": { "type": "object" } },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "message": { "type": ["string", "null"] },
+    "data": {}
+  }
+}

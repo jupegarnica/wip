@@ -1,50 +1,43 @@
 import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import pkg from "../../package.json" with { type: "json" };
-import { EXIT_OK, EXIT_USAGE, type IOutput, run } from "../../src/cli.ts";
+import { run } from "../../src/cli.ts";
+import { EXIT } from "../../src/errors.ts";
 
 const CLI = join(import.meta.dir, "..", "..", "src", "cli.ts");
 
-function capture(): IOutput & { stdout: string; stderr: string } {
-  const sink = {
-    stdout: "",
-    stderr: "",
-    out: (text: string) => {
-      sink.stdout += text;
-    },
-    err: (text: string) => {
-      sink.stderr += text;
-    },
-  };
-  return sink;
-}
-
 describe("wip --version", () => {
   test("prints the version of package.json and exits 0", () => {
-    const io = capture();
-    expect(run(["--version"], io)).toBe(EXIT_OK);
-    expect(io.stdout).toBe(`${pkg.version}\n`);
-    expect(io.stderr).toBe("");
+    for (const argv of [["--version"], ["-v"], ["version"]]) {
+      const out = run(argv);
+      expect(out.code).toBe(EXIT.OK);
+      expect(out.stdout).toBe(`${pkg.version}\n`);
+      expect(out.stderr).toBe("");
+    }
+  });
+
+  test("--json carries it in data", () => {
+    const body = JSON.parse(run(["version", "--json"]).stdout) as { data: unknown };
+    expect(body.data).toEqual({ version: pkg.version });
   });
 
   test("works as a process", () => {
     const result = Bun.spawnSync([process.execPath, CLI, "--version"]);
-    expect(result.exitCode).toBe(EXIT_OK);
+    expect(result.exitCode).toBe(EXIT.OK);
     expect(result.stdout.toString()).toBe(`${pkg.version}\n`);
   });
 });
 
 describe("usage", () => {
-  test("an unknown command exits 2 with the usage on stderr", () => {
-    const io = capture();
-    expect(run(["frobnicate"], io)).toBe(EXIT_USAGE);
-    expect(io.stderr).toContain("unknown command 'frobnicate'");
-    expect(io.stdout).toBe("");
+  test("an unknown command exits 2 with the message on stderr", () => {
+    const out = run(["frobnicate"]);
+    expect(out.code).toBe(EXIT.USAGE);
+    expect(out.stderr).toContain("unknown command 'frobnicate'");
+    expect(out.stdout).toBe("");
   });
 
-  test("--help prints the usage and exits 0", () => {
-    const io = capture();
-    expect(run(["--help"], io)).toBe(EXIT_OK);
-    expect(io.stdout).toContain("wip --version");
+  test("an unknown command exits 2 as a process too", () => {
+    const result = Bun.spawnSync([process.execPath, CLI, "frobnicate"]);
+    expect(result.exitCode).toBe(EXIT.USAGE);
   });
 });
