@@ -1,4 +1,6 @@
+import { realpathSync } from "node:fs";
 import { lintAgentRef, parseFrontmatter } from "../agents.ts";
+import { artifactFile, isArtifactName } from "../artifact-name.ts";
 import { DEFAULT_DEFS_DIR } from "../config.ts";
 import { FLOW_SKILL_PREFIX } from "../env.ts";
 import { DEFAULT_ID_RE, type IFlow, parseFlow } from "./parse.ts";
@@ -16,6 +18,8 @@ export interface ILintInput {
   defsDir?: string;
   /** The text is a flow skill: its frontmatter must carry `name` and `description`. */
   skill?: boolean;
+  /** Folder of the flow's skill: the `files` of each seed must be in it. Without it, only their names are checked. */
+  skillDir?: string;
   /** Open items of this flow; empty when there is no database yet. */
   liveItems: readonly ILiveItem[];
 }
@@ -160,6 +164,36 @@ function lintSeed(flow: IFlow): string[] {
         `${where}: phase ${s.phase} waits on ${phase.waitingDefault}; a seeded item starts in a phase whose waiting_default is user or external`,
       );
     }
+    for (const f of s.files) {
+      if (!isArtifactName(f)) problems.push(`${where}: file '${f}' is not a valid artifact name`);
+    }
+    const twice = s.files.filter((f, i) => s.files.indexOf(f) !== i);
+    if (twice.length > 0)
+      problems.push(`${where}: files repeat: ${[...new Set(twice)].join(", ")}`);
+  }
+  return problems;
+}
+
+function realDir(dir: string): string | null {
+  try {
+    return realpathSync(dir);
+  } catch {
+    return null;
+  }
+}
+
+/** Each seed file is a regular file directly in the flow's skill folder; a link that leaves it does not count. */
+export function lintSeedFiles(flow: IFlow, skillDir: string, defsDir: string): string[] {
+  const dir = realDir(skillDir);
+  const shown = `${defsDir}/skills/${FLOW_SKILL_PREFIX}${flow.name}/`;
+  const problems: string[] = [];
+  for (const s of flow.seed) {
+    for (const f of new Set(s.files)) {
+      if (!isArtifactName(f)) continue;
+      if (dir === null || artifactFile(dir, f) === null) {
+        problems.push(`seed ${s.id}: file '${f}' is missing from ${shown}`);
+      }
+    }
   }
   return problems;
 }
@@ -197,6 +231,11 @@ export function lintFlow(input: ILintInput): ILintResult {
   ];
   if (parsed.flow) {
     problems.push(...lintGraph(parsed.flow));
+    if (input.skillDir !== undefined) {
+      problems.push(
+        ...lintSeedFiles(parsed.flow, input.skillDir, input.defsDir ?? DEFAULT_DEFS_DIR),
+      );
+    }
     problems.push(...lintAgents(parsed.flow, input.agentsDir, input.defsDir));
     problems.push(...lintLiveItems(parsed.flow, input.liveItems));
   }

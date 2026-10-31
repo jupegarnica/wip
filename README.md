@@ -77,12 +77,14 @@ carry a `wip:` mark in their frontmatter (every file `wip init` writes), copying
 only in the backup. A file at one of those paths without a `wip:` mark is another tool's: `wip init` exits 3 without
 writing anything and names it, also with `--force`.
 
-`wip init` also creates the items a flow lists under `seed` in its block. The `tasks` flow seeds one, `onboarding`
-(«Get to know wip»), in `intake` and waiting on you: on the first start, after the model questions and the kanban, the
-coordinator presents wip's features (flows and their stages, the generic agents, gates, the kanban, the useful
-commands, how to create your own flows and agents) and asks what you want to do; once you have seen it, it moves
-`onboarding` to `done` and archives it. An ID that already exists, open or archived, is never touched: a second
-init or `--force` neither duplicates nor revives it.
+`wip init` also creates the items a flow lists under `seed` in its block, and copies each seed's `files` from the
+flow's skill folder into the item's artifact directory. The `tasks` flow seeds one, `onboarding` («Get to know wip»),
+in `intake` and waiting on you, with the artifact `guide.md`: everything you can do with wip, the kanban included.
+On the first start the coordinator only tells you, in its `What next?` line, that you have an onboarding task. When
+you want to start, it gives you the links to the guide (`view/item/tasks/onboarding/artifact/guide.md` on the
+kanban) and to the item's panel, answers your questions from the guide, and closes the item at a real gate («Close
+the onboarding?») in `done`, archived. An ID that already exists, open or archived, is never touched: a second init
+or `--force` neither duplicates nor revives it, nor rewrites its files.
 
 A project keeps its definitions folder. An init that would write to another one (`wip init --harness claude-code` on
 a project set up in `.agents/`, or the other way round) exits 3 and writes nothing; wip never moves definitions.
@@ -165,7 +167,7 @@ phases:
 ```
 
 The text around the block (`## Subagents`, one `### <phase>` per phase) tells the coordinator what each phase does.
-The reference of every key (`id_pattern`, `fields` and their types, `links`, `seed`, `stage`, `gate`,
+The reference of every key (`id_pattern`, `fields` and their types, `links`, `seed` and its `files`, `stage`, `gate`,
 `waiting_default`, `agent`, `writes`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
 to copy from (it is not a flow itself: only folders named `wip-flow-*` are).
 

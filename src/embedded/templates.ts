@@ -4,6 +4,7 @@ import thinker from "../../templates/agents/thinker.md" with { type: "text" };
 import wipCoordinator from "../../templates/agents/wip.md" with { type: "text" };
 import wise from "../../templates/agents/wise.md" with { type: "text" };
 import skillCoordinate from "../../templates/skills/wip-coordinate/SKILL.md" with { type: "text" };
+import flowTasksGuide from "../../templates/skills/wip-flow-tasks/guide.md" with { type: "text" };
 import flowTasks from "../../templates/skills/wip-flow-tasks/SKILL.md" with { type: "text" };
 import skillNewAgent from "../../templates/skills/wip-new-agent/SKILL.md" with { type: "text" };
 import newFlowExample from "../../templates/skills/wip-new-flow/example.md" with { type: "text" };
@@ -21,6 +22,7 @@ export const TEMPLATES: Readonly<Record<string, string>> = {
   "agents/wise.md": wise,
   "skills/wip-coordinate/SKILL.md": skillCoordinate,
   "skills/wip-flow-tasks/SKILL.md": flowTasks,
+  "skills/wip-flow-tasks/guide.md": flowTasksGuide,
   "skills/wip-new-agent/SKILL.md": skillNewAgent,
   "skills/wip-new-flow/SKILL.md": skillNewFlow,
   "skills/wip-new-flow/example.md": newFlowExample,

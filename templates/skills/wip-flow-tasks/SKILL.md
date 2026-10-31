@@ -23,8 +23,8 @@ outside the project, once it is delivered. Three stages:
   - `deliver`: only when something is written outside the project (a pull request, a message, a ticket).
   - `done`: closed.
 
-`wip init` seeds one item, `onboarding`, in `intake` waiting on the user: on the first start the coordinator
-presents wip's features with it («Feature onboarding» in `wip-coordinate`) and closes it in `done`.
+`wip init` seeds `onboarding` in `intake` with `guide.md`; the coordinator guides it to `done` and archives it
+(«Onboarding» in `wip-coordinate`).
 
 ```wip-flow
 version: 1
@@ -78,7 +78,8 @@ seed:
   - id: onboarding
     phase: intake
     title: Get to know wip
-    next: the coordinator presents wip's features
+    next: tell the coordinator when you want to start the onboarding
+    files: [guide.md]
 ```
 
 ## Subagents

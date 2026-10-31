@@ -144,12 +144,26 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
     expect(start).not.toContain("return that line");
     const kanban = section(coordinator, "## The kanban");
-    expect(kanban).toContain("`wip web status --port <N>` with the port step 4 returned");
-    expect(kanban).toContain("`wip web status` takes it from `.wip/web.pid`");
+    expect(kanban).toContain("`wip web status --port <N>` (step 4's port)");
     expect(kanban).toContain("`wip web log -n 50`");
-    expect(kanban).toContain("tell the user in a 🟨 message");
-    expect(kanban).toContain("Never start it again unless the user");
-    expect(kanban).toContain("Run `wip web stop --port <N>` only when the user asks");
+    expect(kanban).toContain("a 🟨 with the line");
+    expect(kanban).toContain(
+      "Never start it again, nor `wip web stop --port <N>`, unless the user asks",
+    );
+  });
+
+  test("the coordinator knows wip web's features, the artifact page and how to build a link", () => {
+    const kanban = section(template("agents/wip.md"), "## The kanban");
+    for (const clause of [
+      "«Your turn», open gates, the history (`?view=history`)",
+      "panel of an item (`?item=<flow>/<ID>`) with its runs, gates and artifacts",
+      "`view/item/<flow>/<ID>/artifact/<name>`",
+      "**Links:** run `wip web status`; on exit 0 append these to its `Local:`",
+      "URL (the `LAN:` one only if the user asks), never another host or port",
+      "otherwise give the artifact's file path",
+    ]) {
+      expect({ clause, found: kanban.includes(clause) }).toEqual({ clause, found: true });
+    }
   });
 
   test("the four generic agents carry wip: generic, read/write/shell and no model", () => {
@@ -444,31 +458,82 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
         id: "onboarding",
         phase: "intake",
         title: "Get to know wip",
-        next: "the coordinator presents wip's features",
+        next: "tell the coordinator when you want to start the onboarding",
+        files: ["guide.md"],
       },
     ]);
   });
 
-  test("the coordinator presents the features while onboarding waits, after the models, and closes it in done", () => {
-    const start = template("agents/wip.md");
-    expect(start).toContain("lists `onboarding` in `intake`");
-    expect(start).toContain("«Feature onboarding» in `wip-coordinate`, after the model questions");
-    const coordinate = template("skills/wip-coordinate/SKILL.md");
-    const section = coordinate.slice(coordinate.indexOf("## Feature onboarding"));
-    const own = section.slice(0, section.indexOf("\n## ", 1));
-    for (const topic of [
-      "**Flows:**",
-      "**Agents:**",
-      "**Gates:**",
-      "**Kanban:**",
-      "**Commands:**",
-    ]) {
-      expect(own).toContain(topic);
+  test("the coordinator mentions onboarding in one What next? line, then guides it to a gate, done and archive", () => {
+    expect(template("agents/wip.md")).toContain(
+      "while\n`onboarding` is open, follow «Onboarding» in `wip-coordinate`",
+    );
+    const own = section(template("skills/wip-coordinate/SKILL.md"), "## Onboarding");
+    const steps = [
+      "with the artifact\n`guide.md`",
+      "with no subagent",
+      "the first suggestion of its `🟦 INFO · What next? · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.",
+      "**Step 1 · the guide.**",
+      "«The kanban» in\n   `<defs>/agents/wip.md`",
+      '`wip wait onboarding user --next "read the guide and find this task on the kanban"`',
+      "**Step 2 · questions.**",
+      "from `guide.md` and `<defs>/`, never from memory",
+      '`wip wait onboarding user --next "close the onboarding at its gate"`',
+      "**Step 3 · the gate.**",
+      '`wip gate open onboarding intake --question "Close the onboarding?" --detail <guide.md path>`',
+      "`wip phase onboarding done`, `wip archive onboarding`",
+      "«try a task: ask for your first one»",
+      "**Proactive:**",
+    ];
+    let at = -1;
+    for (const step of steps) {
+      const found = own.indexOf(step);
+      expect({ step, found: found > at }).toEqual({ step, found: true });
+      at = found;
     }
-    expect(own).toContain("model onboarding first");
-    expect(own).toContain("`wip-new-flow` and `wip-new-agent`");
-    expect(own).toContain("`wip phase onboarding done`");
-    expect(own).toContain("with no\n   subagent");
+    expect(own).not.toContain("wip agent start");
+    expect(own).not.toContain("launch");
+  });
+
+  test("no template keeps the feature tour", () => {
+    for (const [key, text] of Object.entries(TEMPLATES)) {
+      expect({ key, tour: text.includes("INFO · onboarding ·") }).toEqual({ key, tour: false });
+      expect({ key, old: text.includes("Feature onboarding") }).toEqual({ key, old: false });
+    }
+  });
+
+  test("init writes the guide; it covers every stage, phase and generic agent and the artifact page", () => {
+    const guide = template("skills/wip-flow-tasks/guide.md");
+    expect(frontmatter("skills/wip-flow-tasks/guide.md").wip).toBe("guide");
+    const h2 = [...guide.matchAll(/^## (.+)$/gm)].map((m) => m[1]);
+    expect(h2).toEqual([
+      "What wip is",
+      "This onboarding",
+      "How to ask for things",
+      "Flows and stages",
+      "Agents and models",
+      "Gates",
+      "Messages",
+      "The kanban",
+      "Useful commands",
+      "Your own flows and agents",
+      "Sessions and restarts",
+      "Where things live",
+    ]);
+    const { flow } = parseFlow(DEFAULT_FLOW, template(FLOW_KEY));
+    if (!flow) throw new Error("no flow");
+    const names = [
+      ...flow.phases.map((ph) => `\`${ph.name}\``),
+      ...new Set(flow.phases.map((ph) => `**${ph.stage}**`)),
+      ...GENERIC_AGENTS.map((a) => `\`${a}\``),
+      "`/view/item/<flow>/<ID>/artifact/<name>`",
+      "`?item=<flow>/<ID>`",
+      "`?view=history`",
+      "«Close the onboarding?»",
+    ];
+    for (const name of names) {
+      expect({ name, found: guide.includes(name) }).toEqual({ name, found: true });
+    }
   });
 
   test("its stages pass the lint; a stage split in two does not", () => {

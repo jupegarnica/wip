@@ -99,7 +99,7 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
       expect(out.stdout).toContain(`created .agents/${key}`);
     expect(out.stdout).toContain("created .wip/config.json (definitions in .agents/)");
     expect(out.stdout).toContain("flow lint: OK tasks");
-    expect(out.stdout).toContain("seeded item onboarding (tasks · intake)");
+    expect(out.stdout).toContain("seeded item onboarding (tasks · intake) with guide.md");
     expect(out.stdout).toContain("Point your harness at .agents/:");
     expect(out.stdout).toContain("wip init --harness claude-code");
     expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
@@ -372,29 +372,62 @@ describe("the onboarding item seeded by init (F-NEW-08)", () => {
   }
   const ONBOARDING = ["onboarding", "tasks", "intake", "user", "Get to know wip"];
 
-  for (const argv of [["init"], ["init", "--harness", "claude-code"]]) {
-    test(`${argv.join(" ")} seeds it once; a second init and --force do not duplicate it`, () => {
+  for (const [argv, defs] of [
+    [["init"], ".agents"],
+    [["init", "--harness", "claude-code"], ".claude"],
+  ] as const) {
+    test(`${argv.join(" ")} seeds it once with its guide; a second init and --force do not duplicate it`, () => {
       const dir = tmp("seed");
       const first = wipJsonIn(dir, argv);
       expect(first.code).toBe(EXIT.OK);
       expect(first.body.data?.items).toEqual([
-        { id: "onboarding", flow: "tasks", phase: "intake", action: "seeded" },
+        { id: "onboarding", flow: "tasks", phase: "intake", action: "seeded", files: ["guide.md"] },
       ]);
-      expect(wipIn(dir, argv).stdout).toContain("exists item onboarding (tasks · intake)");
+      const shown = wipJsonIn(dir, ["show", "onboarding"]).body;
+      const artifacts = String(shown.item?.artifact_dir);
+      expect(shown.item?.next).toBe("tell the coordinator when you want to start the onboarding");
+      const template = join(dir, defs, "skills", "wip-flow-tasks", "guide.md");
+      expect(readFileSync(join(artifacts, "guide.md"), "utf8")).toBe(
+        readFileSync(template, "utf8"),
+      );
+      expect(wipIn(dir, argv).stdout).toContain("exists item onboarding (tasks · intake)\n");
       const forced = wipJsonIn(dir, [...argv, "--force"]);
       expect(forced.code).toBe(EXIT.OK);
       expect(forced.body.data?.items).toEqual([
-        { id: "onboarding", flow: "tasks", phase: "intake", action: "exists" },
+        { id: "onboarding", flow: "tasks", phase: "intake", action: "exists", files: [] },
       ]);
       expect(items(dir)).toEqual([ONBOARDING]);
       expect(items(dir, ["state", "--attention"])).toEqual([ONBOARDING]);
       const check = wipJsonIn(dir, ["check"]);
       expect(check.code).toBe(EXIT.OK);
       expect(check.body.data?.findings).toEqual([]);
-      const shown = wipJsonIn(dir, ["show", "onboarding"]).body;
-      expect(existsSync(String(shown.item?.artifact_dir))).toBe(true);
     });
   }
+
+  test("a guide edited in the item survives init --force", () => {
+    const dir = tmp("seed-edited");
+    wipIn(dir, ["init"]);
+    const guide = join(dir, ".wip", "items", "tasks", "onboarding", "guide.md");
+    writeFileSync(guide, "my notes\n");
+    expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
+    expect(readFileSync(guide, "utf8")).toBe("my notes\n");
+  });
+
+  test("a flow whose seed names a missing file fails lint and seeds nothing", () => {
+    const dir = tmp("seed-missing");
+    mkdirSync(join(dir, ".agents", "skills", "wip-flow-tasks"), { recursive: true });
+    const flow = join(dir, ".agents", "skills", "wip-flow-tasks", "SKILL.md");
+    const text = TEMPLATES["skills/wip-flow-tasks/SKILL.md"] as string;
+    writeFileSync(flow, text.replace("files: [guide.md]", "files: [missing.md]"));
+    const out = wipJsonIn(dir, ["init"]);
+    expect(out.code).toBe(EXIT.FINDINGS);
+    expect(out.body.data?.items).toEqual([]);
+    const lint = wipIn(dir, ["flow", "lint"]);
+    expect(lint.stdout).toContain(
+      "seed onboarding: file 'missing.md' is missing from .agents/skills/wip-flow-tasks/",
+    );
+    expect(existsSync(join(dir, ".wip", "items", "tasks", "onboarding"))).toBe(false);
+  });
 
   test("an onboarding moved on by the user is not revived by init --force", () => {
     const dir = tmp("seed-moved");

@@ -226,27 +226,32 @@ in `<defs>/`, so whoever clones a project already set up is not asked again.
 A runtime that takes its subagents' model from somewhere else ignores `model:`. Say so in the question and write the
 answer anyway: it stays in `<defs>/` and applies wherever the runtime reads it.
 
-## Feature onboarding
+## Onboarding
 
-`wip init` seeds the item `onboarding` (flow `tasks`, phase `intake`, waiting on the user). While it is there, the
-closing message of «Start of every session» presents wip instead of only listing what waits.
+`wip init` seeds the item `onboarding` (flow `tasks`, phase `intake`, waiting on the user) with the artifact
+`guide.md`, which explains everything the user can do. While it is open you guide it, step by step, to `done` and
+archive it, with no subagent; its `next` shows the current step on the kanban. It stays in `intake`.
 
-1. **Order:** model onboarding first (it decides how the subagents run), then the kanban line, then this tour, so
-   the session's first turn ends with one open question, not two.
-2. **The tour:** one 🟦 block per topic, 3 lines at most each, separated by `---`, with the topic in the header
-   (`🟦 INFO · onboarding · <topic>`), read from this project's definitions, never from memory:
-   - **Flows:** each `wip-flow-<flow>` skill with its stages and phases; for `tasks`, the typical task: the user
-     asks → `intake` → `research` if needed → `plan` (approved) → `execute` → `check` → `review` → `done`.
-   - **Agents:** `fast`, `efficient`, `thinker`, `wise`, from cheapest to most capable, each on its `model:`;
-     the model questions come back while any is missing, and the user can change one at any time.
-   - **Gates:** the 🟧 block, Approve · Change · Stop; only an explicit answer of the user approves.
-   - **Kanban:** `wip web`, with the URL of step 4: items by stage and phase, and what waits on the user.
-   - **Commands:** `wip state` (`--attention`: what waits on you), `wip show <ID>`, `wip help`.
-   - **Your own flows and agents:** ask for them; the skills `wip-new-flow` and `wip-new-agent` write them.
-3. **Close** with `🟦 INFO · What next? · <2-3 suggestions>` asking what they want to do.
-4. **Done:** the next answer that is not a question about the tour («ok», «seen», a request) closes it, with no
-   subagent: `wip log onboarding "<their words>" --kind user`, `wip phase onboarding done`,
-   `wip archive onboarding`; then handle their request. A question about the tour is answered and the item stays.
+1. **Not started** (its `next` is still the seeded one): the closing message of «Start of every session» is the usual
+   one, after the model questions and the kanban line, and the first suggestion of its `🟦 INFO · What next? · …` line
+   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.
+2. **Step 1 · the guide.** When the user wants to start: `wip log onboarding "<their words>" --kind user`, then one 🟦
+   message with the link to `guide.md` and the link to the item's panel, built as «The kanban» in
+   `<defs>/agents/wip.md` says (with the kanban down, the full path of `guide.md` in its `artifact_dir`), then
+   `wip wait onboarding user --next "read the guide and find this task on the kanban"`.
+3. **Step 2 · questions.** Answer each question from `guide.md` and `<defs>/`, never from memory, and suggest the
+   next step without waiting to be asked. When the user says they have read it:
+   `wip log onboarding "<their words>" --kind milestone:guide-read`,
+   `wip wait onboarding user --next "close the onboarding at its gate"`, and step 3 in the same turn.
+4. **Step 3 · the gate.** `wip gate open onboarding intake --question "Close the onboarding?" --detail <guide.md path>`,
+   then the 🟧 block: Approve closes it · Change keeps asking · Stop closes it too.
+   - Approve or Stop: `wip gate close onboarding --answer "<their words>" --decision approved`,
+     `wip phase onboarding done`, `wip archive onboarding`; then a 🟩 line with the guide's link (an archived item
+     still serves it) and the suggestion «try a task: ask for your first one».
+   - Change: `wip gate close onboarding --answer "<their words>" --decision change --next "<their question>"`, and
+     back to step 2.
+5. **Proactive:** while it is open and started, the first suggestion of every `What next?` line is its `next`. A
+   request of the user does not close it: handle the request, and the onboarding stays at its step.
 
 ## Runtime interface
 

@@ -1,7 +1,9 @@
-import { mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, realpathSync } from "node:fs";
+import { join } from "node:path";
+import { artifactFile } from "../artifact-name.ts";
 import { iso } from "../clock.ts";
 import { openDb, openForRead, type TDatabase } from "../db.ts";
-import { artifactDir, type IRoot } from "../env.ts";
+import { artifactDir, FLOW_SKILL_PREFIX, type IRoot } from "../env.ts";
 import type { IFlow, ISeedItem } from "../flow/parse.ts";
 import { loadFlows } from "../flow/registry.ts";
 import { assertItem } from "../invariants.ts";
@@ -13,6 +15,8 @@ export interface ISeeded {
   phase: string;
   /** `exists`: an item with that ID is already there, open or archived; init never touches it. */
   action: "seeded" | "exists";
+  /** Files copied into its artifact directory by this run; empty for `exists`. */
+  files: string[];
 }
 
 interface ISeedOf {
@@ -29,7 +33,7 @@ function declaredSeeds(root: IRoot, db: TDatabase | null, write = false): ISeedO
     .flatMap((e) => (e.flow as IFlow).seed.map((seed) => ({ flow: e.flow as IFlow, seed })));
 }
 
-function insert(db: TDatabase, root: IRoot, { flow, seed }: ISeedOf): string {
+function insert(db: TDatabase, root: IRoot, { flow, seed }: ISeedOf): void {
   const phase = phaseOf(flow, seed.phase);
   const waiting = phase?.waitingDefault ?? "user";
   const next = seed.next ?? (waiting === "user" ? `continue ${seed.phase}` : null);
@@ -48,7 +52,19 @@ function insert(db: TDatabase, root: IRoot, { flow, seed }: ISeedOf): string {
     data: { from: null, to: seed.phase, waiting_on: waiting, next },
   });
   assertItem(db, seed.id, flow);
-  return dir;
+  copySeedFiles(root, flow.name, seed, dir);
+}
+
+// Inside the transaction: a copy that fails rolls the item back, so no seeded item lacks its files.
+function copySeedFiles(root: IRoot, flow: string, seed: ISeedItem, dir: string): void {
+  mkdirSync(dir, { recursive: true });
+  if (seed.files.length === 0) return;
+  const skillDir = realpathSync(join(root.skills, `${FLOW_SKILL_PREFIX}${flow}`));
+  for (const name of seed.files) {
+    const source = artifactFile(skillDir, name);
+    if (source === null) throw new Error(`seed ${seed.id}: ${name} is not in ${skillDir}`);
+    copyFileSync(source, join(dir, name));
+  }
 }
 
 function allExist(root: IRoot): ISeeded[] | null {
@@ -61,6 +77,7 @@ function allExist(root: IRoot): ISeeded[] | null {
       flow: flow.name,
       phase: seed.phase,
       action: "exists",
+      files: [],
     }));
   } finally {
     db?.close();
@@ -77,18 +94,16 @@ export function seedItems(root: IRoot): ISeeded[] {
   if (unchanged !== null) return unchanged;
   const db = openDb(root.db);
   try {
-    const dirs: string[] = [];
-    const seeded = db
+    return db
       .transaction(() =>
         declaredSeeds(root, db, true).map((s): ISeeded => {
           const action = findItem(db, s.seed.id) ? "exists" : "seeded";
-          if (action === "seeded") dirs.push(insert(db, root, s));
-          return { id: s.seed.id, flow: s.flow.name, phase: s.seed.phase, action };
+          if (action === "seeded") insert(db, root, s);
+          const files = action === "seeded" ? s.seed.files : [];
+          return { id: s.seed.id, flow: s.flow.name, phase: s.seed.phase, action, files };
         }),
       )
       .immediate();
-    for (const dir of dirs) mkdirSync(dir, { recursive: true });
-    return seeded;
   } finally {
     db.close();
   }

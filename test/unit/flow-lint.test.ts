@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
 import { type ILiveItem, lintFlow } from "../../src/flow/lint.ts";
@@ -167,7 +167,7 @@ describe("seed of a flow (F-NEW-08)", () => {
       "seed[0]: missing phase",
     ]);
     expect(lint("x", seeded("  hello: todo"))).toEqual([
-      "seed: must be a list of {id, phase, title, next}",
+      "seed: must be a list of {id, phase, title, next, files}",
     ]);
   });
 
@@ -187,6 +187,66 @@ describe("seed of a flow (F-NEW-08)", () => {
     expect(lint("x", seeded("  - {id: a, phase: done}"))).toEqual([
       "seed a: phase done waits on none; a seeded item starts in a phase whose waiting_default is user or external",
     ]);
+  });
+
+  describe("files", () => {
+    const lintIn = (skillDir: string, seed: string): string[] => {
+      dir ||= scratch("flow-lint");
+      return lintFlow({
+        name: "x",
+        text: seeded(seed),
+        agentsDir: agentsDir(dir),
+        skillDir,
+        liveItems: [],
+      }).problems;
+    };
+    const skillDir = (): string => {
+      dir ||= scratch("flow-lint");
+      const skills = join(dir, ".agents", "skills", "wip-flow-x");
+      mkdirSync(skills, { recursive: true });
+      writeFileSync(join(skills, "guide.md"), "# guide\n");
+      return skills;
+    };
+
+    test("a file present in the flow's skill folder passes", () => {
+      expect(lintIn(skillDir(), "  - {id: a, phase: todo, files: [guide.md]}")).toEqual([]);
+    });
+
+    test("a missing file names the flow's skill folder", () => {
+      expect(lintIn(skillDir(), "  - {id: a, phase: todo, files: [guide.md, missing.md]}")).toEqual(
+        ["seed a: file 'missing.md' is missing from .agents/skills/wip-flow-x/"],
+      );
+    });
+
+    test("invalid and repeated names", () => {
+      const skills = skillDir();
+      expect(
+        lintIn(
+          skills,
+          "  - {id: a, phase: todo, files: ['../x', .hidden, a/b, x..md, guide.md, guide.md]}",
+        ),
+      ).toEqual([
+        "seed a: file '../x' is not a valid artifact name",
+        "seed a: file '.hidden' is not a valid artifact name",
+        "seed a: file 'a/b' is not a valid artifact name",
+        "seed a: file 'x..md' is not a valid artifact name",
+        "seed a: files repeat: guide.md",
+      ]);
+    });
+
+    test("a link that leaves the skill folder is rejected", () => {
+      const skills = skillDir();
+      const outside = join(dir, "outside.md");
+      writeFileSync(outside, "secret\n");
+      symlinkSync(outside, join(skills, "link.md"));
+      expect(lintIn(skills, "  - {id: a, phase: todo, files: [link.md]}")).toEqual([
+        "seed a: file 'link.md' is missing from .agents/skills/wip-flow-x/",
+      ]);
+    });
+
+    test("without a skill folder only the names are checked", () => {
+      expect(lint("x", seeded("  - {id: a, phase: todo, files: [nowhere.md]}"))).toEqual([]);
+    });
   });
 });
 

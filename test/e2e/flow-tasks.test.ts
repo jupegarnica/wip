@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { rootAt } from "../../src/env.ts";
 import { EXIT } from "../../src/errors.ts";
+import { type IWebServer, startWeb } from "../../src/web/server.ts";
 import { wipJsonIn, wipOkIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
 
@@ -177,27 +179,82 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
   });
 });
 
-describe("the seeded onboarding item (F-NEW-08)", () => {
-  test("init leaves onboarding in intake waiting on the user; the coordinator closes it in done and archives it", () => {
+describe("the guided onboarding (F-NEW-08)", () => {
+  let web: IWebServer | null = null;
+  afterEach(() => {
+    web?.stop();
+    web = null;
+  });
+
+  const GUIDE_VIEW = "/view/item/tasks/onboarding/artifact/guide.md";
+  const GUIDE_API = "/api/item/tasks/onboarding/artifact/guide.md";
+
+  async function status(path: string): Promise<number> {
+    return (await fetch(`http://127.0.0.1:${web?.port}${path}`)).status;
+  }
+
+  test("guide → questions → gate → done → archive, with the guide served by wip web all along", async () => {
     const dir = project("onboarding");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
     const attention = rowsOf(wipOkIn(dir, ["state", "--attention"]), "items");
-    expect(attention.map((i) => [i.id, i.flow, i.phase, i.waiting_on])).toEqual([
-      ["onboarding", "tasks", "intake", "user"],
+    expect(attention.map((i) => [i.id, i.flow, i.phase, i.waiting_on, i.title, i.next])).toEqual([
+      [
+        "onboarding",
+        "tasks",
+        "intake",
+        "user",
+        "Get to know wip",
+        "tell the coordinator when you want to start the onboarding",
+      ],
     ]);
-    expect(attention[0]?.title).toBe("Get to know wip");
-    expect(String(attention[0]?.next)).toContain("presents wip's features");
+    const guide = join(artifactDir(dir, "onboarding"), "guide.md");
+    web = startWeb({ port: 0, root: rootAt(dir), local: true });
 
     step(dir, ["session", "start", "--id", "s1"]);
-    step(dir, ["log", "onboarding", "seen, thanks", "--kind", "user"]);
+    step(dir, ["log", "onboarding", "let's start", "--kind", "user"]);
+    step(dir, [
+      "wait",
+      "onboarding",
+      "user",
+      "--next",
+      "read the guide and find this task on the kanban",
+    ]);
+    expect(await status(GUIDE_VIEW)).toBe(200);
+    const served = await fetch(`http://127.0.0.1:${web.port}${GUIDE_API}`);
+    expect(await served.text()).toBe(readFileSync(guide, "utf8"));
+
+    step(dir, ["log", "onboarding", "read it", "--kind", "milestone:guide-read"]);
+    step(dir, ["wait", "onboarding", "user", "--next", "close the onboarding at its gate"]);
+    const question = "Close the onboarding?";
+    step(dir, ["gate", "open", "onboarding", "intake", "--question", question, "--detail", guide]);
+    const waiting = rowsOf(wipOkIn(dir, ["state", "--attention"]), "items");
+    expect(waiting.map((i) => i.id)).toEqual(["onboarding"]);
+    const kanban = (await (await fetch(`http://127.0.0.1:${web.port}/api/kanban`)).json()) as {
+      open_gates: { item_id: string; question: string }[];
+    };
+    expect(kanban.open_gates.map((g) => [g.item_id, g.question])).toEqual([
+      ["onboarding", question],
+    ]);
+
+    step(dir, [
+      "gate",
+      "close",
+      "onboarding",
+      "--answer",
+      "one more question",
+      "--decision",
+      "change",
+      "--next",
+      "answer: how do I add a flow?",
+    ]);
+    step(dir, ["gate", "open", "onboarding", "intake", "--question", question, "--detail", guide]);
+    step(dir, ["gate", "close", "onboarding", "--answer", "yes", "--decision", "approved"]);
     step(dir, ["phase", "onboarding", "done"]);
-    expect(wipOkIn(dir, ["show", "onboarding"]).item).toMatchObject({
-      phase: "done",
-      waiting_on: "none",
-    });
     step(dir, ["archive", "onboarding"]);
     expect(rowsOf(wipOkIn(dir, ["state", "--attention"]), "items")).toEqual([]);
+    expect(await status(GUIDE_VIEW)).toBe(200);
+    expect(await status(GUIDE_API)).toBe(200);
 
     expect(wipJsonIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
     expect(rowsOf(wipOkIn(dir, ["state"]), "items")).toEqual([]);

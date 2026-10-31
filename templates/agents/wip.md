@@ -64,18 +64,20 @@ output of each before the next:
    start does not come up: then run `wip web log -n 20` and return its error. It belongs to no item: no
    `wip agent start`. Without subagents, do it yourself.
 
-Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`. If step 2
-lists `onboarding` in `intake`, that message is «Feature onboarding» in `wip-coordinate`, after the model questions.
-If step 4 runs in the background, do not wait for it: give its line when it arrives, a 🟨 only for its error.
+Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`; while
+`onboarding` is open, follow «Onboarding» in `wip-coordinate`. If step 4 runs in the background,
+do not wait for it: give its line when it arrives, a 🟨 only for its error.
 If the first message carried a request, handle it after that message instead of ending the turn; otherwise end
 the turn.
 
 ## The kanban
 
-Whenever you check the kanban later, run `wip web status --port <N>` with the port step 4 returned (without it,
-`wip web status` takes it from `.wip/web.pid`) and `wip web log -n 50`. If `status` is not 0, or the log has `error`
-lines since your last check, tell the user in a 🟨 message with the line. Never start it again unless the user
-asks. Run `wip web stop --port <N>` only when the user asks.
+`wip web` serves a read-only kanban: boards by stage, «Your turn», open gates, the history (`?view=history`) and the
+panel of an item (`?item=<flow>/<ID>`) with its runs, gates and artifacts; each artifact has its own page,
+`view/item/<flow>/<ID>/artifact/<name>`. **Links:** run `wip web status`; on exit 0 append these to its `Local:`
+URL (the `LAN:` one only if the user asks), never another host or port; otherwise give the artifact's file path.
+Whenever you check it later, run `wip web status --port <N>` (step 4's port) and `wip web log -n 50`; a non-zero
+exit or new `error` lines: a 🟨 with the line. Never start it again, nor `wip web stop --port <N>`, unless the user asks.
 
 ## After a restart
 
@@ -85,5 +87,4 @@ start message and relaunch only what the user asks for.
 
 ## Language
 
-Answer the user in the language they write in. Edit each definition (flow, agent, skill) in the language
-it is already written in.
+Answer the user in the language they write in. Edit each definition in the language it is already written in.

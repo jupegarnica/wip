@@ -38,6 +38,8 @@ export interface ISeedItem {
   phase: string;
   title: string | null;
   next: string | null;
+  /** Files of the flow's skill folder that `wip init` copies into the item's artifact directory. */
+  files: string[];
 }
 
 /** Plain JSON: the registry stores it as the last valid version of the flow. */
@@ -69,7 +71,7 @@ const ENUM_RE = /^enum\(([^)]*)\)$/;
 const BLOCK_RE = /^```wip-flow[ \t]*\n([\s\S]*?)^```[ \t]*$/gm;
 
 const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases", "seed"];
-const SEED_KEYS = ["id", "phase", "title", "next"];
+const SEED_KEYS = ["id", "phase", "title", "next", "files"];
 export const DEFAULT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** Item columns of the CLI; `title` is a column too but a flow may declare it as a field. */
 export const RESERVED_FIELDS = [
@@ -209,7 +211,7 @@ function parseLinks(raw: unknown, problems: string[]): ILink[] {
 function parseSeed(raw: unknown, problems: string[]): ISeedItem[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
-    problems.push("seed: must be a list of {id, phase, title, next}");
+    problems.push("seed: must be a list of {id, phase, title, next, files}");
     return [];
   }
   const seed: ISeedItem[] = [];
@@ -228,7 +230,13 @@ function parseSeed(raw: unknown, problems: string[]): ISeedItem[] {
     const phase = optionalText(entry.phase, `${where}.phase`, problems);
     const title = optionalText(entry.title, `${where}.title`, problems);
     const next = optionalText(entry.next, `${where}.next`, problems);
-    if (id !== null && phase !== null) seed.push({ id, phase, title, next });
+    let files: string[] = [];
+    if (entry.files !== undefined && entry.files !== null) {
+      if (Array.isArray(entry.files) && entry.files.every((f) => typeof f === "string")) {
+        files = entry.files;
+      } else problems.push(`${where}.files: must be a list of file names`);
+    }
+    if (id !== null && phase !== null) seed.push({ id, phase, title, next, files });
   });
   return seed;
 }

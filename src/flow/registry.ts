@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { iso } from "../clock.ts";
 import type { IWarning } from "../context.ts";
 import type { TDatabase } from "../db.ts";
@@ -140,6 +140,7 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
       agentsDir: root.agents,
       defsDir: root.defsDir,
       skill: true,
+      skillDir: dirname(file),
       liveItems: items.get(name) ?? [],
     });
     const row = stored.get(name);

@@ -109,7 +109,8 @@ function run(ctx: ICtx, args: IArgs): void {
   const items = seedItems(rootAt(project));
   for (const i of items) {
     const verb = i.action === "seeded" ? "seeded item" : "exists item";
-    lines.push(`${verb} ${i.id} (${i.flow} · ${i.phase})`);
+    const files = i.files.length > 0 ? ` with ${i.files.join(", ")}` : "";
+    lines.push(`${verb} ${i.id} (${i.flow} · ${i.phase})${files}`);
   }
   const lintOk = lint(ctx, project);
 

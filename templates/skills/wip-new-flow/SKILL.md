@@ -77,7 +77,7 @@ Top-level keys (any other key is an error):
 | `fields` | no | `name: type`; types `string`, `int`, `list`, `ts`, `enum(a\|b\|c)`; lowercase names; `title` always exists |
 | `links` | no | list of `{pattern, url}`: a regular expression over the item ID and an `http(s)` URL with `$1`… |
 | `phases` | yes | the list below, in order; the first phase is where items start |
-| `seed` | no | list of `{id, phase, title, next}` that `wip init` creates once, in a phase whose `waiting_default` is `user` or `external`; an ID that already exists, even archived, is never touched |
+| `seed` | no | list of `{id, phase, title, next, files}` that `wip init` creates once, in a phase whose `waiting_default` is `user` or `external`; an ID that already exists, even archived, is never touched. `files` lists files of this flow's skill folder (artifact names, no subfolders) that init copies into the new item's artifact directory |
 
 Phase keys:
 

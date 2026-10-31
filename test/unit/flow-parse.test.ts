@@ -234,3 +234,35 @@ describe("sections for subagents (F-FLU-14)", () => {
     });
   });
 });
+
+describe("files of a seed", () => {
+  const seeded = (seed: string): string =>
+    minimalFlow("waiting_default: user").replace(/```\n$/, `seed:\n${seed}\n\`\`\`\n`);
+
+  test("files is parsed as a list of names and defaults to an empty list", () => {
+    const { flow, problems } = parseFlow(
+      "x",
+      seeded("  - {id: a, phase: todo, files: [guide.md, notes.txt]}\n  - {id: b, phase: todo}"),
+    );
+    expect(problems).toEqual([]);
+    expect(flow?.seed.map((s) => [s.id, s.files])).toEqual([
+      ["a", ["guide.md", "notes.txt"]],
+      ["b", []],
+    ]);
+  });
+
+  test("files that is not a list of strings is a problem", () => {
+    expect(parseFlow("x", seeded("  - {id: a, phase: todo, files: guide.md}")).problems).toEqual([
+      "seed[0].files: must be a list of file names",
+    ]);
+    expect(parseFlow("x", seeded("  - {id: a, phase: todo, files: [1, b]}")).problems).toEqual([
+      "seed[0].files: must be a list of file names",
+    ]);
+  });
+
+  test("the shape message lists files among the seed keys", () => {
+    expect(parseFlow("x", seeded("  hello: todo")).problems).toEqual([
+      "seed: must be a list of {id, phase, title, next, files}",
+    ]);
+  });
+});

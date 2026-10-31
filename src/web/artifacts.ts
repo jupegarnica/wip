@@ -1,9 +1,11 @@
 import { readdirSync, realpathSync, statSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { join } from "node:path";
+import { artifactFile } from "../artifact-name.ts";
 import { artifactDir, type IRoot } from "../env.ts";
 
+export { artifactFile };
+
 export const ARTIFACT_MAX_BYTES = 2 * 1024 * 1024;
-const ARTIFACT_NAME_RE = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,199}$/;
 
 export interface IArtifact {
   name: string;
@@ -19,18 +21,6 @@ export function itemDir(root: IRoot, flow: string, id: string): string | null {
     const dir = realpathSync(artifactDir(root, flow, id));
     const expected = join(realpathSync(root.items), flow, id);
     return dir === expected && statSync(dir).isDirectory() ? dir : null;
-  } catch {
-    return null;
-  }
-}
-
-/** A regular file directly inside `dir` (after following links), not a dotfile; null otherwise. */
-export function artifactFile(dir: string, name: string): string | null {
-  if (!ARTIFACT_NAME_RE.test(name) || name.includes("..")) return null;
-  try {
-    const file = realpathSync(join(dir, name));
-    if (dirname(file) !== dir || basename(file).startsWith(".")) return null;
-    return statSync(file).isFile() ? file : null;
   } catch {
     return null;
   }
