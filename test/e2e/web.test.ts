@@ -633,7 +633,9 @@ describe("wip web · entry point (binary with WIP_BIN, else bun src/cli.ts)", ()
         if (found.kind === "wip") health = found.health;
         else await Bun.sleep(50);
       }
-      expect(health).toMatchObject({ app: "wip-web", pid: proc.pid, project: p.dir });
+      // Through the npm launcher the server is the launcher's child, so its pid differs from proc.pid.
+      expect(health).toMatchObject({ app: "wip-web", project: p.dir });
+      expect(typeof health.pid).toBe("number");
       const base = `http://127.0.0.1:${port}`;
       expect(await (await fetch(`${base}/app.js`)).text()).toBe(WEB["app.js"] as string);
       const lib = await fetch(`${base}/lib/garndev-markdown/render.js`);

@@ -21,6 +21,7 @@ export interface IEnvelopeOut {
   code: number;
   body: {
     ok: boolean;
+    item?: Record<string, unknown> | null;
     warnings: { code: string; message: string; [k: string]: unknown }[];
     message: string | null;
     data: Record<string, unknown> | null;
@@ -30,4 +31,11 @@ export interface IEnvelopeOut {
 export function wipJsonIn(cwd: string, argv: readonly string[]): IEnvelopeOut {
   const out = wipIn(cwd, [...argv, "--json"]);
   return { code: out.code, body: JSON.parse(out.stdout) as IEnvelopeOut["body"] };
+}
+
+/** Runs `wip … --json` where it must exit 0, and returns the envelope. */
+export function wipOkIn(cwd: string, argv: readonly string[]): IEnvelopeOut["body"] {
+  const out = wipJsonIn(cwd, argv);
+  if (out.code !== 0) throw new Error(`wip ${argv.join(" ")} → ${out.code}: ${out.body.message}`);
+  return out.body;
 }
