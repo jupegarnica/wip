@@ -46,10 +46,24 @@ output of each before the next:
 3. `wip check --json` — invariants (`data.findings`) and warnings. Fix each finding with the `wip` command it
    needs before anything else. If `warnings` has the code `models_unset`, the agents it lists have no model yet:
    follow «Model onboarding» in `wip-coordinate` before launching any subagent.
+4. **Kanban.** Delegate to `fast`, in the background if the runtime can, this task: run `wip web status`. Exit 0 →
+   return its URL. Exit 1 → start `wip web --open` detached, so it outlives the agent (on macOS and Linux
+   `nohup wip web --open >/dev/null 2>&1 &`; it logs to `.wip/logs/web.log`) and opens the browser on the
+   kanban; run `wip web status` every 2 s until it exits 0, for 30 s at most, and return the URL. Exit 3 →
+   another program holds the port: return that line. If it does not come up, run `wip web log -n 20` and return
+   its error. The answer is one line: the URL or the error. It belongs to no item: no `wip agent start`. Without
+   subagents, do it yourself.
 
 Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`.
+If step 4 runs in the background, do not wait for it: give its line when it arrives.
 If the first message carried a request, handle it after that message instead of ending the turn; otherwise end
 the turn.
+
+## The kanban
+
+Whenever you check the kanban later, run `wip web status` and `wip web log -n 50`. If `status` is not 0, or the
+log has `error` lines since your last check, tell the user in a 🟨 message with the line. Never start it again
+unless the user asks. Run `wip web stop` only when the user asks.
 
 ## After a restart
 

@@ -109,6 +109,29 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     expect(section(skill, RUNTIME_SECTION)).toContain('`claude --agent wip-coordinator "start"`');
   });
 
+  test("the start brings up the kanban through fast without waiting; later checks only warn", () => {
+    const coordinator = template("agents/wip-coordinator.md");
+    const start = section(coordinator, "## Start of every session");
+    for (const clause of [
+      "Delegate to `fast`, in the background if the runtime can",
+      "run `wip web status`",
+      "start `wip web --open` detached",
+      "until it exits 0, for 30 s at most",
+      "another program holds the port: return that line",
+      "run `wip web log -n 20` and return\n   its error",
+      "one line: the URL or the error",
+      "Without\n   subagents, do it yourself",
+      "do not wait for it: give its line when it arrives",
+    ]) {
+      expect(start).toContain(clause);
+    }
+    const kanban = section(coordinator, "## The kanban");
+    expect(kanban).toContain("`wip web status` and `wip web log -n 50`");
+    expect(kanban).toContain("tell the user in a 🟨 message");
+    expect(kanban).toContain("Never start it again\nunless the user asks");
+    expect(kanban).toContain("Run `wip web stop` only when the user asks");
+  });
+
   test("the four generic agents carry wip: generic, read/write/shell and no model", () => {
     for (const name of GENERIC_AGENTS) {
       const fm = frontmatter(`agents/${name}.md`);
@@ -401,7 +424,9 @@ describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () =>
         continue;
       }
       const subs = spec.usage.map((u) => u.split(/\s+/)[2] ?? "").filter((t) => /^[a-z]+$/.test(t));
-      if (subs.length > 0 && !subs.includes(tokens[2] ?? "")) {
+      const takesNone = spec.usage.some((u) => !/^[a-z]+$/.test(u.split(/\s+/)[2] ?? ""));
+      const sub = tokens[2] ?? "";
+      if (subs.length > 0 && !subs.includes(sub) && !(takesNone && !/^[a-z]+$/.test(sub))) {
         problems.push(`${line}: ${name} takes ${subs.join("|")}`);
       }
       const known = new Set([...spec.options, ...spec.flags, "json", "help"]);
