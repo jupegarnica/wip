@@ -72,8 +72,8 @@ Frontmatter keys:
 | `capabilities` | yes | what it needs from the runtime: `read`, `write`, `shell`; a subagent never has `spawn` or `ask-user` |
 | `model` | no | read by the runtime, not by wip; proposed in step 2 |
 
-A project agent never carries `wip: generic`: that mark is only for the four generic agents. Other runtime keys are
-tolerated and not validated.
+A project agent never carries `wip: generic` or `wip: coordinator`: those marks are only for wip's own agents. Other
+runtime keys are tolerated and not validated.
 
 **The model.** Propose a value the runtime understands, chosen by the agent's level: as cheap as the task allows,
 the same scale as `fast` → `wise`. Offer `inherit` (the coordinator's model) and the models the runtime lists when you

@@ -190,16 +190,19 @@ first. End every turn that has nothing else to say with one line:
 
 ## Model onboarding
 
-The four generic agents (`wip: generic` in their frontmatter) run on the model their `model:` line names. `wip init`
-writes them without one; the user chooses it once, and the choice lives in `.agents/`, so whoever clones a project
-already set up is not asked again.
+The four generic agents (`wip: generic` in their frontmatter) and the coordinator (`wip: coordinator`) run on the
+model their `model:` line names. `wip init` writes them without one; the user chooses it once, and the choice lives
+in `.agents/`, so whoever clones a project already set up is not asked again.
 
 1. **When:** at startup, if `wip check --json` has the warning `models_unset`, before launching any subagent; also
-   whenever the user asks to change the model of a generic agent. Its `agents` list says which ones to ask for.
+   whenever the user asks to change the model of a generic agent or of the coordinator. Its `agents` list says which
+   ones to ask for.
 2. **The question:** one question on one topic, models; it is not an item gate, so no `wip gate open` and no item.
-   With the runtime's `ask`, one question per generic agent without a model. If you know the runtime's models, offer
-   them as options ordered by cost, suggesting the cheapest for `fast` and the most capable for `wise`, plus
-   `inherit` (the coordinator's own model) and free text. If you do not know them, ask in free text with the format
+   With the runtime's `ask`, one question per listed agent, the coordinator included. If you know the runtime's
+   models, offer them as options ordered by cost, suggesting the cheapest for `fast` and the most capable for `wise`,
+   plus `inherit` and free text. For a generic, `inherit` is the coordinator's model; for the coordinator, it is the
+   model the runtime is started with. The coordinator's model applies when the session restarts: say so in its
+   question. If you do not know them, ask in free text with the format
    `agent=model`, one per line. Add the option «Later»: the session goes on with the runtime's default model and the
    question comes back at the next startup. In a runtime without subagents, recommend `inherit` for the four: you
    run every phase yourself, so only the level paragraph changes.
@@ -211,7 +214,8 @@ already set up is not asked again.
    `wip check --json` no longer lists the agent in `models_unset`. If any of the three fails, restore the backup and
    say so in a 🟨 message with what failed; that agent stays without a model.
 5. **Report:** a 🟦 message with topic `models` and `agent=model` for each one written, and whether the runtime
-   needs a restart to pick them up (see the runtime interface). Then go on with the startup.
+   needs a restart to pick them up (see the runtime interface). If you wrote the coordinator's model, ask the user
+   to restart the session to apply it. Then go on with the startup.
 
 A runtime that takes its subagents' model from somewhere else ignores `model:`. Say so in the question and write the
 answer anyway: it stays in `.agents/` and applies wherever the runtime reads it.
@@ -245,6 +249,8 @@ id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is `AskUserQuestion`, a
 Claude Code reads `model:` from each agent's frontmatter through the `.claude/agents` link. It accepts an alias
 (`haiku`, `sonnet`, `opus`, cheapest first), `inherit` or a full model ID. If the running session does not pick up a
 model written during onboarding, ask the user to open `/agents` or to restart the session.
+`claude --agent wip-coordinator` reads the coordinator's `model:` when it starts, so a new coordinator model needs a
+restart; with `inherit`, the coordinator runs on the model `claude` is started with.
 
 **Without subagents** (no capability 4): you run each phase yourself, in the foreground, reading the agent's `.md`
 (`.agents/agents/<agent>.md`) and `.agents/rules/subagents.md` as if you were it, with the phase's `Writes:`. Record

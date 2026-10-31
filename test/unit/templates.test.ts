@@ -79,12 +79,12 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
   });
 
-  test("the coordinator has every capability and no model: it uses the session's", () => {
+  test("the coordinator has every capability, wip: coordinator and no model: the onboarding sets it", () => {
     const fm = frontmatter("agents/wip-coordinator.md");
     expect(fm.role).toBe("coordinator");
     expect(fm.capabilities).toEqual(CAPABILITIES);
     expect(fm).not.toHaveProperty("model");
-    expect(fm).not.toHaveProperty("wip");
+    expect(fm.wip).toBe("coordinator");
   });
 
   test("the coordinator definition is short and points to the wip-coordinate skill", () => {
@@ -130,6 +130,8 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     const coordinator = readAgent(join(project.dir, ".agents", "agents", "wip-coordinator.md"));
     expect(coordinator.problems).toEqual([]);
     expect(coordinator.generic).toBe(false);
+    expect(coordinator.coordinator).toBe(true);
+    expect(coordinator.model).toBeNull();
   });
 
   test("the generics share one body; only their name and the Level paragraph differ", () => {
@@ -246,6 +248,27 @@ describe("rules and skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", 
     const runtime = section(template("skills/wip-coordinate/SKILL.md"), RUNTIME_SECTION);
     expect(runtime).toContain("reads `model:`");
     expect(runtime).toContain("`/agents`");
+  });
+
+  test("the onboarding asks the coordinator's model too and says it applies on restart", () => {
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    const onboarding = section(skill, "## Model onboarding");
+    for (const clause of [
+      "the coordinator (`wip: coordinator`)",
+      "the coordinator included",
+      "for the coordinator, it is the",
+      "The coordinator's model applies when the session restarts",
+      "to restart the session to apply it",
+    ]) {
+      expect({ clause, found: onboarding.includes(clause) }).toEqual({ clause, found: true });
+    }
+    const runtime = section(skill, RUNTIME_SECTION);
+    expect(runtime).toContain(
+      "`claude --agent wip-coordinator` reads the coordinator's `model:` when it starts",
+    );
+    expect(runtime).toContain(
+      "with `inherit`, the coordinator runs on the model `claude` is started with",
+    );
   });
 
   test("wip-new-agent reserves wip's names and never marks a project agent as generic", () => {

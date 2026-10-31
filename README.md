@@ -104,16 +104,19 @@ Each phase of a flow names its default agent (`agent:`) and what its subagent ma
 `project`). The coordinator may pick a cheaper or a more capable generic for a given task, and steps up one level
 after a failure.
 
-The model of each generic agent is its `model:` frontmatter line, which `wip init` leaves empty on purpose. Until it
-is set, `wip check` reports the warning `models_unset` (exit code unchanged), and on its first run the coordinator
-asks you which model each one uses, writes `model:` with a backup in `.wip/backups/defs/agents/`, and checks the
-result with `wip flow lint` and `wip check`. The choice is versioned in `.agents/`: whoever clones the project is not
+The model of each generic agent and of the coordinator (marked `wip: coordinator`) is its `model:` frontmatter line,
+which `wip init` leaves empty on purpose and `wip init --force` keeps. Until it is set, `wip check` reports the
+warning `models_unset` (exit code unchanged), and on its first run the coordinator asks you which model each one
+uses, itself included, writes `model:` with a backup in `.wip/backups/defs/agents/`, and checks the result with
+`wip flow lint` and `wip check`. The coordinator's own model applies when you restart the session. The choice is versioned in `.agents/`: whoever clones the project is not
 asked again. To change a model later, ask the coordinator, or edit the line yourself.
 
 What happens with `model:` in each runtime:
 
 - **Claude Code** reads it through the `.claude/agents` link. It accepts an alias (`haiku`, `sonnet`, `opus`),
-  `inherit` (the coordinator's model) or a full model ID. If the running session does not pick up a change, open
+  `inherit` or a full model ID. For a generic agent, `inherit` is the coordinator's model; for the coordinator, it
+  is the model `claude` is started with. `claude --agent wip-coordinator` reads the coordinator's `model:` when it
+  starts, so a change to it needs a restart. If the running session does not pick up a generic's change, open
   `/agents` or restart it.
 - **A runtime that takes its subagents' model from its own configuration** ignores the line; it stays in `.agents/`
   for the runtimes that read it.

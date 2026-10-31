@@ -121,7 +121,48 @@ describe("wip check: generic agents (F-NEW-07)", () => {
       code: EXIT.OK,
       agents: ["efficient", "fast", "thinker", "wise"],
     });
-    expect(p.wip(["check"]).stderr).toContain("warning: generic agents without model: efficient");
+    expect(p.wip(["check"]).stderr).toContain("warning: agents without model: efficient");
+  });
+
+  const coordinator = (name: string, model = ""): string =>
+    `---\nname: ${name}\ndescription: coordinator ${name}\n${model ? `model: ${model}\n` : ""}wip: coordinator\n---\n\nBody.\n`;
+
+  test("the coordinator by its mark joins the list in alphabetical order, and leaves it with a model", () => {
+    const p = ctx.set(makeProject("check-models-coordinator"));
+    for (const name of ["wise", "fast"]) putAgent(p.dir, name, generic(name));
+    putAgent(p.dir, "wip-coordinator", coordinator("wip-coordinator"));
+    expect(modelsWarning(p)).toEqual({
+      code: EXIT.OK,
+      agents: ["fast", "wip-coordinator", "wise"],
+    });
+    putAgent(p.dir, "wip-coordinator", coordinator("wip-coordinator", "inherit"));
+    expect(modelsWarning(p).agents).toEqual(["fast", "wise"]);
+  });
+
+  test("a renamed coordinator is listed by its name; a wip-coordinator.md without the mark is not", () => {
+    const p = ctx.set(makeProject("check-models-coordinator-foreign"));
+    putAgent(p.dir, "lead", coordinator("lead"));
+    putAgent(
+      p.dir,
+      "wip-coordinator",
+      "---\nname: wip-coordinator\ndescription: another tool's coordinator\n---\n",
+    );
+    expect(modelsWarning(p)).toEqual({ code: EXIT.OK, agents: ["lead"] });
+  });
+
+  test("a broken wip-coordinator.md is a finding only with the coordinator mark", () => {
+    const p = ctx.set(makeProject("check-coordinator-invalid"));
+    putAgent(p.dir, "wip-coordinator", "---\nname: wip-coordinator\ndescription: [unclosed\n---\n");
+    expect(wipJson(p, ["check"]).code).toBe(EXIT.OK);
+    putAgent(
+      p.dir,
+      "wip-coordinator",
+      "---\nname: wip-coordinator\ndescription: [unclosed\nwip: coordinator\n---\n",
+    );
+    const { code, body } = wipJson(p, ["check"]);
+    expect(code).toBe(EXIT.FINDINGS);
+    const list = (body.data?.findings ?? []) as { code: string; agent: string }[];
+    expect(list.map((f) => [f.code, f.agent])).toEqual([["agent_invalid", "wip-coordinator"]]);
   });
 
   test("it lists only the generics still without model, and disappears with all four set", () => {

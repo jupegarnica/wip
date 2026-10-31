@@ -274,21 +274,26 @@ describe("model onboarding after init (F-NEW-07)", () => {
     return backup;
   }
 
-  test("check warns models_unset with the four generics, and stops once each has a model", () => {
+  const OWN_AGENTS = [...GENERIC_AGENTS, "wip-coordinator"];
+
+  test("check warns models_unset with the four generics and the coordinator, and stops once each has a model", () => {
     const dir = tmp("onboarding");
     wipIn(dir, ["init"]);
-    expect(modelsUnset(dir)).toEqual({ code: EXIT.OK, agents: [...GENERIC_AGENTS].sort() });
+    expect(modelsUnset(dir)).toEqual({ code: EXIT.OK, agents: [...OWN_AGENTS].sort() });
 
     setModel(dir, "fast", "test-model");
     setModel(dir, "wise", "test-model");
-    expect(modelsUnset(dir).agents).toEqual(["efficient", "thinker"]);
+    expect(modelsUnset(dir).agents).toEqual(["efficient", "thinker", "wip-coordinator"]);
 
     for (const name of ["efficient", "thinker"]) setModel(dir, name, "test-model");
+    expect(modelsUnset(dir).agents).toEqual(["wip-coordinator"]);
+
+    setModel(dir, "wip-coordinator", "test-model");
     expect(modelsUnset(dir)).toEqual({ code: EXIT.OK, agents: null });
     expect(wipIn(dir, ["flow", "lint"]).code).toBe(EXIT.OK);
     expect(wipIn(dir, ["check"]).stdout).toBe("OK: no findings\n");
 
-    for (const name of GENERIC_AGENTS) {
+    for (const name of OWN_AGENTS) {
       const backup = join(dir, ".wip", "backups", "defs", "agents", `${name}.md.20261030T120000Z`);
       const before = readFileSync(backup, "utf8").split("\n");
       const after = readFileSync(genericFile(dir, name), "utf8").split("\n");
@@ -300,8 +305,27 @@ describe("model onboarding after init (F-NEW-07)", () => {
   test("init --force after the onboarding keeps every model and the warning stays away", () => {
     const dir = tmp("onboarding-force");
     wipIn(dir, ["init"]);
-    for (const name of GENERIC_AGENTS) setModel(dir, name, "test-model");
+    for (const name of OWN_AGENTS) setModel(dir, name, "test-model");
     expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
     expect(modelsUnset(dir).agents).toBeNull();
+  });
+
+  test("init --force keeps the model of a coordinator written before it carried its mark", () => {
+    const dir = tmp("onboarding-legacy-coordinator");
+    wipIn(dir, ["init"]);
+    const file = genericFile(dir, "wip-coordinator");
+    writeFileSync(file, readFileSync(file, "utf8").replace("wip: coordinator\n", ""));
+    setModel(dir, "wip-coordinator", "test-model");
+
+    const forced = wipJsonIn(dir, ["init", "--force"]);
+    expect(forced.code).toBe(EXIT.OK);
+    const replaced = initFiles(forced).find((f) => f.path === ".agents/agents/wip-coordinator.md");
+    expect(replaced?.action).toBe("replaced");
+    const text = readFileSync(file, "utf8");
+    expect(text).toContain("\nwip: coordinator\n");
+    expect(text.replace("model: test-model\n", "")).toBe(
+      TEMPLATES["agents/wip-coordinator.md"] as string,
+    );
+    expect(modelsUnset(dir).agents).not.toContain("wip-coordinator");
   });
 });

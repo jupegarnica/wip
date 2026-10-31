@@ -1,7 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { lintAgentRef, listAgents, modelsUnset, readAgent } from "../../src/agents.ts";
+import {
+  hasCoordinatorMark,
+  hasGenericMark,
+  lintAgentRef,
+  listAgents,
+  modelsUnset,
+  readAgent,
+} from "../../src/agents.ts";
 import { agentsDir, putAgent } from "../helpers/defs.ts";
 import { scratch } from "../helpers/project.ts";
 
@@ -78,6 +85,19 @@ describe("agent frontmatter", () => {
     const a = readAgent(putAgent(dir, "crlf", text));
     expect(a.problems).toEqual([]);
     expect(a.generic).toBe(true);
+  });
+
+  test("wip: coordinator marks the coordinator, also read by line when the YAML does not parse", () => {
+    const ok = "---\nname: lead\ndescription: Leads\nwip: coordinator\n---\n";
+    const broken = "---\nname: lead\ndescription: [unclosed\r\nwip: 'coordinator'\r\n---\n";
+    expect(hasCoordinatorMark(ok)).toBe(true);
+    expect(hasCoordinatorMark(broken)).toBe(true);
+    expect(hasGenericMark(broken)).toBe(false);
+    expect(hasCoordinatorMark("---\nname: lead\nwip: generic\n---\n")).toBe(false);
+    dir = scratch("agents");
+    const a = readAgent(putAgent(dir, "lead", ok));
+    expect(a.coordinator).toBe(true);
+    expect(a.generic).toBe(false);
   });
 });
 

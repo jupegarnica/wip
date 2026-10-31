@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 
 export const GENERIC_MARK = "generic";
+export const COORDINATOR_MARK = "coordinator";
 
 export interface IAgentDef {
   name: string;
@@ -10,6 +11,7 @@ export interface IAgentDef {
   frontmatter: Record<string, unknown> | null;
   description: string | null;
   generic: boolean;
+  coordinator: boolean;
   model: string | null;
   problems: string[];
 }
@@ -27,17 +29,25 @@ export function parseFrontmatter(text: string): Record<string, unknown> | null {
   return parsed as Record<string, unknown>;
 }
 
-const GENERIC_LINE_RE = /^wip:\s*["']?generic["']?\s*(#.*)?$/m;
+const MARK_LINE_RE = /^wip:\s*["']?([\w-]+)["']?\s*(#.*)?$/m;
 const MODEL_LINE_RE = /^model:.*$/m;
 const DESCRIPTION_LINE_RE = /^description:.*$/m;
 
-/** The `wip: generic` mark, read line by line when the frontmatter's YAML does not parse. */
-export function hasGenericMark(source: string): boolean {
+/** The `wip:` mark, read line by line when the frontmatter's YAML does not parse. */
+function wipMark(source: string): unknown {
   try {
-    return parseFrontmatter(source)?.wip === GENERIC_MARK;
+    return parseFrontmatter(source)?.wip;
   } catch {
-    return GENERIC_LINE_RE.test(source.match(FRONTMATTER_RE)?.[1] ?? "");
+    return source.match(FRONTMATTER_RE)?.[1]?.match(MARK_LINE_RE)?.[1];
   }
+}
+
+export function hasGenericMark(source: string): boolean {
+  return wipMark(source) === GENERIC_MARK;
+}
+
+export function hasCoordinatorMark(source: string): boolean {
+  return wipMark(source) === COORDINATOR_MARK;
 }
 
 /** The raw `model:` line of the frontmatter, as written. */
@@ -70,6 +80,7 @@ export function readAgent(file: string): IAgentDef {
     frontmatter: null,
     description: null,
     generic: false,
+    coordinator: false,
     model: null,
     problems: [],
   };
@@ -87,6 +98,7 @@ export function readAgent(file: string): IAgentDef {
   def.frontmatter = fm;
   def.description = text(fm.description);
   def.generic = fm.wip === GENERIC_MARK;
+  def.coordinator = fm.wip === COORDINATOR_MARK;
   def.model = text(fm.model);
   if (fm.name === undefined) def.problems.push("frontmatter has no name");
   else if (fm.name !== name) {
@@ -115,10 +127,10 @@ export function listAgents(agentsDir: string): IAgentDef[] {
     .map((f) => readAgent(join(agentsDir, f)));
 }
 
-/** Generic agents (`wip: generic`) with no `model:` yet, in alphabetical order. */
+/** wip's own agents (`wip: generic` or `wip: coordinator`) with no `model:` yet, in alphabetical order. */
 export function modelsUnset(agentsDir: string): string[] {
   return listAgents(agentsDir)
-    .filter((a) => a.generic && a.model === null)
+    .filter((a) => (a.generic || a.coordinator) && a.model === null)
     .map((a) => a.name)
     .sort();
 }

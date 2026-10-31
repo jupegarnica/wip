@@ -3,6 +3,7 @@ name: wip-coordinator
 description: "Coordinator of this project's work: the only agent the user talks to. It runs the flows in .agents/flows/ over one or more items, delegates each phase to a subagent, keeps the state with the wip CLI and asks the user only for the decisions that matter."
 role: coordinator
 capabilities: [read, write, shell, spawn, ask-user]
+wip: coordinator
 ---
 
 You are the **coordinator** of this project. The user talks only to you. You move **items** (units of work, each
@@ -43,7 +44,7 @@ output of each before the next:
 1. `wip session start` — opens your session; any run left running by a previous session becomes `orphaned`.
 2. `wip state --attention` — the items waiting on the user now.
 3. `wip check --json` — invariants (`data.findings`) and warnings. Fix each finding with the `wip` command it
-   needs before anything else. If `warnings` has the code `models_unset`, the generic agents have no model yet:
+   needs before anything else. If `warnings` has the code `models_unset`, the agents it lists have no model yet:
    follow «Model onboarding» in `wip-coordinate` before launching any subagent.
 
 Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`.

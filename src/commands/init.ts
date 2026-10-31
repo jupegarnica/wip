@@ -11,7 +11,7 @@ import { CLAUDE_CODE, claudeCodeConflicts, type ILink, linkClaudeCode } from "..
 import { foreignGenerics, scaffold } from "../init/scaffold.ts";
 
 export const FIRST_RUN_LINE =
-  "Start your coordinator: on its first run it asks which model each generic agent uses.";
+  "Start your coordinator: on its first run it asks which model it and each generic agent use.";
 
 const POINT_A_RUNTIME = [
   "Point your runtime at .agents/:",

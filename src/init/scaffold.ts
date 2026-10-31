@@ -61,9 +61,16 @@ function write(file: string, text: string): void {
   writeFileSync(file, text);
 }
 
-// A generic that already has a model keeps it: the onboarding's answer survives `--force`.
+const COORDINATOR_KEY = "agents/wip-coordinator.md";
+
+// The onboarding's answer survives `--force`. `wip-coordinator` is a reserved name, so its model is kept even from
+// a file written before the coordinator carried its mark.
+function keepsModel(key: string, current: string): boolean {
+  return key === COORDINATOR_KEY || (genericKeys.has(key) && hasGenericMark(current));
+}
+
 function desired(key: string, template: string, current: string): string {
-  if (!genericKeys.has(key) || !hasGenericMark(current)) return template;
+  if (!keepsModel(key, current)) return template;
   const line = modelLine(current);
   return line === null ? template : withModelLine(template, line);
 }

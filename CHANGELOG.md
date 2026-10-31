@@ -11,7 +11,7 @@ First version.
 - `wip init`: the coordinator, the generic agents `fast`, `efficient`, `thinker` and `wise`, the skills
   `wip-coordinate`, `wip-new-flow` and `wip-new-agent`, the subagent rules and the `wip` flow; `--runtime claude-code`
   links `.claude/agents` and `.claude/skills`.
-- Model onboarding: `wip check` warns with `models_unset` until each generic agent has a `model:`.
+- Model onboarding: `wip check` warns with `models_unset` until each generic agent and the coordinator have a `model:`.
 - `wip web`: a read-only kanban served from the binary.
 - One binary per platform (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`, `windows-x64`), packaged for npm
   as `@garndev/wip` plus one optional package per platform.

@@ -129,6 +129,7 @@ describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_
         "efficient",
         "fast",
         "thinker",
+        "wip-coordinator",
         "wise",
       ]);
     } finally {
