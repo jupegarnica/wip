@@ -53,24 +53,28 @@ output of each before the next:
 3. `wip check --json` — invariants (`data.findings`) and warnings. Fix each finding with the `wip` command it
    needs before anything else. If `warnings` has the code `models_unset`, the agents it lists have no model yet:
    follow «Model onboarding» in `wip-coordinate` before launching any subagent.
-4. **Kanban.** Delegate to `fast`, in the background if the runtime can, this task: run `wip web status`. Exit 0 →
-   return its URL. Exit 1 → start `wip web --open` detached, so it outlives the agent (on macOS and Linux
-   `nohup wip web --open >/dev/null 2>&1 &`; it logs to `.wip/logs/web.log`) and opens the browser on the
-   kanban; run `wip web status` every 2 s until it exits 0, for 30 s at most, and return the URL. Exit 3 →
-   another program holds the port: return that line. If it does not come up, run `wip web log -n 20` and return
-   its error. The answer is one line: the URL or the error. It belongs to no item: no `wip agent start`. Without
-   subagents, do it yourself.
+4. **Kanban.** Delegate to `fast`, in the background if the runtime can, this task. Find this project's `wip web`:
+   run `wip web status` (it takes the port from `.wip/web.pid`), then `wip web status --port <N>` for each port
+   from 39100 to 39109, one call each, and stop at the first exit 0: that one is this project's, so start nothing
+   and return its URL and port. Exit 3 is another project or another program: skip that port without a word.
+   With no exit 0, start `wip web --open --port <N>` on the first port that gave exit 1, detached so it outlives
+   the agent (on macOS and Linux `nohup wip web --open --port <N> >/dev/null 2>&1 &`; it writes `.wip/web.pid`
+   and logs to `.wip/logs/web.log`), then run `wip web status --port <N>` every 2 s until it exits 0, for 30 s at
+   most. The answer is one line: `<URL> · port <N>`. It is an error only when none of the ten ports is free or the
+   start does not come up: then run `wip web log -n 20` and return its error. It belongs to no item: no
+   `wip agent start`. Without subagents, do it yourself.
 
 Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`.
-If step 4 runs in the background, do not wait for it: give its line when it arrives.
+If step 4 runs in the background, do not wait for it: give its line when it arrives, a 🟨 only for its error.
 If the first message carried a request, handle it after that message instead of ending the turn; otherwise end
 the turn.
 
 ## The kanban
 
-Whenever you check the kanban later, run `wip web status` and `wip web log -n 50`. If `status` is not 0, or the
-log has `error` lines since your last check, tell the user in a 🟨 message with the line. Never start it again
-unless the user asks. Run `wip web stop` only when the user asks.
+Whenever you check the kanban later, run `wip web status --port <N>` with the port step 4 returned (without it,
+`wip web status` takes it from `.wip/web.pid`) and `wip web log -n 50`. If `status` is not 0, or the log has `error`
+lines since your last check, tell the user in a 🟨 message with the line. Never start it again unless the user
+asks. Run `wip web stop --port <N>` only when the user asks.
 
 ## After a restart
 

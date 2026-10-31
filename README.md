@@ -257,9 +257,13 @@ The **Runtime interface** section of `wip-coordinate` maps those capabilities to
 to do without each one. On the first message of every session, whatever it says (with Claude Code, the
 coordinator's own `initialPrompt`), the coordinator starts with
 `wip session start`, `wip state --attention` and `wip check`, and never relaunches a run it finds `orphaned`: it
-tells you. It also asks `fast`, in the background, to bring up the kanban: `wip web status`, and if nothing answers,
-`wip web --open`, which opens the browser; if one is already up, no second one starts. When a later check finds it
-down or its log with errors, the coordinator tells you; it starts it again or stops it only when you ask.
+tells you. It also asks `fast`, in the background, to bring up the kanban. `fast` looks for this project's
+`wip web` (the port in `.wip/web.pid`, then `wip web status --port <N>` on 39100 to 39109); if one is up, no second
+one starts. Otherwise it runs `wip web --open --port <N>`, which opens the browser, on the first of those ports that
+nothing answers; a port held by another project or program is skipped silently. You get one line with the URL and
+the port, and a warning only when none of the ten ports is free or the start fails. Later checks use that port.
+When one finds the kanban down or its log with errors, the coordinator tells you; it starts it again or stops it
+only when you ask.
 
 ## Development
 
