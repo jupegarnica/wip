@@ -4,12 +4,13 @@ Per-project workflow state for coding agents.
 
 `wip` is a small CLI that keeps, inside your project, the state of the work an AI coordinator runs on your behalf:
 which items exist, which phase of which flow each one is in, which subagent is running, which decision waits on
-you. The coordinator (any agent runtime that can run a shell) drives it with `wip` commands; you read the result in
+you. The coordinator (any agent harness that can run a shell) drives it with `wip` commands; you read the result in
 the terminal or in a read-only kanban (`wip web`).
 
 - **State** lives in `.wip/` (SQLite, git-ignored), found by walking up from the current directory.
-- **Definitions** live in `.agents/` (versioned): the coordinator, four generic subagents, the skills, the rules for
-  subagents and the flows.
+- **Definitions** live in one folder, `.agents/` or, with Claude Code, `.claude/` (versioned): `agents/` holds the
+  coordinator and four generic subagents; `skills/` holds the coordinator's skills, the subagents' protocol and the
+  flows, each flow a skill `wip-flow-<name>`.
 - No network, no daemon, no runtime dependency: one binary per platform.
 
 ## Install
@@ -53,42 +54,46 @@ On macOS the binaries are signed ad hoc; on Windows, `wip.exe` works in PowerShe
 
 ```sh
 cd my-project
-wip init                          # or: wip init <path>
-wip init --runtime claude-code    # also links .claude/agents and .claude/skills to .agents/
+wip init                          # definitions in .agents/; or: wip init <path>
+wip init --harness claude-code    # definitions straight in .claude/
 ```
 
-`wip init` creates:
+`wip init` creates, with `<defs>` being `.agents` (or `.claude` with `--harness claude-code`):
 
-| Path                                              | What                                                                                                            |
-| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `.wip/`                                           | the state; added to `.gitignore`                                                                                |
-| `.agents/agents/wip-coordinator.md`               | the coordinator: the only agent that talks to you                                                               |
-| `.agents/agents/{fast,efficient,thinker,wise}.md` | the four generic subagents                                                                                      |
-| `.agents/skills/wip-coordinate/`                  | how the coordinator runs a flow: cycle, launch prompt, gates, agent choice, model onboarding, runtime interface |
-| `.agents/skills/wip-new-flow/` · `wip-new-agent/` | how the coordinator creates or changes a flow or an agent                                                       |
-| `.agents/rules/subagents.md`                      | the contract every subagent follows                                                                             |
-| `.agents/flows/wip.md`                            | the default flow: `intake → plan → execute → verify → done`                                                     |
+| Path                                             | What                                                                                                            |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `.wip/`                                          | the state; added to `.gitignore`                                                                                |
+| `.wip/config.json`                               | `defs_dir` (the definitions folder) and `harness`; every command reads the definitions from `defs_dir`          |
+| `<defs>/agents/wip.md`                           | the coordinator: the only agent that talks to you                                                               |
+| `<defs>/agents/{fast,efficient,thinker,wise}.md` | the four generic subagents                                                                                      |
+| `<defs>/skills/wip-coordinate/`                  | how the coordinator runs a flow: cycle, launch prompt, gates, agent choice, model onboarding, runtime interface |
+| `<defs>/skills/wip-new-flow/` · `wip-new-agent/` | how the coordinator creates or changes a flow or an agent; `wip-new-flow/example.md` is a reference flow        |
+| `<defs>/skills/wip-subagent-protocol/`           | the contract every subagent follows; the coordinator never applies it to itself                                 |
+| `<defs>/skills/wip-flow-tasks/`                  | the default flow, `tasks`: `intake → plan → execute → verify → done`                                            |
 
-It never overwrites: a second run says `exists` for each file and changes nothing. `--force` rewrites the
-definitions, copying each one first to `.wip/backups/defs/`, and keeps the `model:` line of each generic agent. If a
-file named like a generic agent already exists without the `wip: generic` mark (another tool's `fast.md`), `wip init`
-exits 3 without writing anything and names it.
+It never overwrites: a second run says `exists` for each file and changes nothing. `--force` rewrites the files that
+carry a `wip:` mark in their frontmatter (every file `wip init` writes), copying each one first to
+`.wip/backups/defs/`, and keeps the `model:` line of the generic agents and the coordinator; any other edit stays
+only in the backup. A file at one of those paths without a `wip:` mark is another tool's: `wip init` exits 3 without
+writing anything and names it, also with `--force`.
 
-### `--runtime claude-code`
+A project keeps its definitions folder. An init that would write to another one (`wip init --harness claude-code` on
+a project set up in `.agents/`, or the other way round) exits 3 and writes nothing; wip never moves definitions.
 
-Claude Code reads agents from `.claude/agents/` and skills from `.claude/skills/`. `--runtime claude-code` creates
-two relative links, `.claude/agents → ../.agents/agents` and `.claude/skills → ../.agents/skills` (directory
-junctions on Windows, which need no administrator rights), and nothing else. If `.claude/agents` or
-`.claude/skills` is already a real directory, it is left alone and `wip init` exits 3. Then:
+### `--harness claude-code`
+
+Claude Code reads agents from `.claude/agents/` and skills from `.claude/skills/`, so `--harness claude-code` writes
+the definitions there directly, with no `.agents/` and no links. Other tools' agents and skills in `.claude/` stay
+where they are, next to wip's; a name clash with a file without the `wip:` mark is exit 3. Then:
 
 ```sh
-claude --agent wip-coordinator "start"
+claude --agent wip
 ```
 
-Claude Code opens no turn until the first message, and the coordinator runs its start protocol on that message,
-whatever it says; `"start"` makes it run at once.
+The coordinator's `initialPrompt` is the session's first message, so it runs its start protocol at once. The
+generic agents preload the protocol skill through their `skills` frontmatter key.
 
-Without `--runtime`, `wip init` prints how to point any runtime at `.agents/`.
+Any other `--harness` value, or none, writes `.agents/`, and `wip init` prints how to point the harness at it.
 
 ## The four generic agents and model onboarding
 
@@ -108,24 +113,26 @@ The model of each generic agent and of the coordinator (marked `wip: coordinator
 which `wip init` leaves empty on purpose and `wip init --force` keeps. Until it is set, `wip check` reports the
 warning `models_unset` (exit code unchanged), and on its first run the coordinator asks you which model each one
 uses, itself included, writes `model:` with a backup in `.wip/backups/defs/agents/`, and checks the result with
-`wip flow lint` and `wip check`. The coordinator's own model applies when you restart the session. The choice is versioned in `.agents/`: whoever clones the project is not
-asked again. To change a model later, ask the coordinator, or edit the line yourself.
+`wip flow lint` and `wip check`. The coordinator's own model applies when you restart the session. The choice is
+versioned in the definitions folder: whoever clones the project is not asked again. To change a model later, ask the
+coordinator, or edit the line yourself.
 
-What happens with `model:` in each runtime:
+What happens with `model:` in each harness:
 
-- **Claude Code** reads it through the `.claude/agents` link. It accepts an alias (`haiku`, `sonnet`, `opus`),
-  `inherit` or a full model ID. For a generic agent, `inherit` is the coordinator's model; for the coordinator, it
-  is the model `claude` is started with. `claude --agent wip-coordinator` reads the coordinator's `model:` when it
-  starts, so a change to it needs a restart. If the running session does not pick up a generic's change, open
-  `/agents` or restart it.
-- **A runtime that takes its subagents' model from its own configuration** ignores the line; it stays in `.agents/`
-  for the runtimes that read it.
-- **A runtime without subagents**: the coordinator runs every phase itself, on its own model; the recommended answer
+- **Claude Code** reads it from `.claude/agents/`. It accepts an alias (`haiku`, `sonnet`, `opus`), `inherit` or a
+  full model ID. For a generic agent, `inherit` is the coordinator's model; for the coordinator, it is the model
+  `claude` is started with. `claude --agent wip` reads the coordinator's `model:` when it starts, so a change to it
+  needs a restart. If the running session does not pick up a generic's change, open `/agents` or restart it.
+- **A harness that takes its subagents' model from its own configuration** ignores the line; it stays in the
+  definitions for the harnesses that read it.
+- **A harness without subagents**: the coordinator runs every phase itself, on its own model; the recommended answer
   is `inherit` for the four.
 
 ## Flows
 
-A flow is one Markdown file in `.agents/flows/<name>.md`. Its `wip-flow` block is the only source of its phases:
+A flow is one skill, `<defs>/skills/wip-flow-<name>/SKILL.md`: the folder's suffix is the flow's name, and its
+frontmatter carries `name: wip-flow-<name>` and a `description` that says which items it is for. Its `wip-flow`
+block is the only source of its phases:
 
 ```wip-flow
 version: 1
@@ -152,21 +159,24 @@ phases:
 
 The text around the block (`## Subagents`, one `### <phase>` per phase) tells the coordinator what each phase does.
 The reference of every key (`id_pattern`, `fields` and their types, `links`, `stage`, `gate`, `waiting_default`,
-`agent`, `writes`) is in `.agents/skills/wip-new-flow/SKILL.md`.
+`agent`, `writes`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
+to copy from (it is not a flow itself: only folders named `wip-flow-*` are).
 
 To create a flow, ask the coordinator («create a flow for reviews with these phases…»): it follows `wip-new-flow`
 (proposal, your approval, backup, write, `wip flow lint`, restore if the lint fails). By hand:
 
 ```sh
-cp .agents/flows/wip.md .agents/flows/review.md   # then edit its block and its phase sections
+mkdir .agents/skills/wip-flow-review
+cp .agents/skills/wip-new-flow/example.md .agents/skills/wip-flow-review/SKILL.md   # then edit it
 wip flow lint review                               # exit 0, or one line per problem and exit 1
 wip phase R1 intake --flow review
 wip state --flow review
 ```
 
-`wip flow lint` checks the block's schema, that every phase is reachable, one terminal phase, `next` targets,
-`waiting_default`, `links` patterns, that each `agent:` exists in `.agents/agents/` with a `name` and a
-`description`, that `writes` is `artifacts` or `project`, and that no live item sits in a phase the file removes.
+`wip flow lint` checks the frontmatter (`name` equal to the folder, a `description`), the block's schema, that
+every phase is reachable, one terminal phase, `next` targets, `waiting_default`, `links` patterns, that each `agent:`
+exists in `<defs>/agents/` with a `name` and a `description`, that `writes` is `artifacts` or `project`, and that no
+live item sits in a phase the file removes.
 Each valid version is stored when a command loads it: if a later edit breaks the file, `flow lint` fails, and every
 other command keeps using the last valid version with a `flow_invalid` warning until the file is fixed.
 
@@ -232,11 +242,11 @@ do not trust.
 
 ## Coordinating from any agent
 
-wip never calls a runtime: the coordinator calls wip. Any agent runtime can coordinate if it can:
+wip never calls a harness: the coordinator calls wip. Any agent harness can coordinate if it can:
 
 1. run `wip …` in a shell and read its output (required);
 2. read and write project files (required);
-3. load `wip-coordinator` and the skills as instructions; otherwise paste `.agents/skills/wip-coordinate/SKILL.md`
+3. load the agent `wip` and the skills as instructions; otherwise paste `<defs>/skills/wip-coordinate/SKILL.md`
    into a session as its first message;
 4. launch, stop and collect background subagents; otherwise the coordinator runs each phase itself, in the
    foreground, following the agent's `.md`;
@@ -244,7 +254,8 @@ wip never calls a runtime: the coordinator calls wip. Any agent runtime can coor
    next turn.
 
 The **Runtime interface** section of `wip-coordinate` maps those capabilities to Claude Code's tools and says what
-to do without each one. On the first message of every session, whatever it says, the coordinator starts with
+to do without each one. On the first message of every session, whatever it says (with Claude Code, the
+coordinator's own `initialPrompt`), the coordinator starts with
 `wip session start`, `wip state --attention` and `wip check`, and never relaunches a run it finds `orphaned`: it
 tells you. It also asks `fast`, in the background, to bring up the kanban: `wip web status`, and if nothing answers,
 `wip web --open`, which opens the browser; if one is already up, no second one starts. When a later check finds it
