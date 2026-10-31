@@ -8,6 +8,7 @@ export interface ICommandSpec {
   options: readonly string[];
   /** Options that take no value. */
   flags: readonly string[];
+  notes?: readonly string[];
 }
 
 export const COMMANDS: readonly ICommandSpec[] = [
@@ -112,10 +113,27 @@ export const COMMANDS: readonly ICommandSpec[] = [
   },
   {
     name: "web",
-    summary: "Serve the project's kanban, read-only",
-    usage: ["wip web [--port N] [--open] [--local]"],
-    options: ["port"],
-    flags: ["open", "local"],
+    summary:
+      "Serve the project's kanban, read-only; check, stop or read the log of the running one",
+    usage: [
+      "wip web [--port N] [--open] [--local]",
+      "wip web status [--port N]",
+      "wip web stop [--port N]",
+      "wip web log [-n N] [--follow]",
+    ],
+    options: ["port", "lines"],
+    flags: ["open", "local", "follow"],
+    notes: [
+      "--open opens http://localhost:<port>/ in the browser once it serves, or if it already does.",
+      "status and stop take the port from --port, WIP_WEB_PORT, .wip/web.pid or 39100, in that order.",
+      "status exit codes: 0 this project's wip web answers on the port · 1 nothing answers ·",
+      "  3 another project's wip web or another program holds the port.",
+      "stop sends SIGTERM to this project's wip web only and waits up to 10 s for it to stop answering:",
+      "  0 stopped · 1 nothing answers · 3 another project or program holds the port, or it did not stop.",
+      "log: the last N lines (50) of .wip/logs/web.log: start, addresses, responses ≥ 400, errors and stop;",
+      "  --follow keeps printing new lines until Ctrl-C; exit 4 when there is no log yet.",
+      "  Past 1 MB the log moves to web.log.1.",
+    ],
   },
   {
     name: "help",
@@ -155,7 +173,14 @@ export function overview(commands: readonly ICommandSpec[] = COMMANDS): string {
 }
 
 export function commandHelp(spec: ICommandSpec): string {
-  return [`${spec.summary}.`, "", "Usage:", ...spec.usage.map((line) => `  ${line}`)].join("\n");
+  const notes = spec.notes ? ["", ...spec.notes] : [];
+  return [
+    `${spec.summary}.`,
+    "",
+    "Usage:",
+    ...spec.usage.map((line) => `  ${line}`),
+    ...notes,
+  ].join("\n");
 }
 
 export function describeCommand(spec: ICommandSpec): Record<string, unknown> {

@@ -187,7 +187,7 @@ other command keeps using the last valid version with a `flow_invalid` warning u
 | `wip session start`                             | a coordinator (re)starts: runs left running become `orphaned` |
 | `wip check [<ID>]`                              | the invariants (exit 1 on findings) and the warnings          |
 | `wip flow lint [<flow>]`                        | validate the flows                                            |
-| `wip web`                                       | the kanban                                                    |
+| `wip web [status\|stop\|log]`                   | the kanban: serve it, check it, stop it, read its log         |
 
 Every command accepts `--json` (envelope `{ok, item, events, warnings, message, data}`) and `--help`. Exit codes:
 0 ok · 1 findings · 2 usage · 3 rejected · 4 not found (or no `.wip/`) · 10 database. `WIP_HOME` points the CLI at
@@ -198,14 +198,33 @@ another project, only if that directory contains a `.wip/`.
 ```sh
 wip web            # http://localhost:39100/ (WIP_WEB_PORT or --port to change it)
 wip web --local    # only on 127.0.0.1
-wip web --open     # and open the browser
+wip web --open     # and open http://localhost:<port>/ in the browser
+wip web status     # is this project's wip web up? prints its URL
+wip web stop       # stop this project's wip web
+wip web log -n 20  # the last lines of its log; --follow keeps printing
 ```
 
 A read-only kanban of the project, served from the binary with nothing external: one board per flow (columns by
 `stage` or by phase), «Your turn», open gates, running agents, the history with archived items, each item's runs,
 gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). Requests with a foreign
-`Host` header are rejected. Running it again for the same project reports the running one and exits 0. Ctrl-C stops
-it.
+`Host` header are rejected. Running it again for the same project reports the running one and exits 0 (with
+`--open`, it opens the browser on it); a port held by another project's `wip web` or another program is exit 3.
+Ctrl-C or `wip web stop` stops it. If no browser opens (`open`, `xdg-open` or `start` fails), `--open` prints a
+warning and the server keeps serving.
+
+While it serves, `.wip/web.pid` holds its PID and port, and `.wip/logs/web.log` gets the start with its
+addresses, every response with status ≥ 400, every error and the stop; past 1 MB the log moves to `web.log.1`.
+`status` and `stop` identify the server by its `/health`, which names the project, and take the port from
+`--port`, `WIP_WEB_PORT`, `.wip/web.pid` or 39100, in that order.
+
+Exit codes:
+
+- `wip web status`: 0 this project's `wip web` answers · 1 nothing answers · 3 another project or program holds the
+  port.
+- `wip web stop`: 0 stopped (SIGTERM, then it waits up to 10 s) · 1 nothing answers (a stale `web.pid` is removed) ·
+  3 another project or program holds the port, or it did not stop. It never signals a process of another project or
+  one that is not `wip web`.
+- `wip web log`: 0 · 4 no log yet.
 
 **LAN:** without `--local`, `wip web` also listens on your private LAN address and prints it as `LAN:`. Anyone on
 that network can then read the board and the item artifacts, with no authentication. Use `--local` on networks you
@@ -225,8 +244,11 @@ wip never calls a runtime: the coordinator calls wip. Any agent runtime can coor
    next turn.
 
 The **Runtime interface** section of `wip-coordinate` maps those capabilities to Claude Code's tools and says what
-to do without each one. On the first message of every session, whatever it says, the coordinator starts with `wip session start`, `wip state --attention` and
-`wip check`, and never relaunches a run it finds `orphaned`: it tells you.
+to do without each one. On the first message of every session, whatever it says, the coordinator starts with
+`wip session start`, `wip state --attention` and `wip check`, and never relaunches a run it finds `orphaned`: it
+tells you. It also asks `fast`, in the background, to bring up the kanban: `wip web status`, and if nothing answers,
+`wip web --open`, which opens the browser; if one is already up, no second one starts. When a later check finds it
+down or its log with errors, the coordinator tells you; it starts it again or stops it only when you ask.
 
 ## Development
 

@@ -10,6 +10,7 @@ import { DEFAULT_ID_RE, type IFlowSet, loadFlows } from "../flow/registry.ts";
 import { findItem } from "../items.ts";
 import { ARTIFACT_MAX_BYTES, artifactFile, itemDir, listArtifacts } from "./artifacts.ts";
 import { historyData, parseHistoryQuery } from "./history.ts";
+import type { TWebLog } from "./log.ts";
 import { boardData, itemLinks, openReadOnly } from "./state.ts";
 
 // A read-only kanban on 127.0.0.1 and, unless `local`, on the machine's private LAN IPv4 too. Stateless: each /api
@@ -27,6 +28,8 @@ export interface IWebOptions {
   local?: boolean;
   /** `os.networkInterfaces()` by default. */
   interfaces?: TInterfaces;
+  /** Receives every response with status ≥ 400 and every error behind a 503. */
+  log?: TWebLog;
 }
 
 export interface IWebServer {
@@ -172,8 +175,11 @@ export function startWeb(options: IWebOptions): IWebServer {
     }
   }
 
-  const dbError = (err: unknown): Response =>
-    json({ error: err instanceof Error ? err.message : String(err) }, 503);
+  const dbError = (err: unknown): Response => {
+    const message = err instanceof Error ? err.message : String(err);
+    options.log?.("error", message);
+    return json({ error: message }, 503);
+  };
 
   function exists(db: TDatabase | null, ref: IItemRef): boolean {
     return findItem(db, ref.id)?.flow === ref.flow;
@@ -286,13 +292,31 @@ export function startWeb(options: IWebOptions): IWebServer {
     }
   }
 
-  const server = Bun.serve({ hostname: "127.0.0.1", port: options.port, fetch: handle });
+  function logged(req: Request): Response {
+    let res: Response;
+    try {
+      res = handle(req);
+    } catch (err) {
+      options.log?.("error", `${req.method} ${new URL(req.url).pathname}: ${String(err)}`);
+      return respond("internal error", 500, TEXT);
+    }
+    if (res.status >= 400) {
+      const host = res.status === 403 ? ` (host ${req.headers.get("host") ?? "none"})` : "";
+      options.log?.(
+        res.status >= 500 ? "error" : "warn",
+        `${res.status} ${req.method} ${new URL(req.url).pathname}${host}`,
+      );
+    }
+    return res;
+  }
+
+  const server = Bun.serve({ hostname: "127.0.0.1", port: options.port, fetch: logged });
   port = server.port as number;
   hosts = allowedHosts(port, ips);
   let lanServer: ReturnType<typeof Bun.serve> | null = null;
   if (lan) {
     try {
-      lanServer = Bun.serve({ hostname: lan, port, fetch: handle });
+      lanServer = Bun.serve({ hostname: lan, port, fetch: logged });
     } catch (err) {
       server.stop(true);
       throw err;
