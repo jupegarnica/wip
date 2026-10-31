@@ -21,9 +21,11 @@ First version.
   `onboarding` in `intake` with `guide.md`. The coordinator mentions it in one `What next?` suggestion and, when the
   user starts it, links the guide on the kanban, answers from it and closes it at a gate, in `done` and archived.
 - `wip web`: a read-only kanban served from the binary, each stage in one blue that grows more transparent stage
-  after stage (light and dark themes); `--open` opens the browser on it, `wip web status` says
-  whether this project's one is up, `wip web stop` stops it and `wip web log` shows its log (`.wip/logs/web.log`).
-- The coordinator brings up the kanban at the start of every session through `fast`, without waiting for it: it
-  reuses this project's `wip web` or starts one on the first free port from 39100 to 39109.
+  after stage (light and dark themes); `--open` opens the browser on it, `wip web status` lists this project's
+  servers from its registry (`.wip/web/<port>.json`), `wip web stop` stops them and `wip web log` shows its log
+  (`.wip/logs/web.log`). Without `--port` it reuses this project's running one or serves on the first free port from
+  33333 to 33352.
+- The coordinator brings up the kanban at the start of every session through `fast`, without waiting for it:
+  `wip web status`, then `wip web --open` when this project has none running.
 - One binary per platform (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`, `windows-x64`), packaged for npm
   as `@garndev/wip` plus one optional package per platform.

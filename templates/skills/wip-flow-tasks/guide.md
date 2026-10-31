@@ -95,7 +95,7 @@ Only an explicit answer of yours approves. Open gates also show on the kanban, a
 ## The kanban
 
 `wip web` serves a read-only kanban of this project. The coordinator brings it up at the start of each session and
-gives you its address (`Local:`, by default `http://localhost:39100/`).
+gives you its address (`Local:`, by default `http://localhost:33333/` or the next free port).
 
 - **Boards:** one per flow, with a column per stage (Grouped) or per phase (Expanded).
 - **✋ Open gates** and **👉 Your turn** at the top: what waits on you.

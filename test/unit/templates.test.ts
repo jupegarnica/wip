@@ -126,30 +126,27 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     const coordinator = template("agents/wip.md");
     const start = section(coordinator, "## Start of every session");
     for (const clause of [
-      "Delegate to `fast`, in the background if the runtime can",
-      "run `wip web status` (it takes the port from `.wip/web.pid`)",
-      "for each port\n   from 39100 to 39109",
-      "stop at the first exit 0: that one is this project's, so start nothing",
-      "Exit 3 is another project or another program: skip that port without a word",
-      "start `wip web --open --port <N>` on the first port that gave exit 1, detached",
-      "`nohup wip web --open --port <N> >/dev/null 2>&1 &`",
-      "until it exits 0, for 30 s at\n   most",
+      "Delegate to `fast`, in the background if the runtime can, this task: run `wip web status`. Exit 0",
+      "start nothing and return its first `Local:` URL and port",
+      "Exit 1: start\n   `wip web --open`, detached so it outlives the agent",
+      "`nohup wip web --open >/dev/null 2>&1 &`",
+      "it takes the first free port from 33333, records itself in `.wip/web/`",
+      "until it exits 0, for 30 s at most",
       "The answer is one line: `<URL> · port <N>`",
-      "none of the ten ports is free or the\n   start does not come up",
       "run `wip web log -n 20` and return its error",
-      "Without subagents, do it yourself",
+      "Without\n   subagents, do it yourself",
       "do not wait for it: give its line when it arrives, a 🟨 only for its error",
     ]) {
-      expect(start).toContain(clause);
+      expect({ clause, found: start.includes(clause) }).toEqual({ clause, found: true });
+    }
+    for (const gone of ["39100", "39109", "--port <N>", "for each port", ".wip/web.pid"]) {
+      expect({ gone, found: coordinator.includes(gone) }).toEqual({ gone, found: false });
     }
     expect(start).not.toContain("return that line");
     const kanban = section(coordinator, "## The kanban");
-    expect(kanban).toContain("`wip web status --port <N>` (step 4's port)");
-    expect(kanban).toContain("`wip web log -n 50`");
-    expect(kanban).toContain("a 🟨 with the line");
-    expect(kanban).toContain(
-      "Never start it again, nor `wip web stop --port <N>`, unless the user asks",
-    );
+    expect(kanban).toContain("run `wip web status` and `wip web log -n 50`");
+    expect(kanban).toContain("a\n🟨 with the line");
+    expect(kanban).toContain("Never start it again, nor `wip web stop`, unless the user asks");
   });
 
   test("the coordinator knows wip web's features, the artifact page and how to build a link", () => {
@@ -158,7 +155,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       "«Your turn», open gates, the history (`?view=history`)",
       "panel of an item (`?item=<flow>/<ID>`) with its runs, gates and artifacts",
       "`view/item/<flow>/<ID>/artifact/<name>`",
-      "**Links:** run `wip web status`; on exit 0 append these to its `Local:`",
+      "**Links:** run `wip web status`; on exit 0 append these to its first `Local:`",
       "URL (the `LAN:` one only if the user asks), never another host or port",
       "otherwise give the artifact's file path",
     ]) {
