@@ -100,6 +100,35 @@ describe("launcher process", () => {
     expect(result.signalCode).toBe("SIGTERM");
   });
 
+  test.skipIf(process.platform === "win32")(
+    "forwards a SIGTERM sent to the launcher alone to the binary",
+    async () => {
+      const script =
+        "process.on('SIGTERM', () => { console.log('term'); process.exit(5); });" +
+        "console.log('ready'); setInterval(() => {}, 1000);";
+      const proc = Bun.spawn([NODE, LAUNCHER, "-e", script], {
+        env: { ...process.env, WIP_BINARY_PATH: process.execPath },
+        stdout: "pipe",
+      });
+      const reader = proc.stdout.getReader();
+      const decoder = new TextDecoder();
+      let seen = "";
+      let killed = false;
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        seen += decoder.decode(chunk.value);
+        if (!killed && seen.includes("ready")) {
+          killed = true;
+          proc.kill("SIGTERM");
+        }
+      }
+      expect(await proc.exited).toBe(5);
+      expect(seen).toContain("term");
+    },
+    10000,
+  );
+
   test("without a platform package it exits 2 and explains --omit=optional", () => {
     const result = runLauncher(["--version"], { WIP_BINARY_PATH: undefined });
     expect(result.exitCode).toBe(2);

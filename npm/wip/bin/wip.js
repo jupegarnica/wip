@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 
 const EXIT_USAGE = 2;
 
@@ -43,6 +43,10 @@ function resolveBinary({ platform, arch, env, resolve }) {
   }
 }
 
+// A signal sent to the launcher alone (a supervisor's SIGTERM, not a terminal's Ctrl-C, which reaches
+// the whole process group) would otherwise leave the binary running, e.g. a `wip web` server.
+const FORWARDED = ["SIGINT", "SIGTERM", "SIGHUP"];
+
 function main() {
   const found = resolveBinary({
     platform: process.platform,
@@ -52,22 +56,28 @@ function main() {
   });
   if (found.error) {
     process.stderr.write(`${found.error}\n`);
-    return EXIT_USAGE;
+    process.exitCode = EXIT_USAGE;
+    return;
   }
-  const result = spawnSync(found.path, process.argv.slice(2), { stdio: "inherit" });
-  if (result.error) {
-    process.stderr.write(`wip: could not run ${found.path}: ${result.error.message}\n`);
-    return EXIT_USAGE;
-  }
-  if (result.signal) {
-    process.kill(process.pid, result.signal);
-    return 1;
-  }
-  return result.status ?? 1;
+  const child = spawn(found.path, process.argv.slice(2), { stdio: "inherit" });
+  const forward = (signal) => child.kill(signal);
+  for (const signal of FORWARDED) process.on(signal, forward);
+  child.on("error", (error) => {
+    process.stderr.write(`wip: could not run ${found.path}: ${error.message}\n`);
+    process.exitCode = EXIT_USAGE;
+  });
+  child.on("exit", (code, signal) => {
+    for (const s of FORWARDED) process.off(s, forward);
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exitCode = code ?? 1;
+  });
 }
 
 module.exports = { packageName, resolveBinary, SUPPORTED };
 
 if (require.main === module) {
-  process.exitCode = main();
+  main();
 }
