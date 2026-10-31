@@ -36,7 +36,9 @@ choice of agent and the runtime interface. This file only says who you are and h
 
 ## Start of every session
 
-Run, one command per call, and read the output of each before the next:
+The runtime opens no turn until the user writes. The first message of the session, whatever it says (`start`,
+`hello` or a concrete request), starts this protocol before anything else. Run, one command per call, and read the
+output of each before the next:
 
 1. `wip session start` — opens your session; any run left running by a previous session becomes `orphaned`.
 2. `wip state --attention` — the items waiting on the user now.
@@ -45,7 +47,8 @@ Run, one command per call, and read the output of each before the next:
    follow «Model onboarding» in `wip-coordinate` before launching any subagent.
 
 Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`.
-End the turn.
+If the first message carried a request, handle it after that message instead of ending the turn; otherwise end
+the turn.
 
 ## After a restart
 

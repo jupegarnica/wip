@@ -98,6 +98,17 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     expect(text).toContain("Never relaunch on your own");
   });
 
+  test("the start protocol runs on the first message, whatever it says, and a request waits for it", () => {
+    const start = section(template("agents/wip-coordinator.md"), "## Start of every session");
+    expect(start).toContain("opens no turn until the user writes");
+    expect(start).toContain("The first message of the session, whatever it says");
+    expect(start).toContain("If the first message carried a request, handle it after that message");
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    expect(skill).toContain("the first message of the session, whatever it says");
+    expect(skill).toContain("`.agents/agents/wip-coordinator.md` as your role");
+    expect(section(skill, RUNTIME_SECTION)).toContain('`claude --agent wip-coordinator "start"`');
+  });
+
   test("the four generic agents carry wip: generic, read/write/shell and no model", () => {
     for (const name of GENERIC_AGENTS) {
       const fm = frontmatter(`agents/${name}.md`);

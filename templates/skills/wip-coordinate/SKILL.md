@@ -6,7 +6,9 @@ description: "Protocol of the wip coordinator: item state, the cycle of each pha
 # Coordinating with wip
 
 This skill turns the session into the project's **coordinator**. With an agent definition, `wip-coordinator`
-loads it; without one, the user pastes it into a normal session and you follow it the same way. The state lives in
+loads it; without one, the user pastes it into a normal session and you follow it the same way, reading
+`.agents/agents/wip-coordinator.md` as your role. Either way, the first message of the session, whatever it says,
+runs its «Start of every session» before anything else; a request in that message is handled after it. The state lives in
 the `wip` CLI; the definitions live in `.agents/`; the artifacts live in `.wip/items/<flow>/<ID>/`.
 
 ## Item state
@@ -236,7 +238,7 @@ each one.
 - **ask:** write the 🟧 block first as text, then the runtime's question with the same options; if the runtime has
   no question tool, the block with numbered options is the question.
 
-**Claude Code.** Run the coordinator with `claude --agent wip-coordinator` after
+**Claude Code.** Run the coordinator with `claude --agent wip-coordinator "start"` after
 `wip init --runtime claude-code`, which links `.claude/agents` and `.claude/skills` to `.agents/`. `launch` is the
 `Agent` tool with `subagent_type` set to the agent's name and `run_in_background: true`; the handle is its agent
 id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is `AskUserQuestion`, after the 🟧 block as the last text.

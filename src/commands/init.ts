@@ -18,11 +18,11 @@ const POINT_A_RUNTIME = [
   "  - the coordinator is .agents/agents/wip-coordinator.md and loads the skill .agents/skills/wip-coordinate/SKILL.md;",
   "  - subagents are .agents/agents/<name>.md; skills are .agents/skills/<name>/SKILL.md;",
   "  - Claude Code: `wip init --runtime claude-code` links .claude/agents and .claude/skills to them;",
-  "  - a runtime without agent definitions: paste .agents/skills/wip-coordinate/SKILL.md into a session.",
+  "  - a runtime without agent definitions: paste .agents/skills/wip-coordinate/SKILL.md into a session as its first message.",
 ];
 
 const CLAUDE_CODE_NEXT = [
-  "Run the coordinator with `claude --agent wip-coordinator` in this directory.",
+  'Run the coordinator with `claude --agent wip-coordinator "start"` in this directory.',
 ];
 
 function assertDirectory(project: string): void {

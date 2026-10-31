@@ -82,8 +82,11 @@ junctions on Windows, which need no administrator rights), and nothing else. If 
 `.claude/skills` is already a real directory, it is left alone and `wip init` exits 3. Then:
 
 ```sh
-claude --agent wip-coordinator
+claude --agent wip-coordinator "start"
 ```
+
+Claude Code opens no turn until the first message, and the coordinator runs its start protocol on that message,
+whatever it says; `"start"` makes it run at once.
 
 Without `--runtime`, `wip init` prints how to point any runtime at `.agents/`.
 
@@ -212,14 +215,14 @@ wip never calls a runtime: the coordinator calls wip. Any agent runtime can coor
 1. run `wip …` in a shell and read its output (required);
 2. read and write project files (required);
 3. load `wip-coordinator` and the skills as instructions; otherwise paste `.agents/skills/wip-coordinate/SKILL.md`
-   into a session;
+   into a session as its first message;
 4. launch, stop and collect background subagents; otherwise the coordinator runs each phase itself, in the
    foreground, following the agent's `.md`;
 5. ask the user a question with options; otherwise the gate is a text block with numbered options, answered in the
    next turn.
 
 The **Runtime interface** section of `wip-coordinate` maps those capabilities to Claude Code's tools and says what
-to do without each one. The coordinator starts every session with `wip session start`, `wip state --attention` and
+to do without each one. On the first message of every session, whatever it says, the coordinator starts with `wip session start`, `wip state --attention` and
 `wip check`, and never relaunches a run it finds `orphaned`: it tells you.
 
 ## Development

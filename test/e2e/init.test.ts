@@ -219,7 +219,7 @@ describe("wip init --runtime (F-NEW-02)", () => {
       TEMPLATES["agents/fast.md"] as string,
     );
     expect(existsSync(join(dir, ".claude", "skills", "wip-coordinate", "SKILL.md"))).toBe(true);
-    expect(out.stdout).toContain("claude --agent wip-coordinator");
+    expect(out.stdout).toContain('claude --agent wip-coordinator "start"');
     expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
 
     const before = tree(dir);
@@ -248,6 +248,7 @@ describe("wip init --runtime (F-NEW-02)", () => {
       expect(out.code).toBe(EXIT.OK);
       expect(out.stdout).toContain("Point your runtime at .agents/:");
       expect(out.stdout).toContain("wip init --runtime claude-code");
+      expect(out.stdout).toContain("SKILL.md into a session as its first message");
       expect(existsSync(join(dir, ".claude"))).toBe(false);
       expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
     }
