@@ -99,6 +99,7 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
       expect(out.stdout).toContain(`created .agents/${key}`);
     expect(out.stdout).toContain("created .wip/config.json (definitions in .agents/)");
     expect(out.stdout).toContain("flow lint: OK tasks");
+    expect(out.stdout).toContain("seeded item onboarding (tasks · intake)");
     expect(out.stdout).toContain("Point your harness at .agents/:");
     expect(out.stdout).toContain("wip init --harness claude-code");
     expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
@@ -361,6 +362,62 @@ describe("wip init --harness claude-code (F-NEW-02)", () => {
       expect(tree(cc)).toEqual(ccBefore);
       expect(existsSync(join(cc, ".agents"))).toBe(false);
     }
+  });
+});
+
+describe("the onboarding item seeded by init (F-NEW-08)", () => {
+  function items(dir: string, argv: readonly string[] = ["state"]): unknown[][] {
+    const rows = (wipJsonIn(dir, argv).body.data?.items ?? []) as Record<string, unknown>[];
+    return rows.map((r) => [r.id, r.flow, r.phase, r.waiting_on, r.title]);
+  }
+  const ONBOARDING = ["onboarding", "tasks", "intake", "user", "Get to know wip"];
+
+  for (const argv of [["init"], ["init", "--harness", "claude-code"]]) {
+    test(`${argv.join(" ")} seeds it once; a second init and --force do not duplicate it`, () => {
+      const dir = tmp("seed");
+      const first = wipJsonIn(dir, argv);
+      expect(first.code).toBe(EXIT.OK);
+      expect(first.body.data?.items).toEqual([
+        { id: "onboarding", flow: "tasks", phase: "intake", action: "seeded" },
+      ]);
+      expect(wipIn(dir, argv).stdout).toContain("exists item onboarding (tasks · intake)");
+      const forced = wipJsonIn(dir, [...argv, "--force"]);
+      expect(forced.code).toBe(EXIT.OK);
+      expect(forced.body.data?.items).toEqual([
+        { id: "onboarding", flow: "tasks", phase: "intake", action: "exists" },
+      ]);
+      expect(items(dir)).toEqual([ONBOARDING]);
+      expect(items(dir, ["state", "--attention"])).toEqual([ONBOARDING]);
+      const check = wipJsonIn(dir, ["check"]);
+      expect(check.code).toBe(EXIT.OK);
+      expect(check.body.data?.findings).toEqual([]);
+      const shown = wipJsonIn(dir, ["show", "onboarding"]).body;
+      expect(existsSync(String(shown.item?.artifact_dir))).toBe(true);
+    });
+  }
+
+  test("an onboarding moved on by the user is not revived by init --force", () => {
+    const dir = tmp("seed-moved");
+    wipIn(dir, ["init"]);
+    expect(wipJsonIn(dir, ["log", "onboarding", "seen", "--kind", "user"]).code).toBe(EXIT.OK);
+    expect(wipJsonIn(dir, ["phase", "onboarding", "done"]).code).toBe(EXIT.OK);
+    expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
+    expect(items(dir)).toEqual([["onboarding", "tasks", "done", "none", "Get to know wip"]]);
+    expect(wipJsonIn(dir, ["archive", "onboarding"]).code).toBe(EXIT.OK);
+    expect(wipIn(dir, ["init"]).stdout).toContain("exists item onboarding");
+    expect(items(dir)).toEqual([]);
+  });
+
+  test("a flow without seed creates no database", () => {
+    const dir = tmp("seed-none");
+    mkdirSync(join(dir, ".agents", "skills", "wip-flow-tasks"), { recursive: true });
+    const flow = join(dir, ".agents", "skills", "wip-flow-tasks", "SKILL.md");
+    const text = TEMPLATES["skills/wip-flow-tasks/SKILL.md"] as string;
+    writeFileSync(flow, text.replace(/^seed:\n(?: {2}.*\n)+/m, ""));
+    const out = wipJsonIn(dir, ["init"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.data?.items).toEqual([]);
+    expect(existsSync(join(dir, ".wip", "wip.sqlite"))).toBe(false);
   });
 });
 

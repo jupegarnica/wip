@@ -418,7 +418,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       ph.next,
     ]);
     expect(shape).toEqual([
-      ["preparation", "intake", "none", null, "artifacts", ["research", "plan"]],
+      ["preparation", "intake", "none", null, "artifacts", ["research", "plan", "done"]],
       ["preparation", "research", "auto", "thinker", "artifacts", ["plan"]],
       ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"]],
       ["execution", "execute", "auto", "efficient", "project", ["check"]],
@@ -439,6 +439,36 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     ]);
     expect(flow.phases.at(-1)?.kind).toBe("terminal");
     expect(Object.keys(flow.fields)).toEqual(["title"]);
+    expect(flow.seed).toEqual([
+      {
+        id: "onboarding",
+        phase: "intake",
+        title: "Get to know wip",
+        next: "the coordinator presents wip's features",
+      },
+    ]);
+  });
+
+  test("the coordinator presents the features while onboarding waits, after the models, and closes it in done", () => {
+    const start = template("agents/wip.md");
+    expect(start).toContain("lists `onboarding` in `intake`");
+    expect(start).toContain("«Feature onboarding» in `wip-coordinate`, after the model questions");
+    const coordinate = template("skills/wip-coordinate/SKILL.md");
+    const section = coordinate.slice(coordinate.indexOf("## Feature onboarding"));
+    const own = section.slice(0, section.indexOf("\n## ", 1));
+    for (const topic of [
+      "**Flows:**",
+      "**Agents:**",
+      "**Gates:**",
+      "**Kanban:**",
+      "**Commands:**",
+    ]) {
+      expect(own).toContain(topic);
+    }
+    expect(own).toContain("model onboarding first");
+    expect(own).toContain("`wip-new-flow` and `wip-new-agent`");
+    expect(own).toContain("`wip phase onboarding done`");
+    expect(own).toContain("with no\n   subagent");
   });
 
   test("its stages pass the lint; a stage split in two does not", () => {

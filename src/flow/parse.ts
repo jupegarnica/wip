@@ -32,6 +32,14 @@ export interface ILink {
   url: string;
 }
 
+/** An item `wip init` creates once; it waits on the phase's `waiting_default`. */
+export interface ISeedItem {
+  id: string;
+  phase: string;
+  title: string | null;
+  next: string | null;
+}
+
 /** Plain JSON: the registry stores it as the last valid version of the flow. */
 export interface IFlow {
   name: string;
@@ -41,6 +49,7 @@ export interface IFlow {
   fields: Record<string, IFieldDef>;
   links: ILink[];
   phases: IPhase[];
+  seed: ISeedItem[];
   /** Text of `## Subagents`, `null` when the file has none. */
   subagents: string | null;
   /** Text of each `### <phase>` section, by phase name. */
@@ -59,7 +68,9 @@ const FIELD_NAME_RE = /^[a-z][a-z0-9_]*$/;
 const ENUM_RE = /^enum\(([^)]*)\)$/;
 const BLOCK_RE = /^```wip-flow[ \t]*\n([\s\S]*?)^```[ \t]*$/gm;
 
-const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases"];
+const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases", "seed"];
+const SEED_KEYS = ["id", "phase", "title", "next"];
+export const DEFAULT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** Item columns of the CLI; `title` is a column too but a flow may declare it as a field. */
 export const RESERVED_FIELDS = [
   "id",
@@ -193,6 +204,33 @@ function parseLinks(raw: unknown, problems: string[]): ILink[] {
     links.push({ pattern, url });
   });
   return links;
+}
+
+function parseSeed(raw: unknown, problems: string[]): ISeedItem[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    problems.push("seed: must be a list of {id, phase, title, next}");
+    return [];
+  }
+  const seed: ISeedItem[] = [];
+  raw.forEach((entry, i) => {
+    const where = `seed[${i}]`;
+    if (!isMap(entry)) {
+      problems.push(`${where}: must be a mapping with id and phase`);
+      return;
+    }
+    for (const key of Object.keys(entry)) {
+      if (!SEED_KEYS.includes(key)) problems.push(`${where}: unknown key '${key}'`);
+    }
+    if (entry.id === undefined) problems.push(`${where}: missing id`);
+    if (entry.phase === undefined) problems.push(`${where}: missing phase`);
+    const id = optionalText(entry.id, `${where}.id`, problems);
+    const phase = optionalText(entry.phase, `${where}.phase`, problems);
+    const title = optionalText(entry.title, `${where}.title`, problems);
+    const next = optionalText(entry.next, `${where}.next`, problems);
+    if (id !== null && phase !== null) seed.push({ id, phase, title, next });
+  });
+  return seed;
 }
 
 function parseFields(raw: unknown, problems: string[]): Record<string, IFieldDef> {
@@ -329,6 +367,7 @@ export function parseFlow(name: string, text: string): IParsed {
       fields: parseFields(raw.fields, problems),
       links: parseLinks(raw.links, problems),
       phases,
+      seed: parseSeed(raw.seed, problems),
       ...sections,
     },
   };

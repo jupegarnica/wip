@@ -25,6 +25,7 @@ export const COMMANDS: readonly ICommandSpec[] = [
       "A project keeps its folder: an init that would write to another one exits 3 and writes nothing.",
       "A file at a template's path without a `wip:` mark is another tool's: exit 3 and nothing written, also with --force.",
       "--force replaces only files with a `wip:` mark, each backed up in .wip/backups/defs/; `model:` is kept.",
+      "Creates the items a flow lists under `seed` (tasks: onboarding) once; an existing or archived ID is never touched.",
       "Claude Code: start the coordinator with `claude --agent wip`.",
     ],
   },

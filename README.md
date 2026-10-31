@@ -77,6 +77,13 @@ carry a `wip:` mark in their frontmatter (every file `wip init` writes), copying
 only in the backup. A file at one of those paths without a `wip:` mark is another tool's: `wip init` exits 3 without
 writing anything and names it, also with `--force`.
 
+`wip init` also creates the items a flow lists under `seed` in its block. The `tasks` flow seeds one, `onboarding`
+(«Get to know wip»), in `intake` and waiting on you: on the first start, after the model questions and the kanban, the
+coordinator presents wip's features (flows and their stages, the generic agents, gates, the kanban, the useful
+commands, how to create your own flows and agents) and asks what you want to do; once you have seen it, it moves
+`onboarding` to `done` and archives it. An ID that already exists, open or archived, is never touched: a second
+init or `--force` neither duplicates nor revives it.
+
 A project keeps its definitions folder. An init that would write to another one (`wip init --harness claude-code` on
 a project set up in `.agents/`, or the other way round) exits 3 and writes nothing; wip never moves definitions.
 
@@ -158,8 +165,8 @@ phases:
 ```
 
 The text around the block (`## Subagents`, one `### <phase>` per phase) tells the coordinator what each phase does.
-The reference of every key (`id_pattern`, `fields` and their types, `links`, `stage`, `gate`, `waiting_default`,
-`agent`, `writes`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
+The reference of every key (`id_pattern`, `fields` and their types, `links`, `seed`, `stage`, `gate`,
+`waiting_default`, `agent`, `writes`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
 to copy from (it is not a flow itself: only folders named `wip-flow-*` are).
 
 The default flow, `tasks`, is generic: the same phases carry code, an investigation, a document or a decision,
@@ -170,6 +177,8 @@ grouped in three stages.
 | `preparation` | `intake` → `research` → `plan` | the request; context, sources and options (skipped when clear); a plan that fixes what is delivered and how it is checked, approved by you |
 | `execution`   | `execute` → `check`            | the deliverable; its check against the plan's criteria, back to `execute` when red                                                         |
 | `review`      | `review` → `deliver` → `done`  | you validate the result; `deliver` only when something is written outside the project (a pull request, a message, a ticket)                |
+
+A request that needs no work, or that you drop, goes from `intake` straight to `done`.
 
 To create a flow, ask the coordinator («create a flow for reviews with these phases…»): it follows `wip-new-flow`
 (proposal, your approval, backup, write, `wip flow lint`, restore if the lint fails). By hand:

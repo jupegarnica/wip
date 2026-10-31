@@ -16,6 +16,9 @@ First version.
 - Claude Code: `claude --agent wip` starts the coordinator through its `initialPrompt`; the generic agents preload
   `wip-subagent-protocol` with their `skills` key.
 - Model onboarding: `wip check` warns with `models_unset` until each generic agent and the coordinator have a `model:`.
+- Feature onboarding: a flow's `seed` lists items `wip init` creates once (an existing or archived ID is never
+  touched); the `tasks` flow seeds `onboarding` in `intake`, waiting on the user, and on the first start the
+  coordinator presents wip's features after the model questions, then closes it in `done`.
 - `wip web`: a read-only kanban served from the binary, each stage in one blue that grows more transparent stage
   after stage (light and dark themes); `--open` opens the browser on it, `wip web status` says
   whether this project's one is up, `wip web stop` stops it and `wip web log` shows its log (`.wip/logs/web.log`).

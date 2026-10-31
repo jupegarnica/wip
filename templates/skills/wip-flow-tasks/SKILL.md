@@ -23,6 +23,9 @@ outside the project, once it is delivered. Three stages:
   - `deliver`: only when something is written outside the project (a pull request, a message, a ticket).
   - `done`: closed.
 
+`wip init` seeds one item, `onboarding`, in `intake` waiting on the user: on the first start the coordinator
+presents wip's features with it («Feature onboarding» in `wip-coordinate`) and closes it in `done`.
+
 ```wip-flow
 version: 1
 fields:
@@ -31,7 +34,7 @@ phases:
   - name: intake
     stage: preparation
     gate: none
-    next: [research, plan]
+    next: [research, plan, done]
     waiting_default: user
   - name: research
     stage: preparation
@@ -71,6 +74,11 @@ phases:
   - name: done
     stage: review
     kind: terminal
+seed:
+  - id: onboarding
+    phase: intake
+    title: Get to know wip
+    next: the coordinator presents wip's features
 ```
 
 ## Subagents
@@ -101,7 +109,8 @@ The coordinator does this phase itself, with no subagent. Create the item with
 `wip phase <ID> intake --flow tasks`, then `wip set <ID> title=<short title>`. Write `request.md` in the item's
 artifact directory with `## What` (the outcome the user wants, in their words) and `## Context` (links, files,
 constraints). Ask the user only what blocks preparing the work. When the request names what to deliver and leaves
-nothing to find out first, move to `plan`; otherwise move to `research`.
+nothing to find out first, move to `plan`; otherwise move to `research`. A request that needs no work, or that the
+user drops, goes straight to `done` after `wip log <ID> "<their words>" --kind user`.
 
 ### research
 

@@ -121,7 +121,7 @@ describe("a new flow created by copying the tasks flow skill (§1.7)", () => {
     wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "tasks"]);
 
     expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "review"]))).toEqual(["R1"]);
-    expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "tasks"]))).toEqual(["W1"]);
+    expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "tasks"]))).toEqual(["W1", "onboarding"]);
     expect(wipJsonIn(p.dir, ["check"]).code).toBe(EXIT.OK);
   });
 

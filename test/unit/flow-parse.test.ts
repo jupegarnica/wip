@@ -87,7 +87,7 @@ describe("schema problems", () => {
   test("unknown keys, bad version, reserved and unknown field types, bad kind, gate and next", () => {
     const { problems } = parseFlow("bad-schema", fixture("flows", "bad-schema"));
     expect(problems).toEqual([
-      "unknown key 'polling' (version, id_pattern, fields, links, phases)",
+      "unknown key 'polling' (version, id_pattern, fields, links, phases, seed)",
       "version 2: only 1 is supported",
       "phase todo: kind: 'busy' is not one of work | wait | terminal",
       "phase todo: next must be a list of phase names",

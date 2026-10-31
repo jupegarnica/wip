@@ -45,7 +45,7 @@ describe("flow lint rules (F-FLU-12)", () => {
   test("schema: unknown keys and invalid values", () => {
     expect(lint("bad-schema").length).toBeGreaterThanOrEqual(7);
     expect(lint("bad-schema")).toContain(
-      "unknown key 'polling' (version, id_pattern, fields, links, phases)",
+      "unknown key 'polling' (version, id_pattern, fields, links, phases, seed)",
     );
   });
 
@@ -147,6 +147,46 @@ describe("flow lint rules (F-FLU-12)", () => {
   test("a missing or broken wip-flow block", () => {
     expect(lint("no-block")).toEqual(["no ```wip-flow block"]);
     expect(lint("bad-yaml")[0]).toStartWith("the wip-flow block is not valid YAML");
+  });
+});
+
+describe("seed of a flow (F-NEW-08)", () => {
+  const seeded = (seed: string, phaseKeys = "waiting_default: user"): string =>
+    minimalFlow(phaseKeys).replace(/```\n$/, `seed:\n${seed}\n\`\`\`\n`);
+
+  test("a seed in a phase that waits on the user passes", () => {
+    expect(lint("x", seeded("  - {id: hello, phase: todo, title: Hi, next: read it}"))).toEqual([]);
+  });
+
+  test("unknown keys, a missing id or phase, and a list that is not one", () => {
+    expect(lint("x", seeded("  - {id: a, phase: todo, owner: me}"))).toEqual([
+      "seed[0]: unknown key 'owner'",
+    ]);
+    expect(lint("x", seeded("  - {title: Hi}"))).toEqual([
+      "seed[0]: missing id",
+      "seed[0]: missing phase",
+    ]);
+    expect(lint("x", seeded("  hello: todo"))).toEqual([
+      "seed: must be a list of {id, phase, title, next}",
+    ]);
+  });
+
+  test("a phase that does not exist, a repeated or invalid ID, and a phase that waits on an agent", () => {
+    expect(lint("x", seeded("  - {id: a, phase: nope}"))).toEqual([
+      "seed a: phase 'nope' is not a phase",
+    ]);
+    expect(lint("x", seeded("  - {id: a, phase: todo}\n  - {id: a, phase: todo}"))).toEqual([
+      "seed ids repeat: a",
+    ]);
+    expect(lint("x", seeded("  - {id: '-a', phase: todo}"))).toEqual([
+      "seed -a: not a valid item ID for this flow",
+    ]);
+    expect(lint("x", seeded("  - {id: a, phase: todo}", ""))).toEqual([
+      "seed a: phase todo waits on agent; a seeded item starts in a phase whose waiting_default is user or external",
+    ]);
+    expect(lint("x", seeded("  - {id: a, phase: done}"))).toEqual([
+      "seed a: phase done waits on none; a seeded item starts in a phase whose waiting_default is user or external",
+    ]);
   });
 });
 

@@ -6,7 +6,7 @@ import type { TDatabase } from "../db.ts";
 import { FLOW_SKILL_PREFIX, flowPath, type IRoot } from "../env.ts";
 import { EXIT, notFound, usage, WipError } from "../errors.ts";
 import { type ILiveItem, lintFlow } from "./lint.ts";
-import type { IFlow } from "./parse.ts";
+import { DEFAULT_ID_RE, type IFlow } from "./parse.ts";
 
 /** `file`: the file passes lint · `stored`: last valid version from `flows` · `null`: unusable. */
 export type TFlowSource = "file" | "stored" | null;
@@ -46,7 +46,7 @@ interface IStoredJson {
   flow: IFlow;
 }
 
-export const DEFAULT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+export { DEFAULT_ID_RE };
 
 export interface IFlowFile {
   name: string;

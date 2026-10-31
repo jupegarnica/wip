@@ -11,6 +11,7 @@ import { EXIT, rejected, usage } from "../errors.ts";
 import { loadFlows } from "../flow/registry.ts";
 import { CLAUDE_CODE, defsDirFor, nativeDefsDir } from "../init/harness.ts";
 import { foreignFiles, scaffold } from "../init/scaffold.ts";
+import { seedItems } from "../init/seed.ts";
 
 export const FIRST_RUN_LINE =
   "Start your coordinator: on its first run it asks which model it and each generic agent use.";
@@ -105,6 +106,11 @@ function run(ctx: ICtx, args: IArgs): void {
   for (const f of done.files) {
     lines.push(`${f.action} ${f.path}${f.backup ? ` (backup ${f.backup})` : ""}`);
   }
+  const items = seedItems(rootAt(project));
+  for (const i of items) {
+    const verb = i.action === "seeded" ? "seeded item" : "exists item";
+    lines.push(`${verb} ${i.id} (${i.flow} · ${i.phase})`);
+  }
   const lintOk = lint(ctx, project);
 
   const next = [
@@ -121,6 +127,7 @@ function run(ctx: ICtx, args: IArgs): void {
     defs_dir: defsDir,
     harness,
     files: done.files,
+    items,
     lint: { ok: lintOk },
     next,
   };

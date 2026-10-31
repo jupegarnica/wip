@@ -140,7 +140,7 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     expect(totals).toMatchObject({ runs: 7, running: 0, gates: 3, agent_seconds: runSeconds });
     expect(totals.user_wait_seconds).toBeGreaterThanOrEqual(0);
 
-    expect(rowsOf(wipOkIn(dir, ["state"]), "items")).toEqual([]);
+    expect(rowsOf(wipOkIn(dir, ["state"]), "items").map((i) => i.id)).toEqual(["onboarding"]);
     const archived = rowsOf(wipOkIn(dir, ["state", "--archived"]), "items");
     expect(archived.map((i) => i.id)).toEqual(["T1"]);
     expect(existsSync(join(artifacts, "request.md"))).toBe(true);
@@ -174,5 +174,34 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     step(dir, ["phase", "T3", "review"]);
     step(dir, ["phase", "T3", "done"]);
     expect(wipOkIn(dir, ["show", "T3"]).item).toMatchObject({ phase: "done" });
+  });
+});
+
+describe("the seeded onboarding item (F-NEW-08)", () => {
+  test("init leaves onboarding in intake waiting on the user; the coordinator closes it in done and archives it", () => {
+    const dir = project("onboarding");
+    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
+    expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
+    const attention = rowsOf(wipOkIn(dir, ["state", "--attention"]), "items");
+    expect(attention.map((i) => [i.id, i.flow, i.phase, i.waiting_on])).toEqual([
+      ["onboarding", "tasks", "intake", "user"],
+    ]);
+    expect(attention[0]?.title).toBe("Get to know wip");
+    expect(String(attention[0]?.next)).toContain("presents wip's features");
+
+    step(dir, ["session", "start", "--id", "s1"]);
+    step(dir, ["log", "onboarding", "seen, thanks", "--kind", "user"]);
+    step(dir, ["phase", "onboarding", "done"]);
+    expect(wipOkIn(dir, ["show", "onboarding"]).item).toMatchObject({
+      phase: "done",
+      waiting_on: "none",
+    });
+    step(dir, ["archive", "onboarding"]);
+    expect(rowsOf(wipOkIn(dir, ["state", "--attention"]), "items")).toEqual([]);
+
+    expect(wipJsonIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
+    expect(rowsOf(wipOkIn(dir, ["state"]), "items")).toEqual([]);
+    const archived = rowsOf(wipOkIn(dir, ["state", "--archived"]), "items");
+    expect(archived.map((i) => [i.id, i.phase])).toEqual([["onboarding", "done"]]);
   });
 });

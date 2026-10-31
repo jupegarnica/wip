@@ -1,8 +1,7 @@
 import { lintAgentRef, parseFrontmatter } from "../agents.ts";
 import { DEFAULT_DEFS_DIR } from "../config.ts";
 import { FLOW_SKILL_PREFIX } from "../env.ts";
-import type { IFlow } from "./parse.ts";
-import { parseFlow } from "./parse.ts";
+import { DEFAULT_ID_RE, type IFlow, parseFlow } from "./parse.ts";
 
 export interface ILiveItem {
   id: string;
@@ -133,6 +132,35 @@ export function lintGraph(flow: IFlow): string[] {
     if (err) problems.push(`links[${i}].pattern is not a valid regular expression: ${err}`);
     if (!/^https?:\/\//.test(link.url)) problems.push(`links[${i}].url must start with http(s)://`);
   });
+  problems.push(...lintSeed(flow));
+  return problems;
+}
+
+// A seeded item has no running agent and no work done yet: it can only wait on a person.
+const SEED_WAITS = ["user", "external"];
+
+function lintSeed(flow: IFlow): string[] {
+  const problems: string[] = [];
+  const pattern =
+    flow.idPattern !== null && regexProblem(flow.idPattern) === null
+      ? new RegExp(`^(?:${flow.idPattern})$`)
+      : null;
+  const ids = flow.seed.map((s) => s.id);
+  const repeated = ids.filter((id, i) => ids.indexOf(id) !== i);
+  if (repeated.length > 0) problems.push(`seed ids repeat: ${[...new Set(repeated)].join(", ")}`);
+  for (const s of flow.seed) {
+    const where = `seed ${s.id}`;
+    if (!DEFAULT_ID_RE.test(s.id) || (pattern !== null && !pattern.test(s.id))) {
+      problems.push(`${where}: not a valid item ID for this flow`);
+    }
+    const phase = flow.phases.find((p) => p.name === s.phase);
+    if (!phase) problems.push(`${where}: phase '${s.phase}' is not a phase`);
+    else if (!SEED_WAITS.includes(phase.waitingDefault)) {
+      problems.push(
+        `${where}: phase ${s.phase} waits on ${phase.waitingDefault}; a seeded item starts in a phase whose waiting_default is user or external`,
+      );
+    }
+  }
   return problems;
 }
 

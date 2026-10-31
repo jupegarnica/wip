@@ -226,6 +226,28 @@ in `<defs>/`, so whoever clones a project already set up is not asked again.
 A runtime that takes its subagents' model from somewhere else ignores `model:`. Say so in the question and write the
 answer anyway: it stays in `<defs>/` and applies wherever the runtime reads it.
 
+## Feature onboarding
+
+`wip init` seeds the item `onboarding` (flow `tasks`, phase `intake`, waiting on the user). While it is there, the
+closing message of «Start of every session» presents wip instead of only listing what waits.
+
+1. **Order:** model onboarding first (it decides how the subagents run), then the kanban line, then this tour, so
+   the session's first turn ends with one open question, not two.
+2. **The tour:** one 🟦 block per topic, 3 lines at most each, separated by `---`, with the topic in the header
+   (`🟦 INFO · onboarding · <topic>`), read from this project's definitions, never from memory:
+   - **Flows:** each `wip-flow-<flow>` skill with its stages and phases; for `tasks`, the typical task: the user
+     asks → `intake` → `research` if needed → `plan` (approved) → `execute` → `check` → `review` → `done`.
+   - **Agents:** `fast`, `efficient`, `thinker`, `wise`, from cheapest to most capable, each on its `model:`;
+     the model questions come back while any is missing, and the user can change one at any time.
+   - **Gates:** the 🟧 block, Approve · Change · Stop; only an explicit answer of the user approves.
+   - **Kanban:** `wip web`, with the URL of step 4: items by stage and phase, and what waits on the user.
+   - **Commands:** `wip state` (`--attention`: what waits on you), `wip show <ID>`, `wip help`.
+   - **Your own flows and agents:** ask for them; the skills `wip-new-flow` and `wip-new-agent` write them.
+3. **Close** with `🟦 INFO · What next? · <2-3 suggestions>` asking what they want to do.
+4. **Done:** the next answer that is not a question about the tour («ok», «seen», a request) closes it, with no
+   subagent: `wip log onboarding "<their words>" --kind user`, `wip phase onboarding done`,
+   `wip archive onboarding`; then handle their request. A question about the tour is answered and the item stays.
+
 ## Runtime interface
 
 wip never calls the runtime: you do. These are the five capabilities the protocol uses, and what to do without
