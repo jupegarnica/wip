@@ -405,29 +405,76 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     expect(String(frontmatter(FLOW_KEY).description)).toContain("for the coordinator");
   });
 
-  test("its phases carry the agents and writes of the plan", () => {
+  test("three stages of generic phases, each with its gate, agent, writes and next", () => {
     const { flow, problems } = parseFlow(DEFAULT_FLOW, template(FLOW_KEY));
     expect(problems).toEqual([]);
     if (!flow) throw new Error("no flow");
-    const shape = flow.phases.map((ph) => [ph.name, ph.gate, ph.agent ?? null, ph.writes, ph.next]);
+    const shape = flow.phases.map((ph) => [
+      ph.stage,
+      ph.name,
+      ph.gate,
+      ph.agent ?? null,
+      ph.writes,
+      ph.next,
+    ]);
     expect(shape).toEqual([
-      ["intake", "none", null, "artifacts", ["plan"]],
-      ["plan", "ask", "thinker", "artifacts", ["execute"]],
-      ["execute", "auto", "efficient", "project", ["verify"]],
-      ["verify", "ask", "efficient", "artifacts", ["plan", "execute", "done"]],
-      ["done", "none", null, "artifacts", []],
+      ["preparation", "intake", "none", null, "artifacts", ["research", "plan"]],
+      ["preparation", "research", "auto", "thinker", "artifacts", ["plan"]],
+      ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"]],
+      ["execution", "execute", "auto", "efficient", "project", ["check"]],
+      ["execution", "check", "auto", "efficient", "artifacts", ["execute", "review"]],
+      ["review", "review", "ask", null, "artifacts", ["plan", "execute", "deliver", "done"]],
+      ["review", "deliver", "ask", "efficient", "artifacts", ["done"]],
+      ["review", "done", "none", null, "artifacts", []],
+    ]);
+    expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual([
+      "user",
+      "agent",
+      "agent",
+      "agent",
+      "agent",
+      "user",
+      "agent",
+      "none",
     ]);
     expect(flow.phases.at(-1)?.kind).toBe("terminal");
     expect(Object.keys(flow.fields)).toEqual(["title"]);
   });
 
+  test("its stages pass the lint; a stage split in two does not", () => {
+    const project = initProject();
+    const agentsDir = join(project.dir, ".agents", "agents");
+    const lint = (text: string): string[] =>
+      lintFlow({ name: DEFAULT_FLOW, text, agentsDir, skill: true, liveItems: [] }).problems;
+    expect(lint(template(FLOW_KEY))).toEqual([]);
+    const split = template(FLOW_KEY).replace(
+      "  - name: check\n    stage: execution",
+      "  - name: check\n    stage: preparation",
+    );
+    expect(split).not.toBe(template(FLOW_KEY));
+    expect(lint(split)).toEqual([
+      "stages must be contiguous in phase order: preparation → execution → preparation → review",
+    ]);
+  });
+
   test("## Subagents and a ### section for every phase are filled; there is no phase table", () => {
     const text = template(FLOW_KEY);
-    const sections = extractSections(text, ["intake", "plan", "execute", "verify", "done"]);
+    const phases = ["intake", "research", "plan", "execute", "check", "review", "deliver", "done"];
+    const sections = extractSections(text, phases);
     expect((sections.subagents ?? "").length).toBeGreaterThan(200);
-    for (const phase of ["intake", "plan", "execute", "verify", "done"]) {
+    for (const phase of phases) {
       expect((sections.phaseNotes[phase] ?? "").length).toBeGreaterThan(80);
     }
+    for (const phase of ["research", "plan", "execute", "check", "deliver"]) {
+      expect(sections.subagents).toContain(`\`${phase}\` uses`);
+    }
+    expect(sections.phaseNotes.plan).toContain(
+      "the deliverable (code, a report, a document, a decision)",
+    );
+    expect(sections.phaseNotes.check).toContain(
+      "each question of an investigation has an answer and",
+    );
+    expect(text).not.toContain("verify");
     expect(text.split("\n").some((line) => line.startsWith("|"))).toBe(false);
   });
 });

@@ -24,6 +24,7 @@ import {
 import { MARKDOWN_LIB, WEB } from "../../src/embedded/web.ts";
 import { rootAt } from "../../src/env.ts";
 import { EXIT } from "../../src/errors.ts";
+import { parseFlow } from "../../src/flow/parse.ts";
 import { fileLog, rotateIfNeeded, webLogPath } from "../../src/web/log.ts";
 import { readWebPid, webPidPath } from "../../src/web/pidfile.ts";
 import {
@@ -35,7 +36,20 @@ import {
   privateRank,
   startWeb,
 } from "../../src/web/server.ts";
-import { itemLinks, openReadOnly, PALETTE, textOn } from "../../src/web/state.ts";
+import {
+  composite,
+  flowColumns,
+  itemLinks,
+  openReadOnly,
+  STAGE_ALPHA_FIRST,
+  STAGE_ALPHA_LAST,
+  STAGE_TONE,
+  SURFACE_DARK,
+  SURFACE_LIGHT,
+  stageAlpha,
+  stageColor,
+  textOn,
+} from "../../src/web/state.ts";
 import { WIP_BIN } from "../helpers/bin.ts";
 import { minimalFlow, putFlow } from "../helpers/defs.ts";
 import { at, itemInPlan, itemsProject, ok, T0, tick, useProject } from "../helpers/items.ts";
@@ -121,15 +135,52 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
       ["phase:todo", "todo"],
       ["phase:done", "done"],
     ]);
-    // F-WEB-11: the colour follows the column order, the same for every flow.
-    for (const flow of body.flows) {
-      flow.columns.forEach((c: TJson, i: number) => {
-        expect(c.color).toBe(PALETTE[i % PALETTE.length]);
-        expect(c.text).toBe(textOn(c.color));
-      });
+    // F-WEB-11: one tone, more transparent stage after stage; a column without a stage has no colour.
+    expect(valid.columns.map((c: TJson) => [c.alpha, c.color])).toEqual([
+      [1, stageColor(1)],
+      [0.63, stageColor(0.63)],
+      [0.25, stageColor(0.25)],
+    ]);
+    expect(valid.columns[0]).toMatchObject({ text: "#FFFFFF", text_dark: "#FFFFFF" });
+    expect(valid.columns[2]).toMatchObject({ text: "#111111", text_dark: "#FFFFFF" });
+    for (const c of minimal.columns) {
+      expect(c).toMatchObject({ alpha: null, color: "", text: "", text_dark: "" });
     }
     const t1 = body.items.find((i: TJson) => i.id === "T1");
-    expect(t1).toMatchObject({ column: "stage:doing", stage: "doing", color: PALETTE[1] });
+    expect(t1).toMatchObject({
+      column: "stage:doing",
+      stage: "doing",
+      alpha: 0.63,
+      color: stageColor(0.63),
+    });
+    const a1 = body.items.find((i: TJson) => i.id === "A1");
+    expect(a1).toMatchObject({ column: "phase:todo", stage: null, alpha: null, color: "" });
+  });
+
+  test("stage opacity steps evenly for any number of stages, from opaque to the last step", () => {
+    expect(stageAlpha(0, 1)).toBe(STAGE_ALPHA_FIRST);
+    expect([0, 1].map((i) => stageAlpha(i, 2))).toEqual([1, 0.25]);
+    expect([0, 1, 2, 3, 4].map((i) => stageAlpha(i, 5))).toEqual([1, 0.81, 0.63, 0.44, 0.25]);
+    expect(stageAlpha(6, 7)).toBe(STAGE_ALPHA_LAST);
+    expect(stageColor(0.5)).toBe("rgba(37, 99, 235, 0.5)");
+    expect(STAGE_TONE).toBe("#2563EB");
+    // Text follows the composite in each theme, so a faint stage keeps contrast in light and dark.
+    expect(composite(STAGE_TONE, 0, SURFACE_DARK)).toBe(SURFACE_DARK);
+    expect(textOn(composite(STAGE_TONE, 0.25, SURFACE_LIGHT))).toBe("#111111");
+    expect(textOn(composite(STAGE_TONE, 0.25, SURFACE_DARK))).toBe("#FFFFFF");
+  });
+
+  test("the tasks flow paints its three stages and nothing else", () => {
+    const text = readFileSync(
+      join(REPO, "templates", "skills", "wip-flow-tasks", "SKILL.md"),
+      "utf8",
+    );
+    const columns = flowColumns(parseFlow("tasks", text).flow);
+    expect(columns.map((c) => [c.label, c.phases, c.alpha])).toEqual([
+      ["preparation", ["intake", "research", "plan"], 1],
+      ["execution", ["execute", "check"], 0.63],
+      ["review", ["review", "deliver", "done"], 0.25],
+    ]);
   });
 
   test("items, «your turn» and signals are what `wip state` and `wip state --attention` compute", async () => {
@@ -386,6 +437,20 @@ describe("wip web · history (F-WEB-04)", () => {
       expect({ bad, status: res.status }).toEqual({ bad, status: 400 });
     }
   });
+
+  test("only an active item in a stage carries its colour", async () => {
+    const p = board();
+    serve(p);
+    const all = await getJson("/api/history?include=active,archived,discarded");
+    const paint = (id: string): TJson[] => {
+      const h = all.items.find((i: TJson) => i.id === id);
+      return [h.alpha, h.color];
+    };
+    expect(paint("T1")).toEqual([0.63, stageColor(0.63)]);
+    expect(paint("T3")).toEqual([null, ""]);
+    expect(paint("T4")).toEqual([null, ""]);
+    expect(paint("A1")).toEqual([null, ""]);
+  });
 });
 
 describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
@@ -521,6 +586,27 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     for (const needle of ["/api/kanban", "/api/item/", "/api/history", "localStorage"]) {
       expect(app).toContain(needle);
     }
+  });
+
+  test("the page paints the stage colour with the text of each theme, and nothing without a stage", () => {
+    const app = WEB["app.js"] as string;
+    for (const needle of [
+      '"--stage", paint.color',
+      '"--on-stage", paint.text',
+      "paint.text_dark",
+    ]) {
+      expect(app).toContain(needle);
+    }
+    expect(app).not.toContain("PALETTE");
+    const css = (WEB["app.css"] as string).replace(/\s+/g, " ");
+    expect(css).toContain(
+      "@media (prefers-color-scheme: dark) { .card--attention { color: var(--on-stage-dark, var(--text)); } }",
+    );
+    expect(css).toContain(
+      "@media (prefers-color-scheme: dark) { .hphase { color: var(--on-stage-dark, var(--text)); } }",
+    );
+    expect(css).toContain("border-top: 4px solid var(--stage, var(--border));");
+    expect(css).toContain("background: var(--stage, var(--gate-bg));");
   });
 });
 

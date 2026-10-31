@@ -471,10 +471,16 @@ ol.env-list {
 .card .ph {
   color: var(--muted);
 }
+/* Without a stage the card has no colour; the gate tones still mark it as waiting on you. */
 .card--attention {
-  background: var(--stage);
-  color: var(--on-stage);
-  border-color: var(--stage);
+  background: var(--stage, var(--gate-bg));
+  color: var(--on-stage, var(--text));
+  border-color: var(--stage, var(--gate-border));
+}
+@media (prefers-color-scheme: dark) {
+  .card--attention {
+    color: var(--on-stage-dark, var(--text));
+  }
 }
 .card--attention .ph {
   color: inherit;
@@ -875,6 +881,11 @@ html:has(.page-view) {
   background: var(--stage, var(--surface));
   color: var(--on-stage, var(--text));
   white-space: nowrap;
+}
+@media (prefers-color-scheme: dark) {
+  .hphase {
+    color: var(--on-stage-dark, var(--text));
+  }
 }
 .history-include {
   display: inline-flex;

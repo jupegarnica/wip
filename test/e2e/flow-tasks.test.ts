@@ -50,7 +50,7 @@ function artifactDir(dir: string, id: string): string {
 }
 
 describe("the tasks flow from intake to done with CLI commands only (§1.6)", () => {
-  test("a simulated coordinator takes T1 through plan, execute, a sent-back verify and done", () => {
+  test("a simulated coordinator takes T1 through research, plan, execute, a red check, review and deliver", () => {
     const dir = project("t1");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
@@ -61,6 +61,9 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     const artifacts = artifactDir(dir, "T1");
     expect(artifacts).toBe(join(dir, ".wip", "items", "tasks", "T1"));
     writeFileSync(join(artifacts, "request.md"), "## What\n\nA README.\n\n## Context\n\nNone.\n");
+
+    step(dir, ["phase", "T1", "research"]);
+    runSubagent(dir, "T1", "thinker", "h0");
 
     step(dir, ["phase", "T1", "plan"]);
     step(dir, ["agent", "start", "T1", "thinker", "--phase", "plan", "--handle", "h1"]);
@@ -80,19 +83,22 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     step(dir, ["phase", "T1", "execute"]);
     runSubagent(dir, "T1", "efficient", "h2");
 
-    step(dir, ["phase", "T1", "verify"]);
+    step(dir, ["phase", "T1", "check"]);
     // `fast` is not the phase's `agent:` (efficient): the coordinator may pick another generic.
     runSubagent(dir, "T1", "fast", "h3");
-    step(dir, ["gate", "open", "T1", "--question", "Close T1?"]);
-    step(dir, ["gate", "close", "T1", "--answer", "Change: add a usage section"]);
-    step(dir, ["log", "T1", "user asked for a usage section", "--kind", "user"]);
-
+    // Red check: back to execute without a gate.
     step(dir, ["phase", "T1", "execute"]);
     runSubagent(dir, "T1", "efficient", "h4");
-    step(dir, ["phase", "T1", "verify"]);
+    step(dir, ["phase", "T1", "check"]);
     runSubagent(dir, "T1", "fast", "h5");
-    step(dir, ["gate", "open", "T1", "--question", "Close T1?"]);
-    step(dir, ["gate", "close", "T1", "--answer", "Approve"]);
+
+    step(dir, ["phase", "T1", "review"]);
+    step(dir, ["gate", "open", "T1", "--question", "Approve the result of T1?"]);
+    step(dir, ["gate", "close", "T1", "--answer", "Approve and open the pull request"]);
+    step(dir, ["phase", "T1", "deliver"]);
+    runSubagent(dir, "T1", "efficient", "h6");
+    step(dir, ["gate", "open", "T1", "--question", "Publish v1.deliver.md?"]);
+    step(dir, ["gate", "close", "T1", "--answer", "approved v1.deliver.md"]);
     step(dir, ["phase", "T1", "done"]);
     step(dir, ["archive", "T1"]);
 
@@ -102,21 +108,36 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     expect(item.status).toBe("archived");
 
     const runs = rowsOf(shown, "agent_runs");
-    expect(runs.map((r) => r.agent)).toEqual(["thinker", "efficient", "fast", "efficient", "fast"]);
-    expect(runs.map((r) => r.phase)).toEqual(["plan", "execute", "verify", "execute", "verify"]);
+    expect(runs.map((r) => r.agent)).toEqual([
+      "thinker",
+      "thinker",
+      "efficient",
+      "fast",
+      "efficient",
+      "fast",
+      "efficient",
+    ]);
+    expect(runs.map((r) => r.phase)).toEqual([
+      "research",
+      "plan",
+      "execute",
+      "check",
+      "execute",
+      "check",
+      "deliver",
+    ]);
     expect(runs.every((r) => r.status === "done")).toBe(true);
-    expect(new Set(runs.map((r) => r.agent))).toEqual(new Set(["thinker", "efficient", "fast"]));
 
     const gates = rowsOf(shown, "gates");
-    expect(gates.map((g) => g.answer)).toEqual([
-      "approved v1.plan.md",
-      "Change: add a usage section",
-      "Approve",
+    expect(gates.map((g) => [g.phase, g.answer])).toEqual([
+      ["plan", "approved v1.plan.md"],
+      ["review", "Approve and open the pull request"],
+      ["deliver", "approved v1.deliver.md"],
     ]);
 
     const totals = shown.data?.totals as Record<string, number>;
     const runSeconds = runs.reduce((sum, r) => sum + Number(r.duration_s), 0);
-    expect(totals).toMatchObject({ runs: 5, running: 0, gates: 3, agent_seconds: runSeconds });
+    expect(totals).toMatchObject({ runs: 7, running: 0, gates: 3, agent_seconds: runSeconds });
     expect(totals.user_wait_seconds).toBeGreaterThanOrEqual(0);
 
     expect(rowsOf(wipOkIn(dir, ["state"]), "items")).toEqual([]);
@@ -140,5 +161,18 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     const runs = rowsOf(shown, "agent_runs");
     expect(runs.map((r) => [r.agent, r.status])).toEqual([["thinker", "orphaned"]]);
     expect(shown.data?.totals).toMatchObject({ runs: 1, running: 0 });
+  });
+
+  test("intake goes straight to plan when the request is clear; the flow allows no shortcut past check", () => {
+    const dir = project("direct");
+    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
+    step(dir, ["phase", "T3", "intake", "--flow", "tasks"]);
+    step(dir, ["phase", "T3", "plan"]);
+    step(dir, ["phase", "T3", "execute"]);
+    expect(wipJsonIn(dir, ["phase", "T3", "review"]).code).toBe(EXIT.REJECTED);
+    step(dir, ["phase", "T3", "check"]);
+    step(dir, ["phase", "T3", "review"]);
+    step(dir, ["phase", "T3", "done"]);
+    expect(wipOkIn(dir, ["show", "T3"]).item).toMatchObject({ phase: "done" });
   });
 });

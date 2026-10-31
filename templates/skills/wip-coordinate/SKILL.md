@@ -120,7 +120,7 @@ most capable: `fast`, `efficient`, `thinker`, `wise`. Choose in this order:
 5. **`wise`** only with high ambiguity, high risk (data, security, something hard to undo), or after `thinker`
    failed on the same thing. No template uses it by default.
 6. **Escalation.** If a run returns `blocked` or `needs-input` because of difficulty (not because data from the user
-   is missing), or `verify` fails twice for the same reason, the next launch goes one level up (`fast` →
+   is missing), or `check` fails twice for the same reason, the next launch goes one level up (`fast` →
    `efficient` → `thinker` → `wise`), one level per relaunch. Above `wise`, open a gate.
 7. **Cost.** Between two levels, the cheaper one. An explicit preference of the user («use wise for this») wins;
    record it with `wip log <ID> "<their words>" --kind user`.
@@ -164,11 +164,11 @@ Detail: <path of gate-<phase>.md, if any>
 ```
 
 - **Summary labels** by kind of phase: a plan → Goal · Key steps · Risks · Writes (which files, where); a result
-  (execute, verify) → Result (green or red, and why) · Changes (files) · Checks (what ran, failures) · Deviations;
+  (execute, check, review) → Result (green or red, and why) · Changes (files) · Checks (what ran, failures) · Deviations;
   a publication → Destination · Text. Any other phase → what the user needs to decide.
 - **Open points:** each one says what is decided, the options, the consequence of each and your recommendation
   with its reason.
-- **Options:** Approve · Change · Stop, plus the phase's own (`verify`: back to `execute` or to `plan`).
+- **Options:** Approve · Change · Stop, plus the phase's own (`review`: back to `execute` or to `plan`, or on to `deliver`).
 
 ## Messages
 

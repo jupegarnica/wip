@@ -251,8 +251,19 @@ describe("wip web over both flows (§1.8)", () => {
       );
       expect(columns).toEqual({
         review: ["intake", "review", "fix", "done"],
-        tasks: ["intake", "plan", "execute", "verify", "done"],
+        tasks: ["intake", "research", "plan", "execute", "check", "review", "deliver", "done"],
       });
+      const tasks = kanban.flows.find((f: TJson) => f.name === "tasks");
+      expect(tasks.columns.map((c: TJson) => [c.label, c.alpha])).toEqual([
+        ["preparation", 1],
+        ["execution", 0.63],
+        ["review", 0.25],
+      ]);
+      expect(
+        new Set(tasks.columns.map((c: TJson) => c.color.split(",").slice(0, 3).join())),
+      ).toEqual(new Set(["rgba(37, 99, 235"]));
+      const reviewFlow = kanban.flows.find((f: TJson) => f.name === "review");
+      expect(reviewFlow.columns.every((c: TJson) => c.color === "" && c.alpha === null)).toBe(true);
       expect(kanban.your_turn.map((i: TJson) => i.id)).toContain("R1");
       expect(kanban.open_gates.map((g: TJson) => [g.item_id, g.question])).toEqual([
         ["R1", "Approve the review?"],

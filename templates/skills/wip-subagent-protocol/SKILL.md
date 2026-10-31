@@ -74,7 +74,7 @@ say in `SUMMARY` where it is, so the user can rotate it.
 - Write each artifact in present tense: what is true now, what you ran and what came out. No history of attempts.
 - An artifact the user approves or that gets published is versioned: `v1.<name>`, then `v2.<name>` on each change.
   Never edit a version you already returned; write the next one.
-- Reports of what you ran (`execute-report.md`, `verify.md`, `<phase>-report.md`) are not versioned: overwrite or
+- Reports of what you ran (`execute-report.md`, `check.md`, `<phase>-report.md`) are not versioned: overwrite or
   extend them.
 
 ## Output contract

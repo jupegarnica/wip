@@ -14,13 +14,39 @@ export interface IItemLink {
   source: string;
 }
 
-export interface IColumn {
+/** A column without a stage has no colour: `alpha` null and empty strings. */
+export interface IStagePaint {
+  alpha: number | null;
+  /** CSS `rgba()`. */
+  color: string;
+  /** Text on `color` in the light theme. */
+  text: string;
+  /** Text on `color` in the dark theme. */
+  text_dark: string;
+}
+
+export const NO_PAINT: IStagePaint = { alpha: null, color: "", text: "", text_dark: "" };
+
+export function stagePaint(alpha: number): IStagePaint {
+  return {
+    alpha,
+    color: stageColor(alpha),
+    text: textOn(composite(STAGE_TONE, alpha, SURFACE_LIGHT)),
+    text_dark: textOn(composite(STAGE_TONE, alpha, SURFACE_DARK)),
+  };
+}
+
+export function paintOf(column: IStagePaint | undefined): IStagePaint {
+  if (!column) return { ...NO_PAINT };
+  const { alpha, color, text, text_dark } = column;
+  return { alpha, color, text, text_dark };
+}
+
+export interface IColumn extends IStagePaint {
   key: string;
   label: string;
   stage: string | null;
   phases: string[];
-  color: string;
-  text: string;
 }
 
 export interface IBoardFlow {
@@ -29,11 +55,9 @@ export interface IBoardFlow {
   columns: IColumn[];
 }
 
-export interface IBoardItem extends IStateItem {
+export interface IBoardItem extends IStateItem, IStagePaint {
   column: string;
   stage: string | null;
-  color: string;
-  text: string;
   links: IItemLink[];
 }
 
@@ -74,27 +98,57 @@ export interface IBoard {
   warnings: { code: string; flow: unknown; message: string }[];
 }
 
-/** By column order inside each flow, the same for every flow. */
-export const PALETTE: readonly string[] = [
-  "#4C6EF5",
-  "#12B886",
-  "#FAB005",
-  "#E64980",
-  "#7950F2",
-  "#15AABF",
-  "#FD7E14",
-  "#82C91E",
-];
-export const FALLBACK_COLOR = "#ADB5BD";
+/** The one hue of the board: every stage is this tone, more transparent the later it comes in the flow. */
+export const STAGE_TONE = "#2563EB";
+export const STAGE_ALPHA_FIRST = 1;
+export const STAGE_ALPHA_LAST = 0.25;
+/** `--surface` of each theme in web/app.css: the stage colour is composited over it to choose the text. */
+export const SURFACE_LIGHT = "#FFFFFF";
+export const SURFACE_DARK = "#211F1D";
+const DARK_TEXT = "#111111";
+const LIGHT_TEXT = "#FFFFFF";
 
-/** Black or white, whichever reads better on `hex` (WCAG relative luminance). */
-export function textOn(hex: string): string {
-  const channel = (i: number): number => {
-    const c = Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+/** Opacity of the stage at `index` of `count`: the first one opaque, the last one at `STAGE_ALPHA_LAST`. */
+export function stageAlpha(index: number, count: number): number {
+  if (count <= 1) return STAGE_ALPHA_FIRST;
+  const step = (STAGE_ALPHA_FIRST - STAGE_ALPHA_LAST) / (count - 1);
+  return Math.round((STAGE_ALPHA_FIRST - step * index) * 100) / 100;
+}
+
+function rgbOf(hex: string): [number, number, number] {
+  const at = (i: number): number => Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  return [at(0), at(1), at(2)];
+}
+
+export function stageColor(alpha: number, tone: string = STAGE_TONE): string {
+  const [r, g, b] = rgbOf(tone);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
+/** The solid colour `tone` at `alpha` shows over `surface`. */
+export function composite(tone: string, alpha: number, surface: string): string {
+  const under = rgbOf(surface);
+  const mixed = rgbOf(tone).map((c, i) =>
+    Math.round(c * alpha + (under[i] as number) * (1 - alpha)),
+  );
+  return `#${mixed.map((c) => c.toString(16).padStart(2, "0").toUpperCase()).join("")}`;
+}
+
+function luminance(hex: string): number {
+  const channel = (v: number): number => {
+    const c = v / 255;
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
   };
-  const l = 0.2126 * channel(0) + 0.7152 * channel(1) + 0.0722 * channel(2);
-  return l > 0.4 ? "#111111" : "#FFFFFF";
+  const [r, g, b] = rgbOf(hex).map(channel) as [number, number, number];
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/** Dark or white text, whichever has the higher WCAG contrast on `hex`. */
+export function textOn(hex: string): string {
+  const l = luminance(hex);
+  const onDark = (luminance(LIGHT_TEXT) + 0.05) / (l + 0.05);
+  const onLight = (l + 0.05) / (luminance(DARK_TEXT) + 0.05);
+  return onDark >= onLight ? LIGHT_TEXT : DARK_TEXT;
 }
 
 /** The database read-only, or `null` while it does not exist; a schema this build does not read is an error. */
@@ -161,7 +215,7 @@ export function flowColumns(flow: IFlow | null, extraPhases: readonly string[] =
   const add = (key: string, label: string, stage: string | null, phase: string): void => {
     const found = columns.find((c) => c.key === key);
     if (found) found.phases.push(phase);
-    else columns.push({ key, label, stage, phases: [phase], color: "", text: "" });
+    else columns.push({ key, label, stage, phases: [phase], ...NO_PAINT });
   };
   for (const p of flow?.phases ?? []) {
     if (p.stage) add(`stage:${p.stage}`, p.stage, p.stage, p.name);
@@ -170,9 +224,9 @@ export function flowColumns(flow: IFlow | null, extraPhases: readonly string[] =
   for (const name of extraPhases) {
     if (!columns.some((c) => c.phases.includes(name))) add(`phase:${name}`, name, null, name);
   }
-  columns.forEach((c, i) => {
-    c.color = flow ? (PALETTE[i % PALETTE.length] as string) : FALLBACK_COLOR;
-    c.text = textOn(c.color);
+  const staged = columns.filter((c) => c.stage !== null);
+  staged.forEach((c, i) => {
+    Object.assign(c, stagePaint(stageAlpha(i, staged.length)));
   });
   return columns;
 }
@@ -202,8 +256,7 @@ export function boardData(db: TDatabase | null, flows: IFlowSet): IBoard {
       ...s,
       column: column?.key ?? `phase:${s.phase}`,
       stage: (flow && phaseOf(flow, s.phase)?.stage) ?? null,
-      color: column?.color ?? FALLBACK_COLOR,
-      text: column?.text ?? textOn(FALLBACK_COLOR),
+      ...paintOf(column),
       links: itemLinks(flow, s.id, s.fields),
     };
   });

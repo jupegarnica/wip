@@ -69,7 +69,7 @@ wip init --harness claude-code    # definitions straight in .claude/
 | `<defs>/skills/wip-coordinate/`                  | how the coordinator runs a flow: cycle, launch prompt, gates, agent choice, model onboarding, runtime interface |
 | `<defs>/skills/wip-new-flow/` · `wip-new-agent/` | how the coordinator creates or changes a flow or an agent; `wip-new-flow/example.md` is a reference flow        |
 | `<defs>/skills/wip-subagent-protocol/`           | the contract every subagent follows; the coordinator never applies it to itself                                 |
-| `<defs>/skills/wip-flow-tasks/`                  | the default flow, `tasks`: `intake → plan → execute → verify → done`                                            |
+| `<defs>/skills/wip-flow-tasks/`                  | the default flow, `tasks`, in three stages: preparation, execution and review (see «Flows»)                     |
 
 It never overwrites: a second run says `exists` for each file and changes nothing. `--force` rewrites the files that
 carry a `wip:` mark in their frontmatter (every file `wip init` writes), copying each one first to
@@ -162,6 +162,15 @@ The reference of every key (`id_pattern`, `fields` and their types, `links`, `st
 `agent`, `writes`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
 to copy from (it is not a flow itself: only folders named `wip-flow-*` are).
 
+The default flow, `tasks`, is generic: the same phases carry code, an investigation, a document or a decision,
+grouped in three stages.
+
+| Stage         | Phases                         | What happens                                                                                                                               |
+| ------------- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `preparation` | `intake` → `research` → `plan` | the request; context, sources and options (skipped when clear); a plan that fixes what is delivered and how it is checked, approved by you |
+| `execution`   | `execute` → `check`            | the deliverable; its check against the plan's criteria, back to `execute` when red                                                         |
+| `review`      | `review` → `deliver` → `done`  | you validate the result; `deliver` only when something is written outside the project (a pull request, a message, a ticket)                |
+
 To create a flow, ask the coordinator («create a flow for reviews with these phases…»): it follows `wip-new-flow`
 (proposal, your approval, backup, write, `wip flow lint`, restore if the lint fails). By hand:
 
@@ -215,7 +224,8 @@ wip web log -n 20  # the last lines of its log; --follow keeps printing
 ```
 
 A read-only kanban of the project, served from the binary with nothing external: one board per flow (columns by
-`stage` or by phase), «Your turn», open gates, running agents, the history with archived items, each item's runs,
+`stage` or by phase; each stage in one blue, more transparent stage after stage, with readable text in the light and
+dark themes, and no colour for a phase without a stage), «Your turn», open gates, running agents, the history with archived items, each item's runs,
 gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). Requests with a foreign
 `Host` header are rejected. Running it again for the same project reports the running one and exits 0 (with
 `--open`, it opens the browser on it); a port held by another project's `wip web` or another program is exit 3.

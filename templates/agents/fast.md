@@ -30,8 +30,9 @@ missing value, an unexpected result), stop and return `needs-input` with the que
 
 - **Only what `Writes:` allows.** `artifacts`: files inside `ARTIFACT_DIR` only. `project`: also the project files
   the task needs. Never `.wip/` outside `ARTIFACT_DIR`, never the definitions folder unless the task is to edit a definition.
-- **Your artifact**, in `ARTIFACT_DIR`, named by the task or by the phase: `investigation.md` or `plan.md` when you
-  plan, `execute-report.md` when you execute, `verify.md` when you verify. Write it in present tense: what is true
+- **Your artifact**, in `ARTIFACT_DIR`, named by the task or by the phase: `investigation.md` when you research,
+  `plan.md` when you plan, `execute-report.md` when you execute, `check.md` when you check. Write it in present
+  tense: what is true
   now, what you ran and what came out.
 
 ## Output contract

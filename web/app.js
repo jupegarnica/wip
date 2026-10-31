@@ -128,10 +128,16 @@ function cardKey(item) {
   ]);
 }
 
+// An empty value removes the property, so a phase without a stage falls back to the uncoloured look.
+function paintStage(node, paint) {
+  node.style.setProperty("--stage", paint.color || "");
+  node.style.setProperty("--on-stage", paint.text || "");
+  node.style.setProperty("--on-stage-dark", paint.text_dark || "");
+}
+
 function paintCard(node, item, changed) {
   openable(node, item);
-  node.style.setProperty("--stage", item.color);
-  node.style.setProperty("--on-stage", item.text);
+  paintStage(node, item);
   if (item.signals.attention) node.classList.add("card--attention");
   if (changed) node.classList.add("changed");
 }
@@ -201,7 +207,7 @@ function track(item, nextCards) {
 function groupedColumns(flow, items, nextCards, stages) {
   for (const column of flow.columns) {
     const col = el("div", "stage");
-    col.style.setProperty("--stage", column.color);
+    paintStage(col, column);
     const inColumn = items.filter((i) => column.phases.includes(i.phase));
     const h = el("h3", null, column.label);
     h.appendChild(el("span", "count", String(inColumn.length)));
@@ -222,7 +228,7 @@ function expandedColumns(flow, items, nextCards, stages) {
   for (const column of flow.columns) {
     for (const phase of column.phases) {
       const col = el("div", "stage stage--phase");
-      col.style.setProperty("--stage", column.color);
+      paintStage(col, column);
       const cards = items.filter((i) => i.phase === phase).sort(sortById);
       const h = el("h3", null, phase);
       h.appendChild(el("span", "count", String(cards.length)));
@@ -879,8 +885,7 @@ function historyRow(h) {
   tr.appendChild(el("td", "htitle", h.title || "—"));
   const phase = el("td");
   if (h.category === "active") {
-    tr.style.setProperty("--stage", h.color);
-    tr.style.setProperty("--on-stage", h.text);
+    paintStage(tr, h);
     phase.appendChild(el("span", "hphase", h.phase));
   } else {
     phase.textContent = h.phase + (h.category === "discarded" ? " · discarded" : "");

@@ -87,7 +87,7 @@ Phase keys:
 | `gate` | `none` | `ask` (the user approves the result), `auto` (moves on when `done`), `none` |
 | `next` | — | phases it may move to; required except in the terminal phase, never itself |
 | `waiting_default` | `agent` | who it waits on when it starts: `agent`, `user`, `external`, `none` (terminal only) |
-| `stage` | — | optional column for the web board; when every phase has one, equal stages must be contiguous |
+| `stage` | — | optional column for the web board; when every phase has one, equal stages must be contiguous. The board paints each stage in one tone, more transparent stage after stage; a phase without a stage has no colour |
 | `agent` | — | the default agent of the phase; its file `<defs>/agents/<agent>.md` must exist with `name` and `description` |
 | `writes` | `artifacts` | what its subagent may write: `artifacts` (only its `ARTIFACT_DIR`) or `project` (also project files) |
 

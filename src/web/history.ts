@@ -3,7 +3,7 @@ import type { IFlow } from "../flow/parse.ts";
 import { FLOW_NAME_RE } from "../flow/parse.ts";
 import type { IFlowSet } from "../flow/registry.ts";
 import { type IItemRow, itemFields, terminalPhase } from "../items.ts";
-import { FALLBACK_COLOR, flowColumns, type IItemLink, itemLinks, textOn } from "./state.ts";
+import { flowColumns, type IItemLink, type IStagePaint, itemLinks, paintOf } from "./state.ts";
 
 /** active: open, any phase · archived: archived in its flow's terminal phase · discarded: archived elsewhere. */
 export type TCategory = "active" | "archived" | "discarded";
@@ -14,7 +14,8 @@ export const HISTORY_LIMIT = 50;
 export const HISTORY_MAX_LIMIT = 200;
 const MAX_QUERY = 100;
 
-export interface IHistoryItem {
+/** Only an active item carries its stage's colour. */
+export interface IHistoryItem extends IStagePaint {
   id: string;
   flow: string;
   title: string | null;
@@ -23,8 +24,6 @@ export interface IHistoryItem {
   category: TCategory;
   /** `archived_at` when archived; `updated_at` (last activity) when open. */
   date: string;
-  color: string;
-  text: string;
   links: IItemLink[];
 }
 
@@ -65,7 +64,6 @@ export function historyData(
     const flow = flows.entries.get(item.flow)?.flow ?? null;
     const category = categoryOf(item, flow);
     const column = flowColumns(flow, [item.phase]).find((c) => c.phases.includes(item.phase));
-    const color = category === "active" && column ? column.color : FALLBACK_COLOR;
     return {
       id: item.id,
       flow: item.flow,
@@ -74,8 +72,7 @@ export function historyData(
       status: item.status,
       category,
       date: (item.status === "archived" ? item.archived_at : null) ?? item.updated_at,
-      color,
-      text: textOn(color),
+      ...paintOf(category === "active" ? column : undefined),
       links: itemLinks(flow, item.id, itemFields(item)),
     };
   });
