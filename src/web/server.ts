@@ -17,7 +17,9 @@ import { boardData, itemLinks, openReadOnly } from "./state.ts";
 // request opens the database read-only, reads and closes it, so a concurrent `wip phase` is never blocked.
 
 export const APP = "wip-web";
-export const DEFAULT_PORT = 39100;
+export const DEFAULT_PORT = 33333;
+/** `wip web` without `--port` tries this many ports from the first one before giving up. */
+export const PORT_TRIES = 20;
 
 export type TInterfaces = Record<string, NetworkInterfaceInfo[] | undefined>;
 

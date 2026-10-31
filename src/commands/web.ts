@@ -1,15 +1,23 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
+import { connect } from "node:net";
 import { allow, type IArgs, parseArgs } from "../args.ts";
 import { envelope, newResult } from "../context.ts";
 import { findRoot, type IRoot, type TEnv } from "../env.ts";
 import { EXIT, notFound, rejected, usage, WipError } from "../errors.ts";
 import { fileLog, logLines, type TWebLog, tailLog, webLogPath } from "../web/log.ts";
-import { clearWebPid, readWebPid, writeWebPid } from "../web/pidfile.ts";
+import {
+  clearWebServer,
+  type IWebEntry,
+  readWebServers,
+  removeWebEntry,
+  writeWebServer,
+} from "../web/pidfile.ts";
 import {
   APP,
   DEFAULT_PORT,
   type IHealth,
   type IWebServer,
+  PORT_TRIES,
   startWeb,
   type TInterfaces,
 } from "../web/server.ts";
@@ -33,6 +41,8 @@ export interface IWebMainOptions {
   onListen?: (web: IWebServer) => void;
   /** `process.kill` by default; `wip web stop` sends SIGTERM through it. */
   kill?: (pid: number, signal: NodeJS.Signals) => void;
+  /** How `status`, `stop` and `wip web` check the registered servers; the real checks by default. */
+  live?: Partial<ILiveDeps>;
 }
 
 function untilSignal(): Promise<void> {
@@ -93,7 +103,7 @@ const DEFAULT_IO: IWebIo = {
 
 export const UNKNOWN_PROJECT = "an unknown project";
 
-type TProbe = { kind: "wip"; health: IHealth } | { kind: "other" } | { kind: "none" };
+export type TProbe = { kind: "wip"; health: IHealth } | { kind: "other" } | { kind: "none" };
 
 /** What answers on 127.0.0.1:<port>: a `wip web` (with its /health), another program, or nothing. */
 export async function probe(port: number, timeoutMs = 500): Promise<TProbe> {
@@ -128,12 +138,39 @@ export function portOf(value: string | undefined, env: TEnv): number {
 
 /** Vite-style address lines: `Local:` always, `LAN:` with the private IP or why there is none. */
 export function urlLines(port: number, lan: string | null, local: boolean): string[] {
-  const lanText = lan
-    ? `http://${lan}:${port}/`
-    : local
-      ? "off (--local)"
-      : "off (no private IPv4)";
-  return [`  Local: http://localhost:${port}/`, `  LAN:   ${lanText}`];
+  return [`  Local: ${localUrl(port)}`, `  LAN:   ${lanText(port, lan, local)}`];
+}
+
+function lanText(port: number, lan: string | null, local: boolean): string {
+  if (lan) return `http://${lan}:${port}/`;
+  return local ? "off (--local)" : "off (no private IPv4)";
+}
+
+const ACCEPT_TIMEOUT_MS = 300;
+
+/** Whether something accepts a TCP connection on host:port: whether the port is free, never whose it is. */
+export function accepts(
+  host: string,
+  port: number,
+  timeoutMs = ACCEPT_TIMEOUT_MS,
+): Promise<boolean> {
+  return new Promise((resolve) => {
+    const socket = connect({ host, port });
+    const done = (value: boolean): void => {
+      socket.destroy();
+      resolve(value);
+    };
+    socket.setTimeout(timeoutMs, () => done(false));
+    socket.once("connect", () => done(true));
+    socket.once("error", () => done(false));
+  });
+}
+
+// Bun binds 127.0.0.1:<port> even while another program holds [::1]:<port>, and `localhost` then reaches that
+// program: a port is free only when neither loopback accepts.
+export async function portInUse(port: number): Promise<boolean> {
+  const [v4, v6] = await Promise.all([accepts("127.0.0.1", port), accepts("::1", port)]);
+  return v4 || v6;
 }
 
 function isAddrInUse(err: unknown): boolean {
@@ -152,14 +189,95 @@ const localUrl = (port: number): string => `http://localhost:${port}/`;
 export const NOT_RUNNING = EXIT.FINDINGS;
 const STATUS_TIMEOUT_MS = 2000;
 
-type TStatusState = "running" | "not-running" | "other-project" | "other-program";
+export type TServerState = "running" | "unresponsive";
 
-/** `--port`, else `WIP_WEB_PORT`, else the port in `.wip/web.pid`, else the default. */
-function targetPort(args: IArgs, env: TEnv, root: IRoot): number {
-  if (args.opts.port !== undefined || env.WIP_WEB_PORT !== undefined) {
-    return portOf(args.opts.port, env);
+export interface ILiveServer extends IWebEntry {
+  state: TServerState;
+  health: IHealth | null;
+}
+
+export interface ILiveDeps {
+  probe: (port: number) => Promise<TProbe>;
+  isAlive: (pid: number) => boolean;
+  accepts: (port: number) => Promise<boolean>;
+}
+
+/** `EPERM` is a live process of another user: alive, never signalled without a matching /health. */
+export function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as { code?: string })?.code === "EPERM";
   }
-  return readWebPid(root)?.port ?? DEFAULT_PORT;
+}
+
+export const LIVE_DEPS: ILiveDeps = {
+  probe: (port) => probe(port, STATUS_TIMEOUT_MS),
+  isAlive: pidAlive,
+  accepts: (port) => accepts("127.0.0.1", port),
+};
+
+const liveDeps = (options: IWebMainOptions): ILiveDeps => ({ ...LIVE_DEPS, ...options.live });
+
+/**
+ * This project's registered servers, each checked on its own port only. A dead PID, or a port whose /health names
+ * another PID, project or program, is removed from the registry; one that accepts connections but does not answer
+ * stays as `unresponsive`.
+ */
+export async function liveWebServers(
+  root: IRoot,
+  deps: ILiveDeps = LIVE_DEPS,
+): Promise<{ servers: ILiveServer[]; removed: number }> {
+  const servers: ILiveServer[] = [];
+  let removed = 0;
+  const drop = (entry: IWebEntry): void => {
+    removeWebEntry(root, entry);
+    removed++;
+  };
+  for (const entry of readWebServers(root)) {
+    if (!deps.isAlive(entry.pid)) {
+      drop(entry);
+      continue;
+    }
+    const found = await deps.probe(entry.port);
+    if (found.kind === "wip") {
+      if (found.health.project === root.project && found.health.pid === entry.pid) {
+        servers.push({ ...entry, state: "running", health: found.health });
+      } else drop(entry);
+    } else if (found.kind === "none" && (await deps.accepts(entry.port))) {
+      servers.push({ ...entry, state: "unresponsive", health: null });
+    } else drop(entry);
+  }
+  return { servers, removed };
+}
+
+const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+const staleEntries = (n: number): string => `${n} stale ${n === 1 ? "entry" : "entries"}`;
+
+const removedNote = (removed: number): string =>
+  removed > 0 ? ` (removed ${staleEntries(removed)})` : "";
+
+function serverLine(s: ILiveServer): string {
+  const head = `  ${s.port}  PID ${s.pid}`;
+  if (!s.health) return `${head}  not answering`;
+  return `${head}  Local: ${localUrl(s.port)}  LAN: ${lanText(s.port, s.health.lan, s.health.local)}`;
+}
+
+const lanUrlOf = (s: ILiveServer): string | null =>
+  s.health?.lan ? `http://${s.health.lan}:${s.port}/` : null;
+
+function serverView(s: ILiveServer): Record<string, unknown> {
+  return {
+    port: s.port,
+    pid: s.pid,
+    url: localUrl(s.port),
+    lan_url: lanUrlOf(s),
+    version: s.health?.version ?? s.version,
+    started_at: s.started_at || null,
+    state: s.state,
+  };
 }
 
 const STOP_WAIT_MS = 10000;
@@ -170,50 +288,63 @@ async function stop(args: IArgs, options: IWebMainOptions, io: IWebIo): Promise<
     throw usage(`wip web stop takes no arguments: ${args.pos.slice(1).join(" ")}`);
   }
   const env = options.env ?? process.env;
+  const only = args.opts.port === undefined ? null : portOf(args.opts.port, env);
   const root = findRoot(options.cwd ?? process.cwd(), env);
-  const port = targetPort(args, env, root);
-  const found = await probe(port, STATUS_TIMEOUT_MS);
-  const result = newResult();
-  let state: string;
-  let line: string;
-  if (found.kind === "wip" && found.health.project === root.project) {
-    const pid = found.health.pid;
-    (options.kill ?? process.kill)(pid, "SIGTERM");
+  const deps = liveDeps(options);
+  const live = await liveWebServers(root, deps);
+  let removed = live.removed;
+  const stopped: { port: number; pid: number }[] = [];
+  const lines: string[] = [];
+  let stuck = false;
+  for (const s of live.servers) {
+    if (only !== null && s.port !== only) continue;
+    if (s.state === "unresponsive") {
+      removeWebEntry(root, s);
+      removed++;
+      continue;
+    }
+    (options.kill ?? process.kill)(s.pid, "SIGTERM");
     const deadline = Date.now() + STOP_WAIT_MS;
-    while ((await probe(port, STATUS_TIMEOUT_MS)).kind !== "none" && Date.now() < deadline) {
+    while ((await deps.probe(s.port)).kind !== "none" && Date.now() < deadline) {
       await Bun.sleep(STOP_POLL_MS);
     }
-    if ((await probe(port, STATUS_TIMEOUT_MS)).kind !== "none") {
-      throw rejected(
-        `wip web (PID ${pid}) still answers on port ${port} ${STOP_WAIT_MS / 1000} s after SIGTERM; stop it by hand`,
+    if ((await deps.probe(s.port)).kind !== "none") {
+      stuck = true;
+      lines.push(
+        `wip web (PID ${s.pid}) still answers on port ${s.port} ${STOP_WAIT_MS / 1000} s after SIGTERM; stop it by hand`,
       );
+      continue;
     }
-    clearWebPid(root, pid);
-    state = "stopped";
-    line = `wip web stopped for ${root.project} (PID ${pid}, port ${port})`;
-    result.data = { state, port, project: root.project, pid };
-  } else {
-    result.ok = false;
-    if (found.kind === "wip") {
-      state = "other-project";
-      result.code = EXIT.REJECTED;
-      line = `port ${port} serves wip web for ${found.health.project}: not stopped`;
-    } else if (found.kind === "other") {
-      state = "other-program";
-      result.code = EXIT.REJECTED;
-      line = `port ${port} is in use by another program: not stopped`;
-    } else {
-      state = "not-running";
-      result.code = NOT_RUNNING;
-      const stale = readWebPid(root) !== null;
-      if (stale) clearWebPid(root);
-      line = `wip web is not running on port ${port}${stale ? " (removed a stale .wip/web.pid)" : ""}`;
-    }
-    result.data = { state, port, project: root.project };
+    removeWebEntry(root, s);
+    stopped.push({ port: s.port, pid: s.pid });
+    lines.push(`wip web stopped for ${root.project} (PID ${s.pid}, port ${s.port})`);
   }
-  result.message = line;
+  const result = newResult();
+  let state = "stopped";
+  if (stuck) {
+    state = "still-running";
+    result.ok = false;
+    result.code = EXIT.REJECTED;
+  } else if (stopped.length === 0) {
+    state = "not-running";
+    result.ok = false;
+    result.code = NOT_RUNNING;
+    const where = only === null ? "" : ` on port ${only}`;
+    lines.push(`wip web is not running for ${root.project}${where}${removedNote(removed)}`);
+  } else if (removed > 0) {
+    lines.push(`removed ${staleEntries(removed)}`);
+  }
+  result.data = {
+    state,
+    project: root.project,
+    port: stopped[0]?.port ?? null,
+    pid: stopped[0]?.pid ?? null,
+    stopped,
+    removed,
+  };
+  result.message = lines[0] ?? null;
   if (args.flags.has("json")) io.out(JSON.stringify(envelope(result)));
-  else io.out(line);
+  else for (const line of lines) io.out(line);
   return result.code;
 }
 
@@ -221,48 +352,32 @@ async function status(args: IArgs, options: IWebMainOptions, io: IWebIo): Promis
   if (args.pos.length > 1) {
     throw usage(`wip web status takes no arguments: ${args.pos.slice(1).join(" ")}`);
   }
-  const env = options.env ?? process.env;
-  const root = findRoot(options.cwd ?? process.cwd(), env);
-  const port = targetPort(args, env, root);
-  const found = await probe(port, STATUS_TIMEOUT_MS);
+  const root = findRoot(options.cwd ?? process.cwd(), options.env ?? process.env);
+  const { servers, removed } = await liveWebServers(root, liveDeps(options));
+  const running = servers.filter((s) => s.state === "running");
+  const first = running[0] ?? null;
   const result = newResult();
-  let state: TStatusState;
   const lines: string[] = [];
-  if (found.kind === "wip" && found.health.project === root.project) {
-    state = "running";
-    lines.push(`wip web is running for ${root.project} (PID ${found.health.pid})`);
-    lines.push(...urlLines(port, found.health.lan, found.health.local));
-    result.data = {
-      state,
-      port,
-      project: root.project,
-      pid: found.health.pid,
-      url: localUrl(port),
-      lan_url: found.health.lan ? `http://${found.health.lan}:${port}/` : null,
-      version: found.health.version,
-    };
+  if (first) {
+    lines.push(
+      `wip web is running for ${root.project}: ${plural(running.length, "server")}${removedNote(removed)}`,
+    );
   } else {
-    if (found.kind === "wip") {
-      state = "other-project";
-      result.code = EXIT.REJECTED;
-      lines.push(`port ${port} serves wip web for ${found.health.project}`);
-    } else if (found.kind === "other") {
-      state = "other-program";
-      result.code = EXIT.REJECTED;
-      lines.push(`port ${port} is in use by another program`);
-    } else {
-      state = "not-running";
-      result.code = NOT_RUNNING;
-      lines.push(`wip web is not running on port ${port}`);
-    }
     result.ok = false;
-    result.data = {
-      state,
-      port,
-      project: root.project,
-      other_project: found.kind === "wip" ? found.health.project : null,
-    };
+    result.code = NOT_RUNNING;
+    lines.push(`wip web is not running for ${root.project}${removedNote(removed)}`);
   }
+  lines.push(...servers.map(serverLine));
+  result.data = {
+    state: first ? "running" : "not-running",
+    project: root.project,
+    port: first?.port ?? null,
+    pid: first?.pid ?? null,
+    url: first ? localUrl(first.port) : null,
+    lan_url: first ? lanUrlOf(first) : null,
+    servers: servers.map(serverView),
+    removed,
+  };
   result.message = lines[0] ?? null;
   if (args.flags.has("json")) io.out(JSON.stringify(envelope(result)));
   else for (const line of lines) io.out(line);
@@ -294,30 +409,47 @@ async function serve(
   if (sub === "stop") return stop(args, options, io);
   if (args.pos.length > 0) throw usage(`wip web takes no arguments: ${args.pos.join(" ")}`);
   const env = options.env ?? process.env;
-  const port = portOf(args.opts.port, env);
+  const explicit = args.opts.port !== undefined;
+  const base = portOf(args.opts.port, env);
   const local = args.flags.has("local");
   const root = findRoot(options.cwd ?? process.cwd(), env);
   const log = fileLog(webLogPath(root));
-  const found = await probe(port);
-  if (found.kind === "wip") {
-    if (found.health.project !== root.project) {
-      const message = `port ${port} serves wip web for ${found.health.project}`;
+  const alreadyRunning = async (health: IHealth, port: number): Promise<number> => {
+    io.out(`wip web is already running for ${root.project} (PID ${health.pid})`);
+    for (const line of urlLines(port, health.lan, health.local)) io.out(line);
+    if (args.flags.has("open")) await openUrl(io, localUrl(port), log);
+    return EXIT.OK;
+  };
+  const start = (port: number): IWebServer =>
+    startWeb({ port, root, local, interfaces: options.interfaces, log });
+  let web: IWebServer;
+  if (explicit) {
+    const found = await probe(base);
+    if (found.kind === "wip") {
+      if (found.health.project === root.project) return alreadyRunning(found.health, base);
+      const message = `port ${base} serves wip web for ${found.health.project}`;
       log("error", message);
       throw rejected(`${message}; choose another one with --port`);
     }
-    io.out(`wip web is already running for ${root.project} (PID ${found.health.pid})`);
-    for (const line of urlLines(port, found.health.lan, found.health.local)) io.out(line);
-    if (args.flags.has("open")) await openUrl(io, localUrl(port), log);
-    return EXIT.OK;
-  }
-  let web: IWebServer;
-  try {
-    if (found.kind === "other") throw inUse(port);
-    web = startWeb({ port, root, local, interfaces: options.interfaces, log });
-  } catch (err) {
-    const failure = err instanceof WipError || !isAddrInUse(err) ? err : inUse(port);
-    log("error", failure instanceof Error ? failure.message : String(failure));
-    throw failure;
+    try {
+      if (found.kind === "other" || (await portInUse(base))) throw inUse(base);
+      web = start(base);
+    } catch (err) {
+      const failure = err instanceof WipError || !isAddrInUse(err) ? err : inUse(base);
+      log("error", failure instanceof Error ? failure.message : String(failure));
+      throw failure;
+    }
+  } else {
+    const running = (await liveWebServers(root, liveDeps(options))).servers.find(
+      (s) => s.state === "running",
+    );
+    if (running?.health) return alreadyRunning(running.health, running.port);
+    try {
+      web = await startOnFirstFree(base, start, log);
+    } catch (err) {
+      log("error", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
   }
   log(
     "info",
@@ -326,22 +458,44 @@ async function serve(
   io.out(`wip web · ${root.project}`);
   for (const line of urlLines(web.port, web.lan, local)) io.out(line);
   io.out(`Read-only. Log: ${webLogPath(root)}. Ctrl-C stops it.`);
-  writeWebPid(root, web.port);
-  const exited = (): void => clearWebPid(root, process.pid);
+  writeWebServer(root, web.port);
+  const exited = (): void => clearWebServer(root, web.port, process.pid);
   process.once("exit", exited);
   options.onListen?.(web);
   if (args.flags.has("open")) void openUrl(io, web.url, log);
   await io.stopped();
   web.stop();
   process.off("exit", exited);
-  clearWebPid(root, process.pid);
+  clearWebServer(root, web.port, process.pid);
   log("info", "stop");
   return EXIT.OK;
 }
 
+const MAX_PORT = 65535;
+
+/** From `base`, the first port nothing accepts on and that binds; each one skipped is a line in the log. */
+async function startOnFirstFree(
+  base: number,
+  start: (port: number) => IWebServer,
+  log: TWebLog,
+): Promise<IWebServer> {
+  const last = Math.min(base + PORT_TRIES - 1, MAX_PORT);
+  for (let port = base; port <= last; port++) {
+    if (!(await portInUse(port))) {
+      try {
+        return start(port);
+      } catch (err) {
+        if (!isAddrInUse(err)) throw err;
+      }
+    }
+    log("info", port < last ? `port ${port} in use, trying ${port + 1}` : `port ${port} in use`);
+  }
+  throw rejected(`no free port from ${base} to ${last}; choose one with --port`);
+}
+
 const SUB_OPTIONS = {
   serve: ["port", "open", "local"],
-  status: ["port"],
+  status: [],
   stop: ["port"],
   log: ["lines", "follow"],
 } as const satisfies Record<string, readonly string[]>;

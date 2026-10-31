@@ -17,16 +17,22 @@ import {
   type IWebMainOptions,
   NOT_RUNNING,
   openBrowser,
+  portInUse,
   probe,
   urlLines,
   webMain,
 } from "../../src/commands/web.ts";
 import { MARKDOWN_LIB, WEB } from "../../src/embedded/web.ts";
-import { rootAt } from "../../src/env.ts";
+import { rootAt, type TEnv } from "../../src/env.ts";
 import { EXIT } from "../../src/errors.ts";
 import { parseFlow } from "../../src/flow/parse.ts";
 import { fileLog, rotateIfNeeded, webLogPath } from "../../src/web/log.ts";
-import { readWebPid, webPidPath } from "../../src/web/pidfile.ts";
+import {
+  legacyWebPidPath,
+  readWebServers,
+  webServerPath,
+  webServersDir,
+} from "../../src/web/pidfile.ts";
 import {
   ARTIFACT_CSP,
   allowedHosts,
@@ -59,13 +65,36 @@ const REPO = join(import.meta.dir, "..", "..");
 const ctx = useProject();
 let web: IWebServer | null = null;
 let other: ReturnType<typeof Bun.serve> | null = null;
+const occupied: { stop: () => void }[] = [];
 
 afterEach(() => {
   web?.stop();
   web = null;
   other?.stop(true);
   other = null;
+  for (const o of occupied.splice(0)) o.stop();
 });
+
+/** Another program listening on host:port until the test ends. */
+function occupy(port: number, hostname = "127.0.0.1"): void {
+  const s = Bun.serve({ hostname, port, fetch: () => new Response("busy") });
+  occupied.push({ stop: () => s.stop(true) });
+}
+
+// Far from the real wip web ports (33333-33352, 39100-39102), which may be serving on this machine.
+const RANGE_FLOOR = 41000;
+const RANGE_SPAN = 18000;
+
+/** The first of `n` consecutive ports nothing accepts on, on 127.0.0.1 nor [::1]. */
+async function freeRange(n: number): Promise<number> {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    const base = RANGE_FLOOR + Math.floor(Math.random() * RANGE_SPAN);
+    let free = true;
+    for (let port = base; port < base + n && free; port++) free = !(await portInUse(port));
+    if (free) return base;
+  }
+  throw new Error(`no ${n} free consecutive ports`);
+}
 
 // biome-ignore lint/suspicious/noExplicitAny: JSON bodies of the API under test
 type TJson = any;
@@ -649,26 +678,34 @@ describe("wip web · command (F-WEB-01)", () => {
     argv: string[],
     openFails = false,
   ): Promise<{ c: ReturnType<typeof capture>; port: number; stop: () => Promise<number> }> {
-    const port = await freePort();
+    return listening(p, ["--port", String(await freePort()), ...argv], {}, openFails);
+  }
+
+  async function listening(
+    p: IProject,
+    argv: string[],
+    env: TEnv,
+    openFails = false,
+  ): Promise<{ c: ReturnType<typeof capture>; port: number; stop: () => Promise<number> }> {
     let release = (): void => {};
     const stopped = new Promise<void>((resolve) => {
       release = resolve;
     });
     const c = capture(stopped, openFails);
-    let served: IWebServer | null = null;
-    const done = webMain(["--port", String(port), ...argv], {
+    const served: { web: IWebServer | null } = { web: null };
+    const done = webMain(argv, {
       ...c.io,
       cwd: p.dir,
-      env: {},
+      env,
       onListen: (w) => {
-        served = w;
+        served.web = w;
       },
     });
-    for (let i = 0; i < 50 && !served; i++) await Bun.sleep(10);
-    expect(served).not.toBeNull();
+    for (let i = 0; i < 300 && !served.web; i++) await Bun.sleep(10);
+    expect(served.web).not.toBeNull();
     return {
       c,
-      port,
+      port: served.web?.port ?? 0,
       stop: () => {
         release();
         return done;
@@ -681,13 +718,16 @@ describe("wip web · command (F-WEB-01)", () => {
     const { c, port, stop } = await serving(p, ["--local", "--open"]);
     const found = await probe(port);
     expect(found).toMatchObject({ kind: "wip", health: { project: p.dir, local: true } });
+    expect(readWebServers(rootAt(p.dir))).toMatchObject([
+      { pid: process.pid, port, project: p.dir, legacy: false },
+    ]);
     expect(await stop()).toBe(EXIT.OK);
     expect(c.lines).toContain(`  Local: http://localhost:${port}/`);
     expect(c.lines).toContain("  LAN:   off (--local)");
     expect(c.opened).toEqual([`http://localhost:${port}/`]);
     expect(c.errors).toEqual([]);
     expect((await probe(port)).kind).toBe("none");
-    expect(existsSync(webPidPath(rootAt(p.dir)))).toBe(false);
+    expect(existsSync(webServerPath(rootAt(p.dir), port))).toBe(false);
   });
 
   test("--open: a browser that cannot open is a warning on stderr and the server keeps serving", async () => {
@@ -722,6 +762,87 @@ describe("wip web · command (F-WEB-01)", () => {
     });
     expect(code).toBe(EXIT.REJECTED);
     expect(c.lines.join("\n")).toContain(`port ${other.port} is in use by another program`);
+  });
+
+  test("--port N held by another program only on [::1] is exit 3 too", async () => {
+    const p = board();
+    const port = await freeRange(1);
+    occupy(port, "::1");
+    const c = capture();
+    expect(
+      await webMain(["--port", String(port), "--local"], { ...c.io, cwd: p.dir, env: {} }),
+    ).toBe(EXIT.REJECTED);
+    expect(c.lines.join("\n")).toContain(`port ${port} is in use by another program`);
+    expect(readWebServers(rootAt(p.dir))).toEqual([]);
+  });
+
+  describe("without --port: reuse, or the first free port of the range", () => {
+    test("serves on the first port of the range and records itself while it serves", async () => {
+      const p = board();
+      const base = await freeRange(1);
+      const { port, stop } = await listening(p, ["--local"], { WIP_WEB_PORT: String(base) });
+      expect(port).toBe(base);
+      expect(existsSync(webServerPath(rootAt(p.dir), base))).toBe(true);
+      expect(await stop()).toBe(EXIT.OK);
+      expect(readWebServers(rootAt(p.dir))).toEqual([]);
+    });
+
+    test("a port taken by another program or another project's wip web is skipped, and logged", async () => {
+      const p = board();
+      const base = await freeRange(3);
+      occupy(base);
+      const elsewhere = scratch("web-retry-other");
+      mkdirSync(join(elsewhere, ".wip"));
+      web = startWeb({ port: base + 1, root: rootAt(elsewhere), local: true });
+      const { c, port, stop } = await listening(p, ["--local"], { WIP_WEB_PORT: String(base) });
+      expect(port).toBe(base + 2);
+      expect(c.lines).toContain(`  Local: http://localhost:${base + 2}/`);
+      expect(await stop()).toBe(EXIT.OK);
+      const log = readFileSync(webLogPath(rootAt(p.dir)), "utf8");
+      expect(log).toContain(`info  port ${base} in use, trying ${base + 1}`);
+      expect(log).toContain(`info  port ${base + 1} in use, trying ${base + 2}`);
+      expect((await probe(base + 1)).kind).toBe("wip");
+    });
+
+    test("a port held only on [::1] is skipped: localhost would reach that program", async () => {
+      const p = board();
+      const base = await freeRange(2);
+      occupy(base, "::1");
+      const { port, stop } = await listening(p, ["--local"], { WIP_WEB_PORT: String(base) });
+      expect(port).toBe(base + 1);
+      expect(await stop()).toBe(EXIT.OK);
+    });
+
+    test("all twenty ports taken is exit 3, in the output and in the log", async () => {
+      const p = board();
+      const base = await freeRange(20);
+      for (let port = base; port < base + 20; port++) occupy(port);
+      const c = capture();
+      const env = { WIP_WEB_PORT: String(base) };
+      expect(await webMain(["--local"], { ...c.io, cwd: p.dir, env })).toBe(EXIT.REJECTED);
+      const message = `no free port from ${base} to ${base + 19}; choose one with --port`;
+      expect(c.errors).toEqual([`wip: ${message}`]);
+      expect(readFileSync(webLogPath(rootAt(p.dir)), "utf8")).toContain(`error ${message}`);
+      expect(readWebServers(rootAt(p.dir))).toEqual([]);
+    });
+
+    test("this project's running server is reused, whatever its port; --open opens it", async () => {
+      const p = board();
+      const base = await freeRange(4);
+      const first = await listening(p, ["--local", "--port", String(base + 3)], {});
+      const again = capture();
+      const env = { WIP_WEB_PORT: String(base) };
+      expect(await webMain(["--open"], { ...again.io, cwd: p.dir, env })).toBe(EXIT.OK);
+      expect(again.lines).toEqual([
+        `wip web is already running for ${p.dir} (PID ${process.pid})`,
+        `  Local: http://localhost:${base + 3}/`,
+        "  LAN:   off (--local)",
+      ]);
+      expect(again.opened).toEqual([`http://localhost:${base + 3}/`]);
+      expect(readWebServers(rootAt(p.dir)).map((e) => e.port)).toEqual([base + 3]);
+      expect((await probe(base)).kind).toBe("none");
+      expect(await first.stop()).toBe(EXIT.OK);
+    });
   });
 
   test("already running for this project: says so and exits 0; for another project: exit 3", async () => {
@@ -832,11 +953,11 @@ describe("wip web · command (F-WEB-01)", () => {
   });
 
   describe("wip web stop", () => {
-    test("start → status 0 → stop → status 1; the pidfile names the port and goes away", async () => {
+    test("start → status 0 → stop → status 1; the entry names the port and goes away", async () => {
       const p = board();
       const { port, stop } = await serving(p, ["--local"]);
       const root = rootAt(p.dir);
-      expect(readWebPid(root)).toMatchObject({ pid: process.pid, port, project: p.dir });
+      expect(readWebServers(root)).toMatchObject([{ pid: process.pid, port, project: p.dir }]);
       expect((await webSub(["status"], p.dir)).code).toBe(EXIT.OK);
       let stopping: Promise<number> | null = null;
       const signals: string[] = [];
@@ -850,44 +971,98 @@ describe("wip web · command (F-WEB-01)", () => {
       expect(stopped.code).toBe(EXIT.OK);
       expect(JSON.parse(stopped.out.join(""))).toMatchObject({
         ok: true,
-        data: { state: "stopped", port, project: p.dir, pid: process.pid },
+        data: {
+          state: "stopped",
+          port,
+          project: p.dir,
+          pid: process.pid,
+          stopped: [{ port, pid: process.pid }],
+          removed: 0,
+        },
       });
       expect(await (stopping as unknown as Promise<number>)).toBe(EXIT.OK);
-      expect(existsSync(webPidPath(root))).toBe(false);
-      const after = await webSub(["status", "--port", String(port)], p.dir);
+      expect(existsSync(webServerPath(root, port))).toBe(false);
+      const after = await webSub(["status"], p.dir);
       expect(after.code).toBe(NOT_RUNNING);
     });
 
-    test("nothing running is exit 1 and clears a stale pidfile; another project or program is exit 3, untouched", async () => {
+    test("without --port it stops every server of this project; --port N only that one", async () => {
+      const p = board();
+      const [a, b, c] = [
+        await serving(p, ["--local"]),
+        await serving(p, ["--local"]),
+        await serving(p, ["--local"]),
+      ].sort((x, y) => x.port - y.port);
+      if (!a || !b || !c) throw new Error("three servers");
+      const byPort = new Map([a, b, c].map((s) => [s.port, s]));
+      const stopping: Promise<number>[] = [];
+      const signalled: number[] = [];
+      const killFor = (ports: number[]) => (): void => {
+        const port = ports[signalled.length] as number;
+        signalled.push(port);
+        stopping.push(byPort.get(port)?.stop() ?? Promise.resolve(-1));
+      };
+
+      const one = await webSub(["stop", "--port", String(b.port)], p.dir, {
+        kill: killFor([b.port]),
+      });
+      expect(one.code).toBe(EXIT.OK);
+      expect(one.out).toEqual([
+        `wip web stopped for ${p.dir} (PID ${process.pid}, port ${b.port})`,
+      ]);
+      expect(readWebServers(rootAt(p.dir)).map((e) => e.port)).toEqual([a.port, c.port]);
+
+      const missing = await webSub(["stop", "--port", String(b.port)], p.dir, {
+        kill: () => {
+          throw new Error("must not signal");
+        },
+      });
+      expect(missing.code).toBe(NOT_RUNNING);
+      expect(missing.out).toEqual([`wip web is not running for ${p.dir} on port ${b.port}`]);
+
+      signalled.length = 0;
+      const all = await webSub(["stop"], p.dir, { kill: killFor([a.port, c.port]) });
+      expect(all.code).toBe(EXIT.OK);
+      expect(all.out).toEqual([
+        `wip web stopped for ${p.dir} (PID ${process.pid}, port ${a.port})`,
+        `wip web stopped for ${p.dir} (PID ${process.pid}, port ${c.port})`,
+      ]);
+      expect(await Promise.all(stopping)).toEqual([EXIT.OK, EXIT.OK, EXIT.OK]);
+      expect(readWebServers(rootAt(p.dir))).toEqual([]);
+      expect((await webSub(["status"], p.dir)).code).toBe(NOT_RUNNING);
+    });
+
+    test("nothing running is exit 1 and clears stale entries; it never signals a /health that is not its own", async () => {
       const p = board();
       const root = rootAt(p.dir);
       const free = await freePort();
       writeFileSync(
-        webPidPath(root),
+        legacyWebPidPath(root),
         JSON.stringify({ pid: 999999, port: free, project: p.dir, started_at: T0 }),
+      );
+      const elsewhere = scratch("web-stop-other");
+      mkdirSync(join(elsewhere, ".wip"));
+      web = startWeb({ port: 0, root: rootAt(elsewhere), local: true });
+      mkdirSync(webServersDir(root), { recursive: true });
+      writeFileSync(
+        webServerPath(root, web.port),
+        JSON.stringify({ pid: process.pid, port: web.port, project: p.dir, started_at: T0 }),
       );
       const kill = (): void => {
         throw new Error("must not signal");
       };
-      const none = await webSub(["stop"], p.dir, { kill });
+      const none = await webSub(["stop", "--json"], p.dir, { kill });
       expect(none.code).toBe(NOT_RUNNING);
-      expect(none.out).toEqual([
-        `wip web is not running on port ${free} (removed a stale .wip/web.pid)`,
-      ]);
-      expect(existsSync(webPidPath(root))).toBe(false);
-
-      serve(p);
-      const elsewhere = scratch("web-stop-other");
-      mkdirSync(join(elsewhere, ".wip"));
-      const foreign = await webSub(["stop", "--port", String(web?.port)], elsewhere, { kill });
-      expect(foreign.code).toBe(EXIT.REJECTED);
-      expect(foreign.out).toEqual([`port ${web?.port} serves wip web for ${p.dir}: not stopped`]);
-      expect((await probe(web?.port as number)).kind).toBe("wip");
-
-      other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("hello") });
-      const program = await webSub(["stop", "--port", String(other.port)], p.dir, { kill });
-      expect(program.code).toBe(EXIT.REJECTED);
+      expect(JSON.parse(none.out.join(""))).toMatchObject({
+        ok: false,
+        message: `wip web is not running for ${p.dir} (removed 2 stale entries)`,
+        data: { state: "not-running", stopped: [], removed: 2 },
+      });
+      expect(existsSync(legacyWebPidPath(root))).toBe(false);
+      expect(readWebServers(root)).toEqual([]);
+      expect((await probe(web.port)).kind).toBe("wip");
       expect((await webSub(["stop", "extra"], p.dir)).code).toBe(EXIT.USAGE);
+      expect((await webSub(["stop", "--port", "nope"], p.dir)).code).toBe(EXIT.USAGE);
     });
   });
 });
@@ -920,65 +1095,135 @@ describe("wip web status", () => {
   const status = (argv: string[], cwd: string): ReturnType<typeof webSub> =>
     webSub(["status", ...argv], cwd);
 
-  test("this project's wip web on the port: exit 0 with its URL, in text and in --json", async () => {
+  /** Real /health checks that fail the test when asked a port this project never recorded. */
+  function onlyRecorded(cwd: string): { asked: number[]; live: IWebMainOptions["live"] } {
+    const asked: number[] = [];
+    return {
+      asked,
+      live: {
+        probe: async (port) => {
+          asked.push(port);
+          const recorded = readWebServers(rootAt(cwd)).map((e) => e.port);
+          if (!recorded.includes(port)) throw new Error(`asked unrecorded port ${port}`);
+          return probe(port, 2000);
+        },
+      },
+    };
+  }
+
+  test("nothing recorded is exit 1 and asks no port", async () => {
     const p = board();
-    serve(p);
-    const port = web?.port as number;
-    const text = await status(["--port", String(port)], p.dir);
+    const { asked, live } = onlyRecorded(p.dir);
+    const text = await webSub(["status"], p.dir, { live });
+    expect(text.code).toBe(NOT_RUNNING);
+    expect(NOT_RUNNING).toBe(1);
+    expect(text.out).toEqual([`wip web is not running for ${p.dir}`]);
+    const json = await webSub(["status", "--json"], p.dir, { live });
+    expect(JSON.parse(json.out.join(""))).toMatchObject({
+      ok: false,
+      message: `wip web is not running for ${p.dir}`,
+      data: {
+        state: "not-running",
+        project: p.dir,
+        port: null,
+        url: null,
+        servers: [],
+        removed: 0,
+      },
+    });
+    expect(asked).toEqual([]);
+  });
+
+  test("this project's servers, one line each by port, the first one's URL in --json; another project's is not listed", async () => {
+    const p = board();
+    const base = await freeRange(1);
+    const elsewhere = scratch("web-status-other");
+    mkdirSync(join(elsewhere, ".wip"));
+    web = startWeb({ port: base, root: rootAt(elsewhere), local: true });
+    const started: Promise<number>[] = [];
+    const ports: number[] = [];
+    for (let i = 0; i < 2; i++) {
+      const port = await freePort();
+      ports.push(port);
+      let release = (): void => {};
+      const stopped = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      started.push(
+        webMain(["--port", String(port), "--local"], {
+          io: { out: () => {}, err: () => {}, stopped: () => stopped, open: async () => {} },
+          cwd: p.dir,
+          env: { WIP_WEB_PORT: String(base) },
+        }),
+      );
+      for (let j = 0; j < 100 && (await probe(port, 200)).kind !== "wip"; j++) await Bun.sleep(10);
+      occupied.push({ stop: release });
+    }
+    const [lo, hi] = ports.sort((x, y) => x - y) as [number, number];
+    const { asked, live } = onlyRecorded(p.dir);
+    const text = await webSub(["status"], p.dir, { live });
     expect(text.code).toBe(EXIT.OK);
     expect(text.out).toEqual([
-      `wip web is running for ${p.dir} (PID ${process.pid})`,
-      `  Local: http://localhost:${port}/`,
-      "  LAN:   off (--local)",
+      `wip web is running for ${p.dir}: 2 servers`,
+      `  ${lo}  PID ${process.pid}  Local: http://localhost:${lo}/  LAN: off (--local)`,
+      `  ${hi}  PID ${process.pid}  Local: http://localhost:${hi}/  LAN: off (--local)`,
     ]);
-    const json = await status(["--port", String(port), "--json"], p.dir);
+    const json = await webSub(["status", "--json"], p.dir, { live });
     expect(json.code).toBe(EXIT.OK);
-    expect(JSON.parse(json.out.join(""))).toMatchObject({
+    const body = JSON.parse(json.out.join(""));
+    expect(body).toMatchObject({
       ok: true,
       data: {
         state: "running",
-        port,
         project: p.dir,
+        port: lo,
         pid: process.pid,
-        url: `http://localhost:${port}/`,
+        url: `http://localhost:${lo}/`,
         lan_url: null,
+        removed: 0,
       },
     });
+    expect(body.data.servers.map((s: TJson) => [s.port, s.pid, s.url, s.state])).toEqual([
+      [lo, process.pid, `http://localhost:${lo}/`, "running"],
+      [hi, process.pid, `http://localhost:${hi}/`, "running"],
+    ]);
+    expect(text.out.join("\n")).not.toContain(`:${base}/`);
+    expect([...new Set(asked)].sort((x, y) => x - y)).toEqual([lo, hi]);
+    for (const o of occupied.splice(0)) o.stop();
+    expect(await Promise.all(started)).toEqual([EXIT.OK, EXIT.OK]);
   });
 
-  test("nothing on the port is exit 1; another project or another program is exit 3", async () => {
+  test("a dead PID's entry is removed and said; a legacy .wip/web.pid too", async () => {
     const p = board();
+    const root = rootAt(p.dir);
+    mkdirSync(webServersDir(root), { recursive: true });
     const free = await freePort();
-    const stopped = await status(["--port", String(free), "--json"], p.dir);
-    expect(stopped.code).toBe(NOT_RUNNING);
-    expect(NOT_RUNNING).toBe(1);
-    expect(JSON.parse(stopped.out.join(""))).toMatchObject({
-      ok: false,
-      message: `wip web is not running on port ${free}`,
-      data: { state: "not-running", port: free },
-    });
+    writeFileSync(
+      webServerPath(root, free),
+      JSON.stringify({ pid: 999999, port: free, project: p.dir, started_at: T0 }),
+    );
+    writeFileSync(
+      legacyWebPidPath(root),
+      JSON.stringify({ pid: 999998, port: free + 1, project: p.dir, started_at: T0 }),
+    );
+    const text = await status([], p.dir);
+    expect(text.code).toBe(NOT_RUNNING);
+    expect(text.out).toEqual([`wip web is not running for ${p.dir} (removed 2 stale entries)`]);
+    expect(readWebServers(root)).toEqual([]);
+    expect(existsSync(legacyWebPidPath(root))).toBe(false);
+  });
 
+  test("a live legacy .wip/web.pid server of this project is listed", async () => {
+    const p = board();
     serve(p);
-    const elsewhere = scratch("web-status-other");
-    mkdirSync(join(elsewhere, ".wip"));
-    const foreign = await status(["--port", String(web?.port)], elsewhere);
-    expect(foreign.code).toBe(EXIT.REJECTED);
-    expect(foreign.out).toEqual([`port ${web?.port} serves wip web for ${p.dir}`]);
-
-    other = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response("hello") });
-    const program = await status(["--port", String(other.port), "--json"], p.dir);
-    expect(program.code).toBe(EXIT.REJECTED);
-    expect(JSON.parse(program.out.join("")).data.state).toBe("other-program");
-
-    other.stop(true);
-    other = Bun.serve({
-      hostname: "127.0.0.1",
-      port: 0,
-      fetch: () => Response.json({ app: "wip-web", pid: 1, port: 1 }),
-    });
-    const older = await status(["--port", String(other.port)], p.dir);
-    expect(older.code).toBe(EXIT.REJECTED);
-    expect(older.out).toEqual([`port ${other.port} serves wip web for an unknown project`]);
+    const port = web?.port as number;
+    writeFileSync(
+      legacyWebPidPath(rootAt(p.dir)),
+      JSON.stringify({ pid: process.pid, port, project: p.dir, started_at: T0 }),
+    );
+    const text = await status(["--json"], p.dir);
+    expect(text.code).toBe(EXIT.OK);
+    expect(JSON.parse(text.out.join("")).data).toMatchObject({ state: "running", port });
   });
 
   test("usage errors and a missing .wip/", async () => {
@@ -986,19 +1231,25 @@ describe("wip web status", () => {
     expect((await status(["extra"], p.dir)).code).toBe(EXIT.USAGE);
     expect((await status(["--open"], p.dir)).code).toBe(EXIT.USAGE);
     expect((await status(["--local"], p.dir)).code).toBe(EXIT.USAGE);
-    expect((await status(["--port", "nope"], p.dir)).code).toBe(EXIT.USAGE);
+    expect((await status(["--port", "1"], p.dir)).code).toBe(EXIT.USAGE);
     const missing = await status(["--json"], scratch("web-status-nowip"));
     expect(missing.code).toBe(EXIT.NOT_FOUND);
     expect(JSON.parse(missing.out.join(""))).toMatchObject({ ok: false, data: { code: 4 } });
   });
 
-  test("`wip web --help` documents status and its exit codes", () => {
+  test("`wip web --help` documents the port range, the registry, status and stop", () => {
     const help = commandHelp(findCommand("web") as ICommandSpec);
-    expect(help).toContain("wip web status [--port N]");
+    expect(help).toContain("wip web status\n");
+    expect(help).not.toContain("wip web status [--port N]");
+    expect(help).toContain("first free port from 33333");
+    expect(help).toContain(
+      "to 33352 (WIP_WEB_PORT moves the first one); --port N serves on exactly N",
+    );
+    expect(help).toContain(".wip/web/<port>.json");
     expect(help).toContain("--open opens http://localhost:<port>/");
-    expect(help).toContain("status exit codes: 0 this project's wip web answers on the port");
-    expect(help).toContain("1 nothing answers");
-    expect(help).toContain("3 another project's wip web or another program holds the port");
+    expect(help).toContain("exit 0 at least one answers · 1 none");
+    expect(help).toContain("0 stopped · 1 none was running · 3 one did not stop");
+    expect(help).not.toContain("39100");
   });
 });
 
@@ -1040,10 +1291,10 @@ describe("wip web · entry point (binary with WIP_BIN, else bun src/cli.ts)", ()
     }
     expect(await proc.exited).toBe(0);
     expect(await new Response(proc.stdout).text()).toContain(`Local: http://localhost:${port}/`);
-    expect(existsSync(webPidPath(rootAt(p.dir)))).toBe(false);
+    expect(existsSync(webServerPath(rootAt(p.dir), port))).toBe(false);
   }, 20000);
 
-  test("start → status 0 → stop 0 → status 1, with the log and no pidfile left", async () => {
+  test("start → status 0 → stop 0 → status 1, with the log and no registry entry left", async () => {
     const p = board();
     setClockForTests(null);
     const port = await freePort();
@@ -1063,16 +1314,18 @@ describe("wip web · entry point (binary with WIP_BIN, else bun src/cli.ts)", ()
       for (let i = 0; i < 100 && (await probe(port, 200)).kind !== "wip"; i++) await Bun.sleep(50);
       const up = cli(["web", "status", "--json"]);
       expect(up.code).toBe(0);
-      expect(JSON.parse(up.stdout).data).toMatchObject({ state: "running", port });
+      const data = JSON.parse(up.stdout).data;
+      expect(data).toMatchObject({ state: "running", port });
+      expect(data.servers.map((s: TJson) => s.port)).toEqual([port]);
       const stopped = cli(["web", "stop"]);
       expect(stopped.code).toBe(0);
       expect(stopped.stdout).toContain(`wip web stopped for ${p.dir}`);
-      expect(cli(["web", "status", "--port", String(port)]).code).toBe(NOT_RUNNING);
+      expect(cli(["web", "status"]).code).toBe(NOT_RUNNING);
     } finally {
       if ((await probe(port, 200)).kind !== "none") proc.kill("SIGTERM");
     }
     expect(await proc.exited).toBe(0);
-    expect(existsSync(webPidPath(rootAt(p.dir)))).toBe(false);
+    expect(readWebServers(rootAt(p.dir))).toEqual([]);
     const log = cli(["web", "log"]);
     expect(log.code).toBe(0);
     expect(log.stdout).toContain(`start · pid`);
