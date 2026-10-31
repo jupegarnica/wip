@@ -1,7 +1,16 @@
-# Rules for subagents
+---
+name: wip-subagent-protocol
+description: "Only for subagents launched by the wip coordinator: the contract every one of them follows (no questions, what it may write, the state belongs to the coordinator, proposal then APPROVED, secrets, artifacts, output contract). The coordinator never applies it to itself."
+wip: skill
+---
+
+# Protocol for subagents
 
 Every subagent the coordinator launches follows these rules, whatever its level or phase. The prompt and the
-flow's `## Subagents` section add the task; they never relax a rule in this file unless the rule says so.
+flow's `## Subagents` section add the task; they never relax a rule in this file unless the rule says so. The
+coordinator does not follow this file: it is only for the subagents it launches.
+
+`<defs>` below is the project's definitions folder: `defs_dir` in `.wip/config.json`, `.agents` when there is none.
 
 ## You do not ask
 
@@ -25,7 +34,7 @@ The prompt's `Writes:` line sets it for this launch:
 
 Never, whatever `Writes:` says:
 - `.wip/` outside your `ARTIFACT_DIR`, and the `wip` database.
-- `.agents/` (flows, agents, skills, rules), unless the task is to edit that definition.
+- `<defs>/` (agents and skills, flows included), unless the task is to edit that definition.
 - Files the task does not need, or files of another item.
 
 Temporary files go in `ARTIFACT_DIR/tmp/`, never in the project tree.

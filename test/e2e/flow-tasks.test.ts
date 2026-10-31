@@ -5,7 +5,7 @@ import { EXIT } from "../../src/errors.ts";
 import { wipJsonIn, wipOkIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
 
-// A simulated coordinator drives the default `wip` flow with CLI commands only, as the
+// A simulated coordinator drives the default `tasks` flow with CLI commands only, as the
 // `wip-coordinate` skill tells a real one to. With WIP_BIN it runs the installed binary.
 
 const dirs: string[] = [];
@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 function project(name: string): string {
-  const dir = scratch(`flow-wip-${name}`);
+  const dir = scratch(`flow-tasks-${name}`);
   dirs.push(dir);
   return dir;
 }
@@ -49,17 +49,17 @@ function artifactDir(dir: string, id: string): string {
   return String(item?.artifact_dir);
 }
 
-describe("the wip flow from intake to done with CLI commands only (§1.6)", () => {
+describe("the tasks flow from intake to done with CLI commands only (§1.6)", () => {
   test("a simulated coordinator takes T1 through plan, execute, a sent-back verify and done", () => {
     const dir = project("t1");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
 
     step(dir, ["session", "start", "--id", "s1"]);
-    step(dir, ["phase", "T1", "intake", "--flow", "wip"]);
+    step(dir, ["phase", "T1", "intake", "--flow", "tasks"]);
     step(dir, ["set", "T1", "title=Add a README"]);
     const artifacts = artifactDir(dir, "T1");
-    expect(artifacts).toBe(join(dir, ".wip", "items", "wip", "T1"));
+    expect(artifacts).toBe(join(dir, ".wip", "items", "tasks", "T1"));
     writeFileSync(join(artifacts, "request.md"), "## What\n\nA README.\n\n## Context\n\nNone.\n");
 
     step(dir, ["phase", "T1", "plan"]);
@@ -98,7 +98,7 @@ describe("the wip flow from intake to done with CLI commands only (§1.6)", () =
 
     const shown = wipOkIn(dir, ["show", "T1"]);
     const item = shown.item as TRow;
-    expect(item).toMatchObject({ id: "T1", flow: "wip", phase: "done", title: "Add a README" });
+    expect(item).toMatchObject({ id: "T1", flow: "tasks", phase: "done", title: "Add a README" });
     expect(item.status).toBe("archived");
 
     const runs = rowsOf(shown, "agent_runs");
@@ -130,7 +130,7 @@ describe("the wip flow from intake to done with CLI commands only (§1.6)", () =
     const dir = project("restart");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     step(dir, ["session", "start", "--id", "s1"]);
-    step(dir, ["phase", "T2", "intake", "--flow", "wip"]);
+    step(dir, ["phase", "T2", "intake", "--flow", "tasks"]);
     step(dir, ["phase", "T2", "plan"]);
     step(dir, ["agent", "start", "T2", "thinker", "--handle", "h1"]);
 

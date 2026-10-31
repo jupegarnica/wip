@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { hasGenericMark, modelLine, withModelLine } from "../agents.ts";
-import { GENERIC_AGENTS, TEMPLATES } from "../embedded/templates.ts";
-import { DEFS_DIR, WIP_DIR } from "../env.ts";
+import { hasGenericMark, hasWipMark, modelLine, withModelLine } from "../agents.ts";
+import { WIP_DIR } from "../config.ts";
+import { COORDINATOR_AGENT, GENERIC_AGENTS, TEMPLATES } from "../embedded/templates.ts";
 
 export type TFileAction = "created" | "exists" | "replaced";
 export type TGitignoreAction = "created" | "added" | "exists";
@@ -24,6 +24,8 @@ export interface IScaffoldOptions {
   force: boolean;
   /** Suffix of the backup files: `compact()` of the run. */
   stamp: string;
+  /** Relative to the project, forward slashes: where the templates go. */
+  defsDir: string;
 }
 
 const GITIGNORE_ENTRY = `${WIP_DIR}/`;
@@ -32,14 +34,14 @@ const BACKUPS_DIR = `${WIP_DIR}/backups/defs`;
 
 const genericKeys = new Set<string>(GENERIC_AGENTS.map((name) => `agents/${name}.md`));
 
-/** The generic agents' files that exist without `wip: generic`: another tool's agents. */
-export function foreignGenerics(project: string): string[] {
-  return [...genericKeys]
+/** Files at a template's path without a `wip:` mark: another tool's, never written over, not even with `--force`. */
+export function foreignFiles(project: string, defsDir: string): string[] {
+  return Object.keys(TEMPLATES)
     .sort()
-    .map((key) => `${DEFS_DIR}/${key}`)
+    .map((key) => `${defsDir}/${key}`)
     .filter((rel) => {
       const file = join(project, rel);
-      return existsSync(file) && !hasGenericMark(readFileSync(file, "utf8"));
+      return existsSync(file) && !hasWipMark(readFileSync(file, "utf8"));
     });
 }
 
@@ -61,10 +63,9 @@ function write(file: string, text: string): void {
   writeFileSync(file, text);
 }
 
-const COORDINATOR_KEY = "agents/wip-coordinator.md";
+const COORDINATOR_KEY = `agents/${COORDINATOR_AGENT}.md`;
 
-// The onboarding's answer survives `--force`. `wip-coordinator` is a reserved name, so its model is kept even from
-// a file written before the coordinator carried its mark.
+// The onboarding's answer survives `--force`; nothing else of the user's edits does (they keep their backup).
 function keepsModel(key: string, current: string): boolean {
   return key === COORDINATOR_KEY || (genericKeys.has(key) && hasGenericMark(current));
 }
@@ -81,7 +82,7 @@ function placeTemplate(
   template: string,
   options: IScaffoldOptions,
 ): IInitFile {
-  const rel = `${DEFS_DIR}/${key}`;
+  const rel = `${options.defsDir}/${key}`;
   const file = join(project, rel);
   if (!existsSync(file)) {
     write(file, template);

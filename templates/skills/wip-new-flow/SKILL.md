@@ -1,13 +1,20 @@
 ---
 name: wip-new-flow
-description: "Create a new flow in .agents/flows/ or change an existing one: proposal, gate, backup, write, wip flow lint, restore on failure, wip check, and what happens to live items. Use when the user asks for a new flow, a new phase, or a change in how a flow moves."
+description: "Create a new wip flow (the skill wip-flow-<name>) or change an existing one: proposal, gate, backup, write, wip flow lint, restore on failure, wip check, and what happens to live items. Use when the user asks for a new flow, a new phase, or a change in how a flow moves."
+wip: skill
 ---
 
 # Creating or changing a flow
 
-A flow is one file, `.agents/flows/<flow>.md`: a title, a short description, one `wip-flow` block (the only source
-of phases), a `## Subagents` section and one `### <phase>` section per phase. The CLI discovers a new file on the
-next command; a file that does not pass lint is never used (the CLI keeps using the last valid version and warns).
+A flow is one skill, `<defs>/skills/wip-flow-<flow>/SKILL.md` (`<defs>` is the definitions folder: `defs_dir` in
+`.wip/config.json`, `.agents` when there is none). The folder's suffix is the flow's name. The file holds a
+frontmatter (`name: wip-flow-<flow>` and a `description` that says which items the flow is for), a title, a short
+description, one `wip-flow` block (the only source of phases), a `## Subagents` section and one `### <phase>`
+section per phase. The CLI discovers a new folder on the next command; a file that does not pass lint is never used
+(the CLI keeps using the last valid version and warns).
+
+`example.md`, next to this file, is a complete flow to copy from. It is a reference, not a flow: the CLI only
+discovers folders named `wip-flow-*`.
 
 ## Steps
 
@@ -18,10 +25,11 @@ next command; a file that does not pass lint is never used (the CLI keeps using 
    `fields`; and, for a change, what happens to each live item in a phase that changes or disappears. Options:
    Approve · Change · Stop. A literal order of the user on one line of an existing flow skips the gate (steps 3-6
    still apply).
-3. **Back up** an existing file before writing: copy it to `.wip/backups/defs/flows/<flow>.md.<timestamp>`
-   (timestamp `YYYYMMDDHHMMSS`, UTC).
-4. **Write** the file. For a new flow, start from a copy of `.agents/flows/wip.md` and change what the proposal says.
-   Present tense, no history: the file describes the flow as it is, never what it replaced.
+3. **Back up** an existing file before writing: copy it to
+   `.wip/backups/defs/skills/wip-flow-<flow>/SKILL.md.<timestamp>` (timestamp `YYYYMMDDHHMMSS`, UTC).
+4. **Write** the file. For a new flow, start from a copy of `example.md` (next to this skill) or of
+   `<defs>/skills/wip-flow-tasks/SKILL.md`, set `name: wip-flow-<flow>` and its `description`, drop the `wip:` line
+   (that mark is only for the files `wip init` writes), and change what the proposal says. Present tense, no history: the file describes the flow as it is, never what it replaced.
 5. **Lint:** `wip flow lint <flow>`. Exit 1 → restore the backup (or delete the new file), tell the user what failed,
    and go back to step 2 or fix the obvious mistake and lint again.
 6. **Check:** `wip check`. The next command on an item of this flow already uses the new version.
@@ -29,7 +37,7 @@ next command; a file that does not pass lint is never used (the CLI keeps using 
    decision recorded (`wip log <ID> "<their words>" --kind user`), move each one first with
    `wip phase <ID> <phase> --force --reason "<why>"`, then write the flow again.
 
-`.agents/` is versioned with the project: the user reviews the change as any other diff.
+`<defs>/` is versioned with the project: the user reviews the change as any other diff.
 
 ## The block
 
@@ -80,7 +88,7 @@ Phase keys:
 | `next` | — | phases it may move to; required except in the terminal phase, never itself |
 | `waiting_default` | `agent` | who it waits on when it starts: `agent`, `user`, `external`, `none` (terminal only) |
 | `stage` | — | optional column for the web board; when every phase has one, equal stages must be contiguous |
-| `agent` | — | the default agent of the phase; its file `.agents/agents/<agent>.md` must exist with `name` and `description` |
+| `agent` | — | the default agent of the phase; its file `<defs>/agents/<agent>.md` must exist with `name` and `description` |
 | `writes` | `artifacts` | what its subagent may write: `artifacts` (only its `ARTIFACT_DIR`) or `project` (also project files) |
 
 Other phase keys are tolerated and not validated. Every phase must be reachable from the first through `next`.
@@ -93,6 +101,8 @@ reviews and verifications stay `artifacts`.
 
 ## The text around the block
 
+- The frontmatter: `name: wip-flow-<flow>` (equal to the folder) and a one-line `description` that says which items
+  the flow is for and that the coordinator reads it before every phase. `wip flow lint` rejects a file without them.
 - A title and two or three lines on what an item of this flow is and how it ends.
 - `## Subagents`: which agent each phase uses and when the coordinator should choose another one; extra prompt
   fields the subagents need.

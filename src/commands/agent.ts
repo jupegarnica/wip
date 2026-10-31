@@ -35,7 +35,7 @@ function start(ctx: ICtx, args: IArgs): void {
   noExtra(args, 3);
   if (!AGENT_NAME_RE.test(agent)) throw usage(`invalid agent name: ${agent}`);
   if (!existsSync(agentFile(ctx.root.agents, agent))) {
-    throw notFound(`agent not found: ${agent} (no .agents/agents/${agent}.md)`);
+    throw notFound(`agent not found: ${agent} (no ${ctx.root.defsDir}/agents/${agent}.md)`);
   }
   const { item, flow } = openItem(ctx, id);
   const phase = args.opts.phase ?? item.phase;

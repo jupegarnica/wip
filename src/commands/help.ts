@@ -14,10 +14,19 @@ export interface ICommandSpec {
 export const COMMANDS: readonly ICommandSpec[] = [
   {
     name: "init",
-    summary: "Create .wip/ and the default definitions in .agents/",
-    usage: ["wip init [<path>] [--force] [--runtime claude-code]"],
-    options: ["runtime"],
+    summary:
+      "Create .wip/ and the default definitions (.agents/, or .claude/ with --harness claude-code)",
+    usage: ["wip init [<path>] [--force] [--harness <name>]"],
+    options: ["harness"],
     flags: ["force"],
+    notes: [
+      "--harness claude-code writes the agents and skills straight into .claude/; any other value, or none, into .agents/.",
+      "The folder is kept in .wip/config.json (defs_dir); every command reads the definitions from there.",
+      "A project keeps its folder: an init that would write to another one exits 3 and writes nothing.",
+      "A file at a template's path without a `wip:` mark is another tool's: exit 3 and nothing written, also with --force.",
+      "--force replaces only files with a `wip:` mark, each backed up in .wip/backups/defs/; `model:` is kept.",
+      "Claude Code: start the coordinator with `claude --agent wip`.",
+    ],
   },
   {
     name: "phase",
@@ -106,7 +115,7 @@ export const COMMANDS: readonly ICommandSpec[] = [
   },
   {
     name: "flow",
-    summary: "Validate the flows in .agents/flows/ (exit 1 on findings)",
+    summary: "Validate the flows, the skills <defs>/skills/wip-flow-<flow>/ (exit 1 on findings)",
     usage: ["wip flow lint [<flow>]"],
     options: [],
     flags: [],

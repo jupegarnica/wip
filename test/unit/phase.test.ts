@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
-import { fixture, minimalFlow, putFlow } from "../helpers/defs.ts";
+import { fixture, flowFile, minimalFlow, putFlow } from "../helpers/defs.ts";
 import { itemInPlan, itemsProject, ok, T0, tick, useProject, wipJson } from "../helpers/items.ts";
 import { count, makeProject } from "../helpers/project.ts";
 
@@ -39,7 +39,7 @@ describe("wip phase · creating an item (F-EST-08)", () => {
     expect(body.events[0]).toMatchObject({ kind: "phase", text: "created in intake", ts: T0 });
   });
 
-  test("without --flow it uses the only flow of .agents/flows/", () => {
+  test("without --flow it uses the only flow skill", () => {
     const p = ctx.set(makeProject("phase-only"));
     putFlow(p.dir, "minimal", minimalFlow());
     const body = ok(p, ["phase", "A1", "todo"]);
@@ -213,7 +213,7 @@ describe("wip phase · flows (F-NEW-04 in a write command)", () => {
   test("it records the flow's valid version and keeps using it when the file breaks", () => {
     const p = ctx.set(itemsProject("phase-stored"));
     itemInPlan(p);
-    writeFileSync(join(p.dir, ".agents", "flows", "valid.md"), "broken: no block\n");
+    writeFileSync(flowFile(p.dir, "valid"), "broken: no block\n");
     const { code, body } = wipJson(p, ["phase", "T1", "execute"]);
     expect(code).toBe(EXIT.OK);
     expect(body.item).toMatchObject({ phase: "execute" });

@@ -1,28 +1,34 @@
-import { mkdirSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 import type { IArgs } from "../args.ts";
 import { compact } from "../clock.ts";
+import { CONFIG_FILE, readConfig, WIP_DIR, writeConfig } from "../config.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { openForRead } from "../db.ts";
+import { COORDINATOR_AGENT } from "../embedded/templates.ts";
 import { rootAt } from "../env.ts";
 import { EXIT, rejected, usage } from "../errors.ts";
 import { loadFlows } from "../flow/registry.ts";
-import { CLAUDE_CODE, claudeCodeConflicts, type ILink, linkClaudeCode } from "../init/runtime.ts";
-import { foreignGenerics, scaffold } from "../init/scaffold.ts";
+import { CLAUDE_CODE, defsDirFor, nativeDefsDir } from "../init/harness.ts";
+import { foreignFiles, scaffold } from "../init/scaffold.ts";
 
 export const FIRST_RUN_LINE =
   "Start your coordinator: on its first run it asks which model it and each generic agent use.";
 
-const POINT_A_RUNTIME = [
-  "Point your runtime at .agents/:",
-  "  - the coordinator is .agents/agents/wip-coordinator.md and loads the skill .agents/skills/wip-coordinate/SKILL.md;",
-  "  - subagents are .agents/agents/<name>.md; skills are .agents/skills/<name>/SKILL.md;",
-  "  - Claude Code: `wip init --runtime claude-code` links .claude/agents and .claude/skills to them;",
-  "  - a runtime without agent definitions: paste .agents/skills/wip-coordinate/SKILL.md into a session as its first message.",
-];
+const INIT_USAGE = "usage: wip init [<path>] [--force] [--harness <name>]";
+
+function pointAHarness(defs: string): string[] {
+  return [
+    `Point your harness at ${defs}/:`,
+    `  - the coordinator is ${defs}/agents/${COORDINATOR_AGENT}.md and loads the skill ${defs}/skills/wip-coordinate/SKILL.md;`,
+    `  - subagents are ${defs}/agents/<name>.md; skills, flows included, are ${defs}/skills/<name>/SKILL.md;`,
+    "  - Claude Code: in a new project, `wip init --harness claude-code` writes them into .claude/ instead;",
+    `  - a harness without agent definitions: paste ${defs}/skills/wip-coordinate/SKILL.md into a session as its first message.`,
+  ];
+}
 
 const CLAUDE_CODE_NEXT = [
-  'Run the coordinator with `claude --agent wip-coordinator "start"` in this directory.',
+  `Run the coordinator with \`claude --agent ${COORDINATOR_AGENT}\` in this directory: it starts on its own.`,
 ];
 
 function assertDirectory(project: string): void {
@@ -46,53 +52,75 @@ function lint(ctx: ICtx, project: string): boolean {
   }
 }
 
+function initCommandFor(defsDir: string): string {
+  return defsDirFor(CLAUDE_CODE) === defsDir ? "wip init --harness claude-code" : "wip init";
+}
+
+/** A project already set up keeps its definitions folder: init never moves it. */
+function folderConflict(project: string, defsDir: string): string | null {
+  if (!existsSync(join(project, WIP_DIR))) return null;
+  const current = readConfig(project)?.defs_dir ?? defsDirFor(null);
+  if (current === defsDir) return null;
+  return `this project keeps its definitions in ${current}/ and this init would write them to ${defsDir}/; wip does not move them: run \`${initCommandFor(current)}\` (with --force to refresh), or move them by hand and edit ${WIP_DIR}/${CONFIG_FILE}`;
+}
+
 function run(ctx: ICtx, args: IArgs): void {
   const [path, extra] = args.pos;
-  if (extra !== undefined)
-    throw usage("usage: wip init [<path>] [--force] [--runtime claude-code]");
+  if (extra !== undefined) throw usage(INIT_USAGE);
+  const harnessOpt = args.opts.harness;
+  if (harnessOpt !== undefined && harnessOpt.trim() === "") throw usage(INIT_USAGE);
+  const harness = harnessOpt ?? null;
   const project = resolve(ctx.cwd, path ?? ".");
   const force = args.flags.has("force");
-  const runtime = args.opts.runtime ?? null;
+  const defsDir = defsDirFor(harness);
   assertDirectory(project);
 
+  const moved = folderConflict(project, defsDir);
   const conflicts = [
-    ...(force ? [] : foreignGenerics(project)).map(
+    ...(moved ? [moved] : []),
+    ...foreignFiles(project, defsDir).map(
       (rel) =>
-        `${rel} exists without \`wip: generic\` (another tool's agent); rename it, or run init --force to back it up in .wip/backups/defs/ and replace it`,
+        `${rel} exists without a \`wip:\` mark (another tool's file); rename or move it and run init again`,
     ),
-    ...(runtime === CLAUDE_CODE ? claudeCodeConflicts(project) : []),
   ];
   if (conflicts.length > 0) throw rejected(`nothing written: ${conflicts.join("; ")}`);
 
   mkdirSync(project, { recursive: true });
-  const done = scaffold(project, { force, stamp: compact() });
-  const links: ILink[] = runtime === CLAUDE_CODE ? linkClaudeCode(project) : [];
+  const before = readConfig(project);
+  const done = scaffold(project, { force, stamp: compact(), defsDir });
+  writeConfig(project, { defs_dir: defsDir, harness });
+  let configAction: "created" | "exists" | "updated" = "created";
+  if (before !== null) configAction = before.harness === harness ? "exists" : "updated";
 
   const lines = ctx.result.lines;
   lines.push(`wip init · ${project}`);
-  lines.push(`${done.wipDir} .wip/`);
+  lines.push(`${done.wipDir} ${WIP_DIR}/`);
   const gitignoreLine = {
-    created: "created .gitignore with .wip/",
-    added: "added .wip/ to .gitignore",
-    exists: "exists .wip/ in .gitignore",
+    created: `created .gitignore with ${WIP_DIR}/`,
+    added: `added ${WIP_DIR}/ to .gitignore`,
+    exists: `exists ${WIP_DIR}/ in .gitignore`,
   } as const;
   lines.push(gitignoreLine[done.gitignore]);
+  lines.push(`${configAction} ${WIP_DIR}/${CONFIG_FILE} (definitions in ${defsDir}/)`);
   for (const f of done.files) {
     lines.push(`${f.action} ${f.path}${f.backup ? ` (backup ${f.backup})` : ""}`);
   }
-  for (const l of links)
-    lines.push(`${l.action === "created" ? "linked" : "exists"} ${l.path} -> ${l.target}`);
   const lintOk = lint(ctx, project);
 
-  const next = [...(runtime === CLAUDE_CODE ? CLAUDE_CODE_NEXT : POINT_A_RUNTIME), FIRST_RUN_LINE];
+  const next = [
+    ...(nativeDefsDir(harness) !== null ? CLAUDE_CODE_NEXT : pointAHarness(defsDir)),
+    FIRST_RUN_LINE,
+  ];
   lines.push("", "Next steps:", ...next);
   ctx.result.message = `wip initialised in ${project}`;
   ctx.result.data = {
     project,
     wip: done.wipDir,
     gitignore: done.gitignore,
+    config: configAction,
+    defs_dir: defsDir,
+    harness,
     files: done.files,
-    runtime: runtime === CLAUDE_CODE ? { name: CLAUDE_CODE, links } : null,
     lint: { ok: lintOk },
     next,
   };

@@ -1,15 +1,18 @@
 ---
 name: wip-coordinate
 description: "Protocol of the wip coordinator: item state, the cycle of each phase, the launch prompt, which generic agent to choose, gates, message levels and the runtime interface. Load it to act as the coordinator, or paste it into a session of a runtime without agent definitions."
+wip: skill
 ---
 
 # Coordinating with wip
 
-This skill turns the session into the project's **coordinator**. With an agent definition, `wip-coordinator`
-loads it; without one, the user pastes it into a normal session and you follow it the same way, reading
-`.agents/agents/wip-coordinator.md` as your role. Either way, the first message of the session, whatever it says,
+This skill turns the session into the project's **coordinator**. With an agent definition, the coordinator agent
+`wip` loads it; without one, the user pastes it into a normal session and you follow it the same way, reading
+`<defs>/agents/wip.md` as your role. Either way, the first message of the session, whatever it says,
 runs its «Start of every session» before anything else; a request in that message is handled after it. The state lives in
-the `wip` CLI; the definitions live in `.agents/`; the artifacts live in `.wip/items/<flow>/<ID>/`.
+the `wip` CLI; the definitions live in the definitions folder `<defs>` (`defs_dir` in `.wip/config.json`, `.agents`
+when there is none): agents in `<defs>/agents/`, skills in `<defs>/skills/`, and each flow is the skill
+`<defs>/skills/wip-flow-<flow>/SKILL.md`. The artifacts live in `.wip/items/<flow>/<ID>/`.
 
 ## Item state
 
@@ -86,7 +89,8 @@ The contract between you and any subagent, in any runtime. One field per line; t
 fields.
 
 ```
-Flow: <flow> — read .agents/rules/subagents.md first.
+Flow: <flow>
+Protocol: <absolute path of <defs>/skills/wip-subagent-protocol/SKILL.md> — read it first.
 ID: <ID>
 ARTIFACT_DIR: <absolute path of .wip/items/<flow>/<ID>/>
 Phase: <phase>
@@ -95,6 +99,8 @@ Inputs: <exact path of each artifact to read; the user's feedback, literally>
 Task: <what to produce in this phase, and the artifact name>
 ```
 
+- `Protocol:` is in every prompt, for every agent: the subagent's contract (`wip-subagent-protocol`) is for the
+  agents you launch, never for you.
 - `Writes:` is always the value of the phase's `writes` in the block (`artifacts` when absent). Never widen it.
 - `Inputs:` names exact versions (`<ARTIFACT_DIR>/v2.plan.md`). Pass the user's words literally, not a summary.
 - `Task:` asks for present-tense artifacts. With `APPROVED`, it is the first word of `Task`.
@@ -192,7 +198,7 @@ first. End every turn that has nothing else to say with one line:
 
 The four generic agents (`wip: generic` in their frontmatter) and the coordinator (`wip: coordinator`) run on the
 model their `model:` line names. `wip init` writes them without one; the user chooses it once, and the choice lives
-in `.agents/`, so whoever clones a project already set up is not asked again.
+in `<defs>/`, so whoever clones a project already set up is not asked again.
 
 1. **When:** at startup, if `wip check --json` has the warning `models_unset`, before launching any subagent; also
    whenever the user asks to change the model of a generic agent or of the coordinator. Its `agents` list says which
@@ -206,7 +212,7 @@ in `.agents/`, so whoever clones a project already set up is not asked again.
    `agent=model`, one per line. Add the option «Later»: the session goes on with the runtime's default model and the
    question comes back at the next startup. In a runtime without subagents, recommend `inherit` for the four: you
    run every phase yourself, so only the level paragraph changes.
-3. **Writing:** for each answered agent, first copy `.agents/agents/<name>.md` to
+3. **Writing:** for each answered agent, first copy `<defs>/agents/<name>.md` to
    `.wip/backups/defs/agents/<name>.md.<timestamp>`; then add `model: <value>` on the line right after
    `description:`, or replace the `model:` line that is already there. Quote the value if it has a `:` or a space.
    Nothing else in the file changes.
@@ -218,7 +224,7 @@ in `.agents/`, so whoever clones a project already set up is not asked again.
    to restart the session to apply it. Then go on with the startup.
 
 A runtime that takes its subagents' model from somewhere else ignores `model:`. Say so in the question and write the
-answer anyway: it stays in `.agents/` and applies wherever the runtime reads it.
+answer anyway: it stays in `<defs>/` and applies wherever the runtime reads it.
 
 ## Runtime interface
 
@@ -228,8 +234,8 @@ each one.
 | # | Capability | Used for | Without it |
 |---|---|---|---|
 | 1 | Run `wip …` in a shell and read its output (`--json`, exit codes) | all state | required; there is no coordination without a shell |
-| 2 | Read and write project files (`.wip/items/`, `.agents/`) | artifacts, definitions | required |
-| 3 | Load `wip-coordinator` and the skills as instructions | taking the role | the user pastes this skill into the session |
+| 2 | Read and write project files (`.wip/items/`, `<defs>/`) | artifacts, definitions | required |
+| 3 | Load the agent `wip` and the skills as instructions | taking the role | the user pastes this skill into the session |
 | 4 | `launch(agent, prompt) → handle`, `stop(handle)`, collect the result | P2 and P4 in the background | run the phase yourself in the foreground, one at a time, following the agent's `.md`; `wip agent start` without `--handle` |
 | 5 | `ask(question, options)` | gates | the 🟧 block with numbered options as text, and end the turn; the answer arrives in the next turn |
 
@@ -242,25 +248,28 @@ each one.
 - **ask:** write the 🟧 block first as text, then the runtime's question with the same options; if the runtime has
   no question tool, the block with numbered options is the question.
 
-**Claude Code.** Run the coordinator with `claude --agent wip-coordinator "start"` after
-`wip init --runtime claude-code`, which links `.claude/agents` and `.claude/skills` to `.agents/`. `launch` is the
-`Agent` tool with `subagent_type` set to the agent's name and `run_in_background: true`; the handle is its agent
-id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is `AskUserQuestion`, after the 🟧 block as the last text.
-Claude Code reads `model:` from each agent's frontmatter through the `.claude/agents` link. It accepts an alias
+**Claude Code.** Run the coordinator with `claude --agent wip` after
+`wip init --harness claude-code`, which writes the definitions straight into `.claude/agents` and `.claude/skills`
+(`<defs>` is `.claude`). The coordinator's `initialPrompt` is the session's first message, so the start protocol
+runs without the user writing. `launch` is the `Agent` tool with `subagent_type` set to the agent's name and
+`run_in_background: true`; the handle is its agent id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is
+`AskUserQuestion`, after the 🟧 block as the last text. The generic agents preload `wip-subagent-protocol` through
+the `skills` key of their frontmatter. Claude Code reads `model:` from each agent's frontmatter. It accepts an alias
 (`haiku`, `sonnet`, `opus`, cheapest first), `inherit` or a full model ID. If the running session does not pick up a
 model written during onboarding, ask the user to open `/agents` or to restart the session.
-`claude --agent wip-coordinator` reads the coordinator's `model:` when it starts, so a new coordinator model needs a
+`claude --agent wip` reads the coordinator's `model:` when it starts, so a new coordinator model needs a
 restart; with `inherit`, the coordinator runs on the model `claude` is started with.
 
 **Without subagents** (no capability 4): you run each phase yourself, in the foreground, reading the agent's `.md`
-(`.agents/agents/<agent>.md`) and `.agents/rules/subagents.md` as if you were it, with the phase's `Writes:`. Record
+(`<defs>/agents/<agent>.md`) and `<defs>/skills/wip-subagent-protocol/SKILL.md` as if you were it, for that phase
+only, with the phase's `Writes:`. Record
 it the same way (`wip agent start` before, `wip agent stop` after, no `--handle`). Choosing `fast` or `wise` then
 changes only which level paragraph you follow.
 
 ## Changing the definitions
 
-The user can ask you to create or change flows, agents, skills and rules. Use `wip-new-flow` for flows and
-`wip-new-agent` for agents; for a skill or a rule, the same sequence: proposal → gate → backup in
+The user can ask you to create or change flows, agents and skills. Use `wip-new-flow` for flows and
+`wip-new-agent` for agents; for any other skill, the same sequence: proposal → gate → backup in
 `.wip/backups/defs/<path>.<timestamp>` → write → `wip flow lint` → `wip check`. A literal order of the user on a
 concrete line («change X to Y in that file») is applied without a gate, still with backup and lint. Write each
 change where its rule lives, in present tense, with no history («before», «now», «replaces»): definitions stay

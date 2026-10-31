@@ -1,8 +1,9 @@
 import { statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { defsDirOf, WIP_DIR } from "./config.ts";
 import { notFound } from "./errors.ts";
 
-export const WIP_DIR = ".wip";
+export { WIP_DIR };
 
 export type TEnv = Readonly<Record<string, string | undefined>>;
 
@@ -14,11 +15,18 @@ export interface IRoot {
   items: string;
   backups: string;
   tmp: string;
+  /** Relative to the project, forward slashes: `.agents` unless `.wip/config.json` says otherwise. */
+  defsDir: string;
   agents: string;
-  flows: string;
+  skills: string;
 }
 
-export const DEFS_DIR = ".agents";
+export const FLOW_SKILL_PREFIX = "wip-flow-";
+
+/** Where a flow's file lives, relative to the project. */
+export function flowPath(defsDir: string, flow: string): string {
+  return `${defsDir}/skills/${FLOW_SKILL_PREFIX}${flow}/SKILL.md`;
+}
 
 function isDirectory(path: string): boolean {
   try {
@@ -30,6 +38,7 @@ function isDirectory(path: string): boolean {
 
 export function rootAt(project: string): IRoot {
   const wip = join(project, WIP_DIR);
+  const defsDir = defsDirOf(project);
   return {
     project,
     wip,
@@ -37,8 +46,9 @@ export function rootAt(project: string): IRoot {
     items: join(wip, "items"),
     backups: join(wip, "backups"),
     tmp: join(wip, "tmp"),
-    agents: join(project, DEFS_DIR, "agents"),
-    flows: join(project, DEFS_DIR, "flows"),
+    defsDir,
+    agents: join(project, defsDir, "agents"),
+    skills: join(project, defsDir, "skills"),
   };
 }
 

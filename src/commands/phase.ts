@@ -3,7 +3,7 @@ import { forceReason, type IArgs, need } from "../args.ts";
 import { iso, now } from "../clock.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import type { TDatabase } from "../db.ts";
-import { artifactDir } from "../env.ts";
+import { artifactDir, FLOW_SKILL_PREFIX } from "../env.ts";
 import { notFound, rejected, usage } from "../errors.ts";
 import type { IFlow, IPhase } from "../flow/parse.ts";
 import { checkItemId, getFlow, loadFlows } from "../flow/registry.ts";
@@ -68,7 +68,11 @@ function flowForNewItem(ctx: ICtx, wanted: string | undefined): IFlow {
   let name = wanted;
   if (name === undefined) {
     const names = [...set.entries.keys()].sort();
-    if (names.length === 0) throw notFound("no flows in .agents/flows/: create one first");
+    if (names.length === 0) {
+      throw notFound(
+        `no flows in ${ctx.root.defsDir}/skills/${FLOW_SKILL_PREFIX}*/SKILL.md: create one first`,
+      );
+    }
     if (names.length > 1) {
       throw usage(`several flows (${names.join(", ")}): say which one with --flow`);
     }

@@ -1,4 +1,10 @@
-# wip
+---
+name: wip-flow-tasks
+description: "wip flow `tasks`, for the coordinator: phases, gates and subagents of an item that is a task with a clear outcome (a change, a fix, a document, an investigation), planned, executed and verified. Read it before every phase of an item of this flow."
+wip: flow
+---
+
+# tasks
 
 The default flow: a task with a clear outcome, planned, executed and verified. An item starts when the user asks
 for something; it ends when the user accepts the verified result.
@@ -58,7 +64,7 @@ the phase reads. Pass the user's feedback literally when a phase runs again.
 ### intake
 
 The coordinator does this phase itself, with no subagent. Create the item with
-`wip phase <ID> intake --flow wip`, then `wip set <ID> title=<short title>`. Write `request.md` in the item's
+`wip phase <ID> intake --flow tasks`, then `wip set <ID> title=<short title>`. Write `request.md` in the item's
 artifact directory with `## What` (the outcome the user wants, in their words) and `## Context` (links, files,
 constraints). Ask the user only what blocks writing a plan. When `request.md` says what done looks like, move to
 `plan`.

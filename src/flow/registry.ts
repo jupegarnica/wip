@@ -1,9 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { basename, join, relative } from "node:path";
+import { join, relative } from "node:path";
 import { iso } from "../clock.ts";
 import type { IWarning } from "../context.ts";
 import type { TDatabase } from "../db.ts";
-import type { IRoot } from "../env.ts";
+import { FLOW_SKILL_PREFIX, flowPath, type IRoot } from "../env.ts";
 import { EXIT, notFound, usage, WipError } from "../errors.ts";
 import { type ILiveItem, lintFlow } from "./lint.ts";
 import type { IFlow } from "./parse.ts";
@@ -24,6 +24,8 @@ export interface IFlowEntry {
 export interface IFlowSet {
   entries: Map<string, IFlowEntry>;
   warnings: IWarning[];
+  /** The project's definitions folder, relative: it names the files in messages. */
+  defsDir: string;
 }
 
 export interface ILoadOptions {
@@ -46,12 +48,22 @@ interface IStoredJson {
 
 export const DEFAULT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
-export function flowFiles(flowsDir: string): string[] {
-  if (!existsSync(flowsDir)) return [];
-  return readdirSync(flowsDir, { withFileTypes: true })
-    .filter((d) => d.isFile() && d.name.endsWith(".md") && d.name !== "README.md")
-    .map((d) => join(flowsDir, d.name))
-    .sort();
+export interface IFlowFile {
+  name: string;
+  file: string;
+}
+
+/** `skills/wip-flow-<name>/SKILL.md`: the folder's suffix names the flow. */
+export function flowFiles(skillsDir: string): IFlowFile[] {
+  if (!existsSync(skillsDir)) return [];
+  return readdirSync(skillsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory() && d.name.startsWith(FLOW_SKILL_PREFIX))
+    .map((d) => ({
+      name: d.name.slice(FLOW_SKILL_PREFIX.length),
+      file: join(skillsDir, d.name, "SKILL.md"),
+    }))
+    .filter((f) => f.name !== "" && existsSync(f.file))
+    .sort((a, b) => a.name.localeCompare(b.name));
 }
 
 function storedRows(db: TDatabase | null): Map<string, IStoredRow> {
@@ -111,21 +123,23 @@ function fallback(
 }
 
 /**
- * Discovers `.agents/flows/*.md` on every call: creating a file creates the flow. A file that fails lint
- * is never loaded; its last valid version from `flows` stands in, with a warning (F-NEW-04).
+ * Discovers the flow skills (`<defs>/skills/wip-flow-*\/SKILL.md`) on every call: creating a file creates the
+ * flow. A file that fails lint is never loaded; its last valid version from `flows` stands in, with a warning
+ * (F-NEW-04).
  */
 export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptions = {}): IFlowSet {
   const stored = storedRows(db);
   const items = liveItems(db);
   const entries = new Map<string, IFlowEntry>();
   const warnings: IWarning[] = [];
-  for (const file of flowFiles(root.flows)) {
-    const name = basename(file, ".md");
-    const path = relative(root.project, file);
+  for (const { name, file } of flowFiles(root.skills)) {
+    const path = relative(root.project, file).split("\\").join("/");
     const result = lintFlow({
       name,
       text: readFileSync(file, "utf8"),
       agentsDir: root.agents,
+      defsDir: root.defsDir,
+      skill: true,
       liveItems: items.get(name) ?? [],
     });
     const row = stored.get(name);
@@ -162,13 +176,13 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
     entries.set(name, entry);
     warnings.push(fallback(entry, row, "flow_missing"));
   }
-  return { entries, warnings };
+  return { entries, warnings, defsDir: root.defsDir };
 }
 
 /** The active version of a flow: exit 4 when it does not exist, 1 when it has no valid version. */
 export function getFlow(set: IFlowSet, name: string): IFlow {
   const entry = set.entries.get(name);
-  if (!entry) throw notFound(`flow not found: ${name} (no .agents/flows/${name}.md)`);
+  if (!entry) throw notFound(`flow not found: ${name} (no ${flowPath(set.defsDir, name)})`);
   if (!entry.flow) {
     throw new WipError(
       EXIT.FINDINGS,

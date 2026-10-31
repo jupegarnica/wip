@@ -1,4 +1,5 @@
 import type { IHandler } from "../context.ts";
+import { FLOW_SKILL_PREFIX, flowPath } from "../env.ts";
 import { EXIT, notFound, usage } from "../errors.ts";
 import { loadFlows } from "../flow/registry.ts";
 
@@ -9,7 +10,7 @@ export const flowCmd: IHandler = {
     if (sub !== "lint" || extra !== undefined) throw usage("usage: wip flow lint [<flow>]");
     const set = loadFlows(ctx.root, ctx.readDb);
     if (only !== undefined && !set.entries.has(only)) {
-      throw notFound(`flow not found: ${only} (no .agents/flows/${only}.md)`);
+      throw notFound(`flow not found: ${only} (no ${flowPath(ctx.root.defsDir, only)})`);
     }
     const selected = [...set.entries.values()]
       .filter((e) => only === undefined || e.name === only)
@@ -27,7 +28,11 @@ export const flowCmd: IHandler = {
       if (f.ok) ctx.result.lines.push(`OK ${f.name}`);
       else for (const problem of f.problems) ctx.result.lines.push(`${f.name} · ${problem}`);
     }
-    if (flows.length === 0) ctx.result.lines.push("no flows in .agents/flows/");
+    if (flows.length === 0) {
+      ctx.result.lines.push(
+        `no flows in ${ctx.root.defsDir}/skills/${FLOW_SKILL_PREFIX}*/SKILL.md`,
+      );
+    }
     ctx.result.warnings.push(
       ...set.warnings.filter((w) => selected.some((e) => e.name === w.flow)),
     );

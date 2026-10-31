@@ -7,7 +7,15 @@ import { openDb } from "../../src/db.ts";
 import { findRoot } from "../../src/env.ts";
 import { EXIT, WipError } from "../../src/errors.ts";
 import { checkItemId, flowFiles, getFlow, loadFlows } from "../../src/flow/registry.ts";
-import { fixture, flowsDir, minimalFlow, putFlow, putItems } from "../helpers/defs.ts";
+import {
+  asFlowSkill,
+  fixture,
+  flowFile,
+  minimalFlow,
+  putFlow,
+  putItems,
+  skillsDir,
+} from "../helpers/defs.ts";
 import { type IProject, makeProject } from "../helpers/project.ts";
 
 let p: IProject | null = null;
@@ -87,14 +95,20 @@ const probe = (proj: IProject, flow: string) =>
   };
 
 describe("discovery (F-FLU-03, F-FLU-13)", () => {
-  test("flows are the .md files of .agents/flows/, README.md and subfolders aside", () => {
+  test("flows are the skills wip-flow-<name>/SKILL.md; other skills, bare files and examples aside", () => {
     const proj = project("discover");
-    expect(flowFiles(flowsDir(proj.dir))).toEqual([]);
+    const skills = skillsDir(proj.dir);
+    expect(flowFiles(skills)).toEqual([]);
     putFlow(proj.dir, "minimal", fixture("flows", "minimal"));
-    putFlow(proj.dir, "README", "# flows\n");
-    mkdirSync(join(flowsDir(proj.dir), "drafts"));
-    writeFileSync(join(flowsDir(proj.dir), "drafts", "x.md"), minimalFlow());
-    writeFileSync(join(flowsDir(proj.dir), "notes.txt"), "x");
+    mkdirSync(join(skills, "wip-coordinate"), { recursive: true });
+    writeFileSync(join(skills, "wip-coordinate", "SKILL.md"), asFlowSkill("x", minimalFlow()));
+    mkdirSync(join(skills, "wip-new-flow"), { recursive: true });
+    writeFileSync(join(skills, "wip-new-flow", "example.md"), asFlowSkill("review", minimalFlow()));
+    mkdirSync(join(skills, "wip-flow-"), { recursive: true });
+    writeFileSync(join(skills, "wip-flow-", "SKILL.md"), minimalFlow());
+    mkdirSync(join(skills, "wip-flow-empty"), { recursive: true });
+    writeFileSync(join(skills, "wip-flow-notes.md"), minimalFlow());
+    expect(flowFiles(skills).map((f) => f.name)).toEqual(["minimal"]);
     expect([...load(proj).entries.keys()]).toEqual(["minimal"]);
   });
 
@@ -221,8 +235,8 @@ describe("safe activation (F-NEW-04)", () => {
     putFlow(proj.dir, "other", minimalFlow());
     probe(proj, "minimal");
     putItems(proj.dbPath, "minimal", [{ id: "T1", phase: "todo" }]);
-    rmSync(join(flowsDir(proj.dir), "minimal.md"));
-    rmSync(join(flowsDir(proj.dir), "other.md"));
+    rmSync(flowFile(proj.dir, "minimal"));
+    rmSync(flowFile(proj.dir, "other"));
     const set = load(proj);
     expect([...set.entries.keys()]).toEqual(["minimal"]);
     expect(set.entries.get("minimal")?.source).toBe("stored");

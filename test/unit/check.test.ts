@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
-import { putAgent } from "../helpers/defs.ts";
+import { flowFile, putAgent } from "../helpers/defs.ts";
 import { itemInPlan, itemsProject, ok, useProject, wipJson } from "../helpers/items.ts";
 import type { IProject } from "../helpers/project.ts";
 import { makeProject } from "../helpers/project.ts";
@@ -73,7 +73,7 @@ describe("wip check (F-INV-08)", () => {
   test("a broken flow file shows as flow_invalid without changing the exit code (F-NEW-04)", () => {
     const p = ctx.set(itemsProject("check-flow-invalid"));
     itemInPlan(p);
-    writeFileSync(join(p.dir, ".agents", "flows", "valid.md"), "no block\n");
+    writeFileSync(flowFile(p.dir, "valid"), "no block\n");
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.OK);
     expect(body.warnings.map((w) => w.code)).toEqual(["flow_invalid", "models_unset"]);
@@ -83,7 +83,7 @@ describe("wip check (F-INV-08)", () => {
   test("a deleted flow file with open items shows as flow_missing", () => {
     const p = ctx.set(itemsProject("check-flow-missing"));
     itemInPlan(p);
-    rmSync(join(p.dir, ".agents", "flows", "valid.md"));
+    rmSync(flowFile(p.dir, "valid"));
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.OK);
     expect(body.warnings.map((w) => w.code)).toEqual(["flow_missing", "models_unset"]);
@@ -93,7 +93,7 @@ describe("wip check (F-INV-08)", () => {
     const p = ctx.set(itemsProject("check-no-version"));
     itemInPlan(p);
     sql(p, "DELETE FROM flows");
-    writeFileSync(join(p.dir, ".agents", "flows", "valid.md"), "no block\n");
+    writeFileSync(flowFile(p.dir, "valid"), "no block\n");
     expect(findings(p)).toEqual({ code: EXIT.FINDINGS, codes: ["I1"] });
   });
 
@@ -130,39 +130,31 @@ describe("wip check: generic agents (F-NEW-07)", () => {
   test("the coordinator by its mark joins the list in alphabetical order, and leaves it with a model", () => {
     const p = ctx.set(makeProject("check-models-coordinator"));
     for (const name of ["wise", "fast"]) putAgent(p.dir, name, generic(name));
-    putAgent(p.dir, "wip-coordinator", coordinator("wip-coordinator"));
+    putAgent(p.dir, "wip", coordinator("wip"));
     expect(modelsWarning(p)).toEqual({
       code: EXIT.OK,
-      agents: ["fast", "wip-coordinator", "wise"],
+      agents: ["fast", "wip", "wise"],
     });
-    putAgent(p.dir, "wip-coordinator", coordinator("wip-coordinator", "inherit"));
+    putAgent(p.dir, "wip", coordinator("wip", "inherit"));
     expect(modelsWarning(p).agents).toEqual(["fast", "wise"]);
   });
 
-  test("a renamed coordinator is listed by its name; a wip-coordinator.md without the mark is not", () => {
+  test("a renamed coordinator is listed by its name; a wip.md without the mark is not", () => {
     const p = ctx.set(makeProject("check-models-coordinator-foreign"));
     putAgent(p.dir, "lead", coordinator("lead"));
-    putAgent(
-      p.dir,
-      "wip-coordinator",
-      "---\nname: wip-coordinator\ndescription: another tool's coordinator\n---\n",
-    );
+    putAgent(p.dir, "wip", "---\nname: wip\ndescription: another tool's coordinator\n---\n");
     expect(modelsWarning(p)).toEqual({ code: EXIT.OK, agents: ["lead"] });
   });
 
-  test("a broken wip-coordinator.md is a finding only with the coordinator mark", () => {
+  test("a broken wip.md is a finding only with the coordinator mark", () => {
     const p = ctx.set(makeProject("check-coordinator-invalid"));
-    putAgent(p.dir, "wip-coordinator", "---\nname: wip-coordinator\ndescription: [unclosed\n---\n");
+    putAgent(p.dir, "wip", "---\nname: wip\ndescription: [unclosed\n---\n");
     expect(wipJson(p, ["check"]).code).toBe(EXIT.OK);
-    putAgent(
-      p.dir,
-      "wip-coordinator",
-      "---\nname: wip-coordinator\ndescription: [unclosed\nwip: coordinator\n---\n",
-    );
+    putAgent(p.dir, "wip", "---\nname: wip\ndescription: [unclosed\nwip: coordinator\n---\n");
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.FINDINGS);
     const list = (body.data?.findings ?? []) as { code: string; agent: string }[];
-    expect(list.map((f) => [f.code, f.agent])).toEqual([["agent_invalid", "wip-coordinator"]]);
+    expect(list.map((f) => [f.code, f.agent])).toEqual([["agent_invalid", "wip"]]);
   });
 
   test("it lists only the generics still without model, and disappears with all four set", () => {
@@ -198,5 +190,37 @@ describe("wip check: generic agents (F-NEW-07)", () => {
     expect(p.wip(["check"]).stdout).toContain(
       "agent_invalid · .agents/agents/fast.md · invalid frontmatter",
     );
+  });
+
+  test("with defs_dir .claude in .wip/config.json it reads .claude/agents and ignores .agents/agents", () => {
+    const p = ctx.set(makeProject("check-defs-claude"));
+    writeFileSync(
+      join(p.dir, ".wip", "config.json"),
+      '{"defs_dir": ".claude", "harness": "claude-code"}\n',
+    );
+    putAgent(p.dir, "fast", "---\nname: fast\ndescription: [unclosed\nwip: generic\n---\n");
+    putAgent(p.dir, "wise", generic("wise"), ".claude");
+    putAgent(p.dir, "wip", coordinator("wip"), ".claude");
+    putAgent(
+      p.dir,
+      "thinker",
+      "---\nname: thinker\ndescription: [unclosed\nwip: generic\n---\n",
+      ".claude",
+    );
+    const { code, body } = wipJson(p, ["check"]);
+    expect(code).toBe(EXIT.FINDINGS);
+    expect(body.warnings.find((w) => w.code === "models_unset")?.agents).toEqual(["wip", "wise"]);
+    expect(p.wip(["check"]).stdout).toContain(
+      "agent_invalid · .claude/agents/thinker.md · invalid frontmatter",
+    );
+    expect(p.wip(["check"]).stdout).not.toContain(".agents/agents/fast.md");
+  });
+
+  test("an invalid .wip/config.json is exit 3 with its path", () => {
+    const p = ctx.set(makeProject("check-config-invalid"));
+    writeFileSync(join(p.dir, ".wip", "config.json"), '{"defs_dir": "../elsewhere"}\n');
+    const out = p.wip(["check"]);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.stderr).toContain(".wip/config.json");
   });
 });

@@ -1,5 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
+import { DEFAULT_DEFS_DIR } from "./config.ts";
 
 export const GENERIC_MARK = "generic";
 export const COORDINATOR_MARK = "coordinator";
@@ -40,6 +41,12 @@ function wipMark(source: string): unknown {
   } catch {
     return source.match(FRONTMATTER_RE)?.[1]?.match(MARK_LINE_RE)?.[1];
   }
+}
+
+/** Any `wip:` mark: the file is one wip wrote, so `init --force` may replace it. */
+export function hasWipMark(source: string): boolean {
+  const mark = wipMark(source);
+  return typeof mark === "string" && mark !== "";
 }
 
 export function hasGenericMark(source: string): boolean {
@@ -113,9 +120,13 @@ export function agentFile(agentsDir: string, name: string): string {
 }
 
 /** Problems of the agent a flow phase names; empty when it is usable. */
-export function lintAgentRef(agentsDir: string, name: string): string[] {
+export function lintAgentRef(
+  agentsDir: string,
+  name: string,
+  defsDir: string = DEFAULT_DEFS_DIR,
+): string[] {
   const file = agentFile(agentsDir, name);
-  if (!existsSync(file)) return [`no agent file .agents/agents/${name}.md`];
+  if (!existsSync(file)) return [`no agent file ${defsDir}/agents/${name}.md`];
   return readAgent(file).problems;
 }
 

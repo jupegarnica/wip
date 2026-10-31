@@ -3,7 +3,13 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { parseFrontmatter, readAgent } from "../../src/agents.ts";
 import { COMMANDS } from "../../src/commands/help.ts";
-import { GENERIC_AGENTS, RESERVED_AGENTS, TEMPLATES } from "../../src/embedded/templates.ts";
+import {
+  COORDINATOR_AGENT,
+  DEFAULT_FLOW,
+  GENERIC_AGENTS,
+  RESERVED_AGENTS,
+  TEMPLATES,
+} from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
 import { lintFlow } from "../../src/flow/lint.ts";
 import { extractBlocks, extractSections, parseFlow } from "../../src/flow/parse.ts";
@@ -11,6 +17,7 @@ import { type IProject, makeProject } from "../helpers/project.ts";
 
 const CAPABILITIES = ["read", "write", "shell", "spawn", "ask-user"];
 const RUNTIME_SECTION = "## Runtime interface";
+const PROTOCOL_SKILL = "wip-subagent-protocol";
 
 let p: IProject | null = null;
 
@@ -66,7 +73,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
   test("every agent has a valid frontmatter: name equal to its file, description, role and capabilities", () => {
     const agents = entries("agents/");
     expect(agents.map(([key]) => key).sort()).toEqual(
-      ["efficient", "fast", "thinker", "wip-coordinator", "wise"].map((n) => `agents/${n}.md`),
+      ["efficient", "fast", "thinker", "wip", "wise"].map((n) => `agents/${n}.md`),
     );
     for (const [key] of agents) {
       const fm = frontmatter(key);
@@ -79,17 +86,19 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
   });
 
-  test("the coordinator has every capability, wip: coordinator and no model: the onboarding sets it", () => {
-    const fm = frontmatter("agents/wip-coordinator.md");
+  test("the coordinator is `wip`: every capability, wip: coordinator, an initialPrompt and no model", () => {
+    const fm = frontmatter("agents/wip.md");
+    expect(fm.name).toBe(COORDINATOR_AGENT);
     expect(fm.role).toBe("coordinator");
     expect(fm.capabilities).toEqual(CAPABILITIES);
     expect(fm).not.toHaveProperty("model");
     expect(fm.wip).toBe("coordinator");
+    expect(String(fm.initialPrompt)).toContain("run the start of every session");
   });
 
   test("the coordinator definition is short and points to the wip-coordinate skill", () => {
-    const text = template("agents/wip-coordinator.md");
-    expect(text.trimEnd().split("\n").length).toBeLessThanOrEqual(80);
+    const text = template("agents/wip.md");
+    expect(text.trimEnd().split("\n").length).toBeLessThanOrEqual(90);
     expect(text).toContain("wip-coordinate");
     expect(text).toContain("wip session start");
     expect(text).toContain("wip state --attention");
@@ -99,18 +108,22 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
   });
 
   test("the start protocol runs on the first message, whatever it says, and a request waits for it", () => {
-    const start = section(template("agents/wip-coordinator.md"), "## Start of every session");
-    expect(start).toContain("opens no turn until the user writes");
+    const start = section(template("agents/wip.md"), "## Start of every session");
+    expect(start).toContain("sends this file's `initialPrompt` as the first message");
+    expect(start).toContain("opens no\nturn until the user writes");
     expect(start).toContain("The first message of the session, whatever it says");
     expect(start).toContain("If the first message carried a request, handle it after that message");
     const skill = template("skills/wip-coordinate/SKILL.md");
     expect(skill).toContain("the first message of the session, whatever it says");
-    expect(skill).toContain("`.agents/agents/wip-coordinator.md` as your role");
-    expect(section(skill, RUNTIME_SECTION)).toContain('`claude --agent wip-coordinator "start"`');
+    expect(skill).toContain("`<defs>/agents/wip.md` as your role");
+    const runtime = section(skill, RUNTIME_SECTION);
+    expect(runtime).toContain("`claude --agent wip` after");
+    expect(runtime).toContain("`initialPrompt` is the session's first message");
+    expect(runtime).not.toContain('"start"');
   });
 
   test("the start brings up the kanban through fast without waiting; later checks only warn", () => {
-    const coordinator = template("agents/wip-coordinator.md");
+    const coordinator = template("agents/wip.md");
     const start = section(coordinator, "## Start of every session");
     for (const clause of [
       "Delegate to `fast`, in the background if the runtime can",
@@ -150,7 +163,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       expect(def.generic).toBe(true);
       expect(def.model).toBeNull();
     }
-    const coordinator = readAgent(join(project.dir, ".agents", "agents", "wip-coordinator.md"));
+    const coordinator = readAgent(join(project.dir, ".agents", "agents", "wip.md"));
     expect(coordinator.problems).toEqual([]);
     expect(coordinator.generic).toBe(false);
     expect(coordinator.coordinator).toBe(true);
@@ -175,34 +188,59 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     expect(level("wise")).toContain("safest path");
   });
 
-  test("every agent body asks for the output contract and respects Writes:", () => {
+  test("every agent body asks for the output contract, respects Writes: and preloads the protocol", () => {
     for (const name of GENERIC_AGENTS) {
       const text = template(`agents/${name}.md`);
       for (const token of ["STATUS:", "ARTIFACTS:", "SUMMARY:", "QUESTIONS:", "`Writes:`"]) {
         expect(text).toContain(token);
       }
-      expect(text).toContain(".agents/rules/subagents.md");
+      expect(text).toContain("`skills/wip-subagent-protocol/SKILL.md` in the definitions folder");
+      expect(text).toContain("the prompt's `Protocol:` gives its full\n   path");
+      expect(frontmatter(`agents/${name}.md`).skills).toEqual([PROTOCOL_SKILL]);
+      expect(text).not.toContain(".agents/");
     }
+    expect(frontmatter("agents/wip.md")).not.toHaveProperty("skills");
   });
 });
 
-describe("rules and skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
-  test("every skill has a name equal to its folder and a description", () => {
-    const skills = entries("skills/");
+describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
+  test("every skill has a name equal to its folder, a description and a wip: mark; no rules/ or flows/", () => {
+    const skills = entries("skills/").filter(([key]) => key.endsWith("/SKILL.md"));
     expect(skills.map(([key]) => key).sort()).toEqual([
       "skills/wip-coordinate/SKILL.md",
+      "skills/wip-flow-tasks/SKILL.md",
       "skills/wip-new-agent/SKILL.md",
       "skills/wip-new-flow/SKILL.md",
+      "skills/wip-subagent-protocol/SKILL.md",
     ]);
     for (const [key] of skills) {
       const fm = frontmatter(key);
       expect(fm.name).toBe(key.split("/")[1]);
       expect(String(fm.description).length).toBeGreaterThan(40);
+      expect(typeof fm.wip).toBe("string");
+    }
+    expect(Object.keys(TEMPLATES).filter((k) => /^(rules|flows)\//.test(k))).toEqual([]);
+    for (const [key, text] of Object.entries(TEMPLATES)) {
+      expect({ key, rules: /\brules\//.test(text) }).toEqual({ key, rules: false });
     }
   });
 
-  test("rules/subagents.md holds the shared contract", () => {
-    const rules = template("rules/subagents.md");
+  test("the protocol is a skill for subagents only, and the coordinator passes its path", () => {
+    const fm = frontmatter(`skills/${PROTOCOL_SKILL}/SKILL.md`);
+    expect(String(fm.description)).toContain("Only for subagents");
+    expect(String(fm.description)).toContain("The coordinator never applies it to itself");
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    expect(skill).toContain(
+      "Protocol: <absolute path of <defs>/skills/wip-subagent-protocol/SKILL.md> — read it first.",
+    );
+    expect(template("agents/wip.md")).toContain("never apply it to yourself");
+    const newAgent = template("skills/wip-new-agent/SKILL.md");
+    expect(newAgent).toContain("skills:\n  - wip-subagent-protocol");
+    expect(newAgent).toContain("It always carries the subagent protocol");
+  });
+
+  test("wip-subagent-protocol holds the shared contract", () => {
+    const rules = template(`skills/${PROTOCOL_SKILL}/SKILL.md`);
     for (const clause of [
       "STATUS: needs-input",
       "| `artifacts` (also when the line is missing) | files inside `ARTIFACT_DIR` only |",
@@ -287,7 +325,7 @@ describe("rules and skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", 
     }
     const runtime = section(skill, RUNTIME_SECTION);
     expect(runtime).toContain(
-      "`claude --agent wip-coordinator` reads the coordinator's `model:` when it starts",
+      "`claude --agent wip` reads the coordinator's `model:` when it starts",
     );
     expect(runtime).toContain(
       "with `inherit`, the coordinator runs on the model `claude` is started with",
@@ -306,12 +344,15 @@ describe("rules and skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", 
   test("wip-new-flow backs up, lints and restores", () => {
     const skill = template("skills/wip-new-flow/SKILL.md");
     for (const clause of [
-      ".wip/backups/defs/flows/<flow>.md.<timestamp>",
+      ".wip/backups/defs/skills/wip-flow-<flow>/SKILL.md.<timestamp>",
+      "`<defs>/skills/wip-flow-<flow>/SKILL.md`",
       "wip flow lint <flow>",
       "restore the backup",
       "wip state --flow <flow>",
       "--force --reason",
-      "copy of `.agents/flows/wip.md`",
+      "start from a copy of `example.md`",
+      "`<defs>/skills/wip-flow-tasks/SKILL.md`",
+      "It is a reference, not a flow",
     ]) {
       expect(skill).toContain(clause);
     }
@@ -328,19 +369,37 @@ describe("rules and skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", 
     });
     expect(result.problems).toEqual([]);
   });
+
+  test("example.md is a whole flow skill that passes lint, and init never makes it a flow", () => {
+    const project = initProject();
+    const result = lintFlow({
+      name: "review",
+      text: template("skills/wip-new-flow/example.md"),
+      agentsDir: join(project.dir, ".agents", "agents"),
+      skill: true,
+      liveItems: [],
+    });
+    expect(result.problems).toEqual([]);
+    expect(frontmatter("skills/wip-new-flow/example.md").name).toBe("wip-flow-review");
+    expect(project.wip(["flow", "lint"]).stdout).toBe(`OK ${DEFAULT_FLOW}\n`);
+  });
 });
 
-describe("the wip flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
+describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
+  const FLOW_KEY = `skills/wip-flow-${DEFAULT_FLOW}/SKILL.md`;
+
   test("wip flow lint passes on what init writes", () => {
     const project = initProject();
     const out = project.wip(["flow", "lint"]);
     expect(out.stderr).toBe("");
     expect(out.code).toBe(EXIT.OK);
-    expect(out.stdout).toContain("OK wip");
+    expect(out.stdout).toContain("OK tasks");
+    expect(template(FLOW_KEY)).toContain("`wip phase <ID> intake --flow tasks`");
+    expect(String(frontmatter(FLOW_KEY).description)).toContain("for the coordinator");
   });
 
   test("its phases carry the agents and writes of the plan", () => {
-    const { flow, problems } = parseFlow("wip", template("flows/wip.md"));
+    const { flow, problems } = parseFlow(DEFAULT_FLOW, template(FLOW_KEY));
     expect(problems).toEqual([]);
     if (!flow) throw new Error("no flow");
     const shape = flow.phases.map((ph) => [ph.name, ph.gate, ph.agent ?? null, ph.writes, ph.next]);
@@ -356,7 +415,7 @@ describe("the wip flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
   });
 
   test("## Subagents and a ### section for every phase are filled; there is no phase table", () => {
-    const text = template("flows/wip.md");
+    const text = template(FLOW_KEY);
     const sections = extractSections(text, ["intake", "plan", "execute", "verify", "done"]);
     expect((sections.subagents ?? "").length).toBeGreaterThan(200);
     for (const phase of ["intake", "plan", "execute", "verify", "done"]) {

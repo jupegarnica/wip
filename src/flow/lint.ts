@@ -1,4 +1,6 @@
-import { lintAgentRef } from "../agents.ts";
+import { lintAgentRef, parseFrontmatter } from "../agents.ts";
+import { DEFAULT_DEFS_DIR } from "../config.ts";
+import { FLOW_SKILL_PREFIX } from "../env.ts";
 import type { IFlow } from "./parse.ts";
 import { parseFlow } from "./parse.ts";
 
@@ -11,8 +13,36 @@ export interface ILintInput {
   name: string;
   text: string;
   agentsDir: string;
+  /** Relative to the project; it names missing agent files. */
+  defsDir?: string;
+  /** The text is a flow skill: its frontmatter must carry `name` and `description`. */
+  skill?: boolean;
   /** Open items of this flow; empty when there is no database yet. */
   liveItems: readonly ILiveItem[];
+}
+
+// A harness loads the flow as a skill by its frontmatter; without it the coordinator never sees the flow.
+export function lintSkillFrontmatter(name: string, text: string): string[] {
+  const folder = `${FLOW_SKILL_PREFIX}${name}`;
+  let fm: Record<string, unknown> | null;
+  try {
+    fm = parseFrontmatter(text);
+  } catch (err) {
+    return [`invalid frontmatter: ${(err as Error).message}`];
+  }
+  if (fm === null) return ["no frontmatter (--- block at the top with name and description)"];
+  const problems: string[] = [];
+  if (fm.name !== folder) {
+    problems.push(
+      fm.name === undefined
+        ? `frontmatter has no name (it must be ${folder})`
+        : `frontmatter name '${String(fm.name)}' differs from the folder name '${folder}'`,
+    );
+  }
+  if (typeof fm.description !== "string" || fm.description.trim() === "") {
+    problems.push("frontmatter has no description");
+  }
+  return problems;
 }
 
 export interface ILintResult {
@@ -106,12 +136,16 @@ export function lintGraph(flow: IFlow): string[] {
   return problems;
 }
 
-export function lintAgents(flow: IFlow, agentsDir: string): string[] {
+export function lintAgents(
+  flow: IFlow,
+  agentsDir: string,
+  defsDir: string = DEFAULT_DEFS_DIR,
+): string[] {
   const problems: string[] = [];
   const checked = new Map<string, string[]>();
   for (const p of flow.phases) {
     if (p.agent === null) continue;
-    if (!checked.has(p.agent)) checked.set(p.agent, lintAgentRef(agentsDir, p.agent));
+    if (!checked.has(p.agent)) checked.set(p.agent, lintAgentRef(agentsDir, p.agent, defsDir));
     for (const problem of checked.get(p.agent) ?? []) {
       problems.push(`phase ${p.name}: agent ${p.agent}: ${problem}`);
     }
@@ -129,10 +163,13 @@ export function lintLiveItems(flow: IFlow, items: readonly ILiveItem[]): string[
 /** Every rule `wip flow lint` applies; a flow is only activated with no problems (F-NEW-04). */
 export function lintFlow(input: ILintInput): ILintResult {
   const parsed = parseFlow(input.name, input.text);
-  const problems = [...parsed.problems];
+  const problems = [
+    ...(input.skill ? lintSkillFrontmatter(input.name, input.text) : []),
+    ...parsed.problems,
+  ];
   if (parsed.flow) {
     problems.push(...lintGraph(parsed.flow));
-    problems.push(...lintAgents(parsed.flow, input.agentsDir));
+    problems.push(...lintAgents(parsed.flow, input.agentsDir, input.defsDir));
     problems.push(...lintLiveItems(parsed.flow, input.liveItems));
   }
   return { flow: parsed.flow, block: parsed.block, problems };

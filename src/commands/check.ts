@@ -19,7 +19,7 @@ interface IAgentFinding {
 
 const genericNames = new Set<string>(GENERIC_AGENTS);
 
-// The coordinator counts only by its mark: a foreign `wip-coordinator.md` is not wip's to judge.
+// The coordinator counts only by its mark: a foreign `wip.md` is not wip's to judge.
 function isOwnAgent(name: string, source: string): boolean {
   return genericNames.has(name) || hasGenericMark(source) || hasCoordinatorMark(source);
 }

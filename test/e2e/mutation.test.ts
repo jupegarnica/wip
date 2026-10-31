@@ -58,14 +58,17 @@ interface IFlowProject {
   restore: (backup: string) => void;
 }
 
-/** `wip init`, then `review.md` copied from `wip.md` with other phases. */
+/** `wip init`, then the skill `wip-flow-review` copied from `wip-flow-tasks` with its name and other phases. */
 function flowProject(name: string): IFlowProject {
   const dir = scratch(`mutation-${name}`);
   dirs.push(dir);
   expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
-  const flows = join(dir, ".agents", "flows");
-  const review = join(flows, "review.md");
-  const template = readFileSync(join(flows, "wip.md"), "utf8");
+  const skills = join(dir, ".agents", "skills");
+  mkdirSync(join(skills, "wip-flow-review"));
+  const review = join(skills, "wip-flow-review", "SKILL.md");
+  const template = readFileSync(join(skills, "wip-flow-tasks", "SKILL.md"), "utf8")
+    .replace("name: wip-flow-tasks", "name: wip-flow-review")
+    .replace("wip: flow\n", "");
   writeFileSync(review, withBlock(template, REVIEW_PHASES));
   let n = 0;
   return {
@@ -76,9 +79,9 @@ function flowProject(name: string): IFlowProject {
       return review;
     },
     backup: () => {
-      const backups = join(dir, ".wip", "backups", "defs", "flows");
+      const backups = join(dir, ".wip", "backups", "defs", "skills", "wip-flow-review");
       mkdirSync(backups, { recursive: true });
-      const path = join(backups, `review.md.2026103${n++}T120000Z`);
+      const path = join(backups, `SKILL.md.2026103${n++}T120000Z`);
       copyFileSync(review, path);
       return path;
     },
@@ -104,21 +107,21 @@ function phaseOf(dir: string, id: string): unknown {
   return wipOkIn(dir, ["show", id]).item?.phase;
 }
 
-describe("a new flow created by copying wip.md (§1.7)", () => {
-  test("lints, takes an item and shows in `state --flow` next to wip", () => {
+describe("a new flow created by copying the tasks flow skill (§1.7)", () => {
+  test("lints, takes an item and shows in `state --flow` next to tasks", () => {
     const p = flowProject("new");
     expect(lint(p.dir)).toMatchObject({ code: EXIT.OK });
     expect(lint(p.dir).flows.map((f) => [f.name, f.ok])).toEqual([
       ["review", true],
-      ["wip", true],
+      ["tasks", true],
     ]);
 
     wipOkIn(p.dir, ["phase", "R1", "intake", "--flow", "review"]);
     wipOkIn(p.dir, ["phase", "R1", "review"]);
-    wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "wip"]);
+    wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "tasks"]);
 
     expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "review"]))).toEqual(["R1"]);
-    expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "wip"]))).toEqual(["W1"]);
+    expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "tasks"]))).toEqual(["W1"]);
     expect(wipJsonIn(p.dir, ["check"]).code).toBe(EXIT.OK);
   });
 
@@ -214,9 +217,9 @@ async function freePort(): Promise<number> {
 }
 
 describe("wip web over both flows (§1.8)", () => {
-  test("the kanban shows the wip and review columns, your turn, gates and running agents", async () => {
+  test("the kanban shows the tasks and review columns, your turn, gates and running agents", async () => {
     const p = flowProject("web");
-    wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "wip"]);
+    wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "tasks"]);
     wipOkIn(p.dir, ["phase", "W1", "plan"]);
     wipOkIn(p.dir, ["agent", "start", "W1", "thinker", "--handle", "h1"]);
     wipOkIn(p.dir, ["phase", "R1", "intake", "--flow", "review"]);
@@ -248,7 +251,7 @@ describe("wip web over both flows (§1.8)", () => {
       );
       expect(columns).toEqual({
         review: ["intake", "review", "fix", "done"],
-        wip: ["intake", "plan", "execute", "verify", "done"],
+        tasks: ["intake", "plan", "execute", "verify", "done"],
       });
       expect(kanban.your_turn.map((i: TJson) => i.id)).toContain("R1");
       expect(kanban.open_gates.map((g: TJson) => [g.item_id, g.question])).toEqual([

@@ -1,10 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
 import { type ILiveItem, lintFlow } from "../../src/flow/lint.ts";
 import {
   agentsDir,
   fixture,
+  flowFile,
   minimalFlow,
   putAgent,
   putFlow,
@@ -206,7 +208,7 @@ describe("wip flow lint (command)", () => {
     p = makeProject("cmd-empty");
     const out = p.wip(["flow", "lint"]);
     expect(out.code).toBe(EXIT.OK);
-    expect(out.stdout).toBe("no flows in .agents/flows/\n");
+    expect(out.stdout).toBe("no flows in .agents/skills/wip-flow-*/SKILL.md\n");
   });
 
   test("without an argument it lints every flow and is exit 1 if one fails", () => {
@@ -257,7 +259,7 @@ describe("wip flow lint (command)", () => {
       ["minimal", true, "file"],
     ]);
     expect(flows[0]?.problems).toEqual(["phase todo: next 'review' is not a phase"]);
-    expect(flows[1]?.path).toBe(".agents/flows/minimal.md");
+    expect(flows[1]?.path).toBe(".agents/skills/wip-flow-minimal/SKILL.md");
     expect(flows[1]?.hash).toMatch(/^[0-9a-f]{16}$/);
     expect((env.warnings as { code: string }[]).map((w) => w.code)).toEqual(["flow_invalid"]);
   });
@@ -284,5 +286,51 @@ describe("wip flow lint (command)", () => {
     expect(p.wip(["flow", "lint"]).code).toBe(EXIT.FINDINGS);
     putAgent(p.dir, "thinker");
     expect(p.wip(["flow", "lint"]).code).toBe(EXIT.OK);
+  });
+
+  test("a flow skill without its frontmatter, or with another name, does not pass", () => {
+    p = makeProject("cmd-frontmatter");
+    putFlow(p.dir, "bare", "---\ndescription: x\n---\n");
+    writeFileSync(flowFile(p.dir, "bare"), minimalFlow());
+    putFlow(p.dir, "named", `---\nname: wip-flow-other\ndescription: x\n---\n\n${minimalFlow()}`);
+    putFlow(p.dir, "nodesc", `---\nname: wip-flow-nodesc\n---\n\n${minimalFlow()}`);
+    const out = p.wip(["flow", "lint"]);
+    expect(out.code).toBe(EXIT.FINDINGS);
+    expect(out.stdout).toBe(
+      [
+        "bare · no frontmatter (--- block at the top with name and description)",
+        "named · frontmatter name 'wip-flow-other' differs from the folder name 'wip-flow-named'",
+        "nodesc · frontmatter has no description",
+        "",
+      ].join("\n"),
+    );
+  });
+
+  test("with defs_dir .claude it lints .claude/skills/wip-flow-* against .claude/agents", () => {
+    p = makeProject("cmd-claude");
+    writeFileSync(
+      join(p.dir, ".wip", "config.json"),
+      '{"defs_dir": ".claude", "harness": "claude-code"}\n',
+    );
+    putFlow(p.dir, "ignored", minimalFlow());
+    putFlow(p.dir, "x", minimalFlow("agent: thinker"), ".claude");
+    putAgent(p.dir, "thinker");
+    const out = p.wip(["flow", "lint", "--json"]);
+    const flows = JSON.parse(out.stdout).data.flows as {
+      name: string;
+      path: string;
+      problems: string[];
+    }[];
+    expect(flows.map((f) => [f.name, f.path])).toEqual([
+      ["x", ".claude/skills/wip-flow-x/SKILL.md"],
+    ]);
+    expect(flows[0]?.problems).toEqual([
+      "phase todo: agent thinker: no agent file .claude/agents/thinker.md",
+    ]);
+    putAgent(p.dir, "thinker", undefined, ".claude");
+    expect(p.wip(["flow", "lint"]).stdout).toBe("OK x\n");
+    expect(p.wip(["flow", "lint", "ignored"]).stderr).toContain(
+      ".claude/skills/wip-flow-ignored/SKILL.md",
+    );
   });
 });

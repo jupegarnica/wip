@@ -10,7 +10,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { FIRST_RUN_LINE } from "../../src/commands/init.ts";
 import { GENERIC_AGENTS, TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
@@ -46,6 +46,21 @@ function tree(root: string): Record<string, string> {
   return Object.fromEntries(Object.entries(out).sort(([a], [b]) => a.localeCompare(b)));
 }
 
+/** Every symbolic link under `root`, relative. */
+function links(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
+    if (!existsSync(dir)) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (lstatSync(path).isSymbolicLink()) found.push(relative(root, path));
+      else if (entry.isDirectory()) walk(path);
+    }
+  };
+  walk(root);
+  return found;
+}
+
 function lines(stdout: string): string[] {
   return stdout.trimEnd().split("\n");
 }
@@ -61,26 +76,36 @@ function initFiles(out: IEnvelopeOut): IInitFileOut[] {
   return Array.isArray(files) ? (files as IInitFileOut[]) : [];
 }
 
-function genericFile(dir: string, name: string): string {
-  return join(dir, ".agents", "agents", `${name}.md`);
+function agentFile(dir: string, name: string, defs = ".agents"): string {
+  return join(dir, defs, "agents", `${name}.md`);
 }
 
+function config(dir: string): unknown {
+  return JSON.parse(readFileSync(join(dir, ".wip", "config.json"), "utf8"));
+}
+
+const sortedTemplates = (): Record<string, string> =>
+  Object.fromEntries(Object.entries(TEMPLATES).sort(([a], [b]) => a.localeCompare(b)));
+
 describe("wip init in an empty directory (F-NEW-01)", () => {
-  test("creates .wip/, .gitignore and every template from the manifest, and lints them", () => {
+  test("creates .wip/, its config, .gitignore and every template in .agents/, and lints them", () => {
     const dir = tmp("empty");
     const out = wipIn(dir, ["init"]);
     expect(out.code).toBe(EXIT.OK);
-    expect(existsSync(join(dir, ".wip"))).toBe(true);
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(".wip/\n");
-    const agents = tree(join(dir, ".agents"));
-    expect(agents).toEqual(
-      Object.fromEntries(Object.entries(TEMPLATES).sort(([a], [b]) => a.localeCompare(b))),
-    );
+    expect(config(dir)).toEqual({ defs_dir: ".agents", harness: null });
+    expect(tree(join(dir, ".agents"))).toEqual(sortedTemplates());
     for (const key of Object.keys(TEMPLATES))
       expect(out.stdout).toContain(`created .agents/${key}`);
-    expect(out.stdout).toContain("flow lint: OK wip");
+    expect(out.stdout).toContain("created .wip/config.json (definitions in .agents/)");
+    expect(out.stdout).toContain("flow lint: OK tasks");
+    expect(out.stdout).toContain("Point your harness at .agents/:");
+    expect(out.stdout).toContain("wip init --harness claude-code");
     expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
-    expect(wipIn(dir, ["flow", "lint"]).code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    expect(existsSync(join(dir, ".agents", "rules"))).toBe(false);
+    expect(existsSync(join(dir, ".agents", "flows"))).toBe(false);
+    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK tasks\n");
   });
 
   test("a second run changes nothing and says exists of every file", () => {
@@ -92,6 +117,7 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
     expect(tree(dir)).toEqual(before);
     for (const key of Object.keys(TEMPLATES)) expect(out.stdout).toContain(`exists .agents/${key}`);
     expect(out.stdout).toContain("exists .wip/ in .gitignore");
+    expect(out.stdout).toContain("exists .wip/config.json");
     expect(out.stdout).not.toContain("created ");
   });
 
@@ -101,9 +127,19 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
     expect(code).toBe(EXIT.OK);
     const project = join(dir, "sub", "project");
     expect(body.data?.project).toBe(project);
-    expect(existsSync(join(project, ".agents", "flows", "wip.md"))).toBe(true);
+    expect(existsSync(join(project, ".agents", "skills", "wip-flow-tasks", "SKILL.md"))).toBe(true);
     expect(readdirSync(dir)).toEqual(["sub"]);
     expect(wipIn(project, ["flow", "lint"]).code).toBe(EXIT.OK);
+  });
+
+  test("a harness without native support writes .agents/ and keeps its name in the config", () => {
+    const dir = tmp("codex");
+    const { code, body } = wipJsonIn(dir, ["init", "--harness", "codex"]);
+    expect(code).toBe(EXIT.OK);
+    expect(body.data).toMatchObject({ defs_dir: ".agents", harness: "codex" });
+    expect(config(dir)).toEqual({ defs_dir: ".agents", harness: "codex" });
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    expect(wipIn(dir, ["init", "--harness", ""]).code).toBe(EXIT.USAGE);
   });
 });
 
@@ -132,18 +168,24 @@ describe("wip init in a git repository with a .gitignore", () => {
   });
 });
 
-describe("wip init --force and agents of other tools", () => {
-  test("--force backs up what it replaces and keeps the model of a generic", () => {
+describe("wip init --force and files of other tools", () => {
+  test("--force backs up what it replaces and keeps only the model of wip's agents", () => {
     const dir = tmp("force");
     wipIn(dir, ["init"]);
-    const fast = genericFile(dir, "fast");
+    const fast = agentFile(dir, "fast");
     writeFileSync(
       fast,
       readFileSync(fast, "utf8").replace("wip: generic", "wip: generic\nmodel: cheap"),
     );
-    writeFileSync(genericFile(dir, "thinker"), `${TEMPLATES["agents/thinker.md"]}\nLocal edit.\n`);
-    const rules = join(dir, ".agents", "rules", "subagents.md");
-    writeFileSync(rules, "edited\n");
+    writeFileSync(agentFile(dir, "thinker"), `${TEMPLATES["agents/thinker.md"]}\nLocal edit.\n`);
+    const protocol = join(dir, ".agents", "skills", "wip-subagent-protocol", "SKILL.md");
+    writeFileSync(protocol, `${TEMPLATES["skills/wip-subagent-protocol/SKILL.md"]}\nedited\n`);
+    const coordinator = agentFile(dir, "wip");
+    const custom = readFileSync(coordinator, "utf8").replace(
+      /^initialPrompt: .*$/m,
+      'initialPrompt: "my own start"',
+    );
+    writeFileSync(coordinator, custom);
 
     const forced = wipJsonIn(dir, ["init", "--force"]);
     expect(forced.code).toBe(EXIT.OK);
@@ -152,15 +194,18 @@ describe("wip init --force and agents of other tools", () => {
     expect(replaced).toEqual([
       ".agents/agents/fast.md",
       ".agents/agents/thinker.md",
-      ".agents/rules/subagents.md",
+      ".agents/agents/wip.md",
+      ".agents/skills/wip-subagent-protocol/SKILL.md",
     ]);
     for (const f of files.filter((x) => x.action === "replaced")) {
       expect(f.backup).toStartWith(`.wip/backups/defs/${f.path.slice(".agents/".length)}.`);
       expect(existsSync(join(dir, f.backup as string))).toBe(true);
     }
-    expect(readFileSync(rules, "utf8")).toBe(TEMPLATES["rules/subagents.md"] as string);
-    expect(readFileSync(genericFile(dir, "thinker"), "utf8")).toBe(
-      TEMPLATES["agents/thinker.md"] as string,
+    const coordinatorBackup = files.find((f) => f.path === ".agents/agents/wip.md")?.backup;
+    expect(readFileSync(join(dir, coordinatorBackup ?? "missing"), "utf8")).toBe(custom);
+    expect(readFileSync(coordinator, "utf8")).toBe(TEMPLATES["agents/wip.md"] as string);
+    expect(readFileSync(protocol, "utf8")).toBe(
+      TEMPLATES["skills/wip-subagent-protocol/SKILL.md"] as string,
     );
     const fastText = readFileSync(fast, "utf8");
     expect(fastText).toContain("\nmodel: cheap\n");
@@ -172,85 +217,149 @@ describe("wip init --force and agents of other tools", () => {
     expect(tree(dir)).toEqual(before);
   });
 
-  test("a generic's file without wip: generic is a conflict: exit 3, nothing written, the file named", () => {
+  test("a file at a template's path without a wip: mark is a conflict, also with --force", () => {
     const dir = tmp("foreign");
     const foreign = "---\nname: fast\ndescription: another tool's agent\n---\n\nTheirs.\n";
     mkdirSync(join(dir, ".agents", "agents"), { recursive: true });
-    writeFileSync(genericFile(dir, "fast"), foreign);
+    writeFileSync(agentFile(dir, "fast"), foreign);
+    mkdirSync(join(dir, ".agents", "skills", "wip-coordinate"), { recursive: true });
+    writeFileSync(join(dir, ".agents", "skills", "wip-coordinate", "SKILL.md"), "mine\n");
     const before = tree(dir);
 
-    const out = wipIn(dir, ["init"]);
-    expect(out.code).toBe(EXIT.REJECTED);
-    expect(out.stderr).toContain(".agents/agents/fast.md");
-    expect(out.stderr).toContain("wip: generic");
-    expect(tree(dir)).toEqual(before);
-    expect(existsSync(join(dir, ".wip"))).toBe(false);
-    expect(existsSync(join(dir, ".gitignore"))).toBe(false);
+    for (const argv of [["init"], ["init", "--force"]]) {
+      const out = wipIn(dir, argv);
+      expect(out.code).toBe(EXIT.REJECTED);
+      expect(out.stderr).toContain("nothing written");
+      expect(out.stderr).toContain(".agents/agents/fast.md exists without a `wip:` mark");
+      expect(out.stderr).toContain(".agents/skills/wip-coordinate/SKILL.md exists without");
+      expect(tree(dir)).toEqual(before);
+      expect(existsSync(join(dir, ".wip"))).toBe(false);
+      expect(existsSync(join(dir, ".gitignore"))).toBe(false);
+    }
+  });
 
-    const forced = wipJsonIn(dir, ["init", "--force"]);
-    expect(forced.code).toBe(EXIT.OK);
-    const fast = initFiles(forced).find((f) => f.path === ".agents/agents/fast.md");
-    expect(readFileSync(join(dir, fast?.backup ?? "missing"), "utf8")).toBe(foreign);
-    expect(readFileSync(genericFile(dir, "fast"), "utf8")).toBe(
-      TEMPLATES["agents/fast.md"] as string,
-    );
+  test("a coordinator without its mark is another tool's: exit 3, not replaced", () => {
+    const dir = tmp("foreign-coordinator");
+    wipIn(dir, ["init"]);
+    const file = agentFile(dir, "wip");
+    writeFileSync(file, readFileSync(file, "utf8").replace("wip: coordinator\n", ""));
+    const before = tree(dir);
+    const out = wipIn(dir, ["init", "--force"]);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.stderr).toContain(".agents/agents/wip.md exists without a `wip:` mark");
+    expect(tree(dir)).toEqual(before);
   });
 });
 
-describe("wip init --runtime (F-NEW-02)", () => {
-  const LINKS = [
-    [".claude/agents", ".agents/agents"],
-    [".claude/skills", ".agents/skills"],
-  ] as const;
-
-  test("claude-code creates the two relative links and nothing else; a second run is a no-op", () => {
+describe("wip init --harness claude-code (F-NEW-02)", () => {
+  test("writes straight into .claude/agents and .claude/skills: no .agents/, no links", () => {
     const dir = tmp("claude");
-    const out = wipIn(dir, ["init", "--runtime", "claude-code"]);
+    const out = wipJsonIn(dir, ["init", "--harness", "claude-code"]);
     expect(out.code).toBe(EXIT.OK);
-    for (const [path, target] of LINKS) {
-      const link = join(dir, path);
-      expect(lstatSync(link).isSymbolicLink()).toBe(true);
-      expect(resolve(dirname(link), readlinkSync(link))).toBe(join(dir, target));
-      if (process.platform !== "win32") expect(readlinkSync(link)).toBe(`../${target}`);
-      expect(out.stdout).toContain(`linked ${path} -> ../${target}`);
-    }
-    expect(readdirSync(join(dir, ".claude")).sort()).toEqual(["agents", "skills"]);
-    expect(readFileSync(join(dir, ".claude", "agents", "fast.md"), "utf8")).toBe(
-      TEMPLATES["agents/fast.md"] as string,
-    );
-    expect(existsSync(join(dir, ".claude", "skills", "wip-coordinate", "SKILL.md"))).toBe(true);
-    expect(out.stdout).toContain('claude --agent wip-coordinator "start"');
-    expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
-
-    const before = tree(dir);
-    const again = wipIn(dir, ["init", "--runtime", "claude-code"]);
-    expect(again.code).toBe(EXIT.OK);
-    for (const [path] of LINKS) expect(again.stdout).toContain(`exists ${path} -> `);
-    expect(tree(dir)).toEqual(before);
-  });
-
-  test("a real .claude/agents directory is left alone: exit 3 and nothing written", () => {
-    const dir = tmp("claude-dir");
-    mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
-    writeFileSync(join(dir, ".claude", "agents", "mine.md"), "mine\n");
-    const out = wipIn(dir, ["init", "--runtime", "claude-code", "--force"]);
-    expect(out.code).toBe(EXIT.REJECTED);
-    expect(out.stderr).toContain(".claude/agents is a directory");
-    expect(existsSync(join(dir, ".wip"))).toBe(false);
+    expect(out.body.data).toMatchObject({ defs_dir: ".claude", harness: "claude-code" });
+    expect(config(dir)).toEqual({ defs_dir: ".claude", harness: "claude-code" });
+    expect(tree(join(dir, ".claude"))).toEqual(sortedTemplates());
     expect(existsSync(join(dir, ".agents"))).toBe(false);
-    expect(readdirSync(join(dir, ".claude", "agents"))).toEqual(["mine.md"]);
+    expect(links(dir)).toEqual([]);
+    expect(readdirSync(join(dir, ".claude")).sort()).toEqual(["agents", "skills"]);
+
+    const text = wipIn(dir, ["init", "--harness", "claude-code"]);
+    expect(text.code).toBe(EXIT.OK);
+    expect(text.stdout).toContain("exists .claude/agents/fast.md");
+    expect(text.stdout).toContain("flow lint: OK tasks");
+    expect(text.stdout).toContain("`claude --agent wip` in this directory");
+    expect(text.stdout).not.toContain('"start"');
+    expect(text.stdout).not.toContain("Point your harness");
+    expect(lines(text.stdout).at(-1)).toBe(FIRST_RUN_LINE);
   });
 
-  test("another runtime, or none, prints how to point it at .agents/ and links nothing", () => {
-    for (const argv of [["init"], ["init", "--runtime", "codex"]]) {
-      const dir = tmp("other-runtime");
-      const out = wipIn(dir, argv);
-      expect(out.code).toBe(EXIT.OK);
-      expect(out.stdout).toContain("Point your runtime at .agents/:");
-      expect(out.stdout).toContain("wip init --runtime claude-code");
-      expect(out.stdout).toContain("SKILL.md into a session as its first message");
-      expect(existsSync(join(dir, ".claude"))).toBe(false);
-      expect(lines(out.stdout).at(-1)).toBe(FIRST_RUN_LINE);
+  test("every command reads .claude/: flow lint, check and phase", () => {
+    const dir = tmp("claude-reads");
+    wipIn(dir, ["init", "--harness", "claude-code"]);
+    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK tasks\n");
+    const check = wipJsonIn(dir, ["check"]);
+    expect(check.code).toBe(EXIT.OK);
+    expect(check.body.warnings.find((w) => w.code === "models_unset")?.agents).toEqual(
+      [...GENERIC_AGENTS, "wip"].sort(),
+    );
+    expect(wipJsonIn(dir, ["phase", "T1", "intake"]).code).toBe(EXIT.OK);
+    expect(wipJsonIn(dir, ["agent", "start", "T1", "fast"]).code).toBe(EXIT.OK);
+  });
+
+  test("other tools' agents and skills in .claude/ stay; wip writes next to them", () => {
+    const dir = tmp("claude-shared");
+    mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
+    mkdirSync(join(dir, ".claude", "skills", "mine"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "agents", "mine.md"), "mine\n");
+    writeFileSync(join(dir, ".claude", "skills", "mine", "SKILL.md"), "mine\n");
+    writeFileSync(join(dir, ".claude", "settings.json"), "{}\n");
+    const out = wipIn(dir, ["init", "--harness", "claude-code", "--force"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(readFileSync(join(dir, ".claude", "agents", "mine.md"), "utf8")).toBe("mine\n");
+    expect(readFileSync(join(dir, ".claude", "skills", "mine", "SKILL.md"), "utf8")).toBe("mine\n");
+    expect(readFileSync(join(dir, ".claude", "settings.json"), "utf8")).toBe("{}\n");
+    expect(existsSync(join(dir, ".claude", "agents", "fast.md"))).toBe(true);
+    expect(wipIn(dir, ["flow", "lint"]).code).toBe(EXIT.OK);
+  });
+
+  test("a name clash in .claude/ with a file without the mark is exit 3 and nothing written", () => {
+    const dir = tmp("claude-clash");
+    mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
+    writeFileSync(agentFile(dir, "wip", ".claude"), "---\nname: wip\ndescription: mine\n---\n");
+    const before = tree(dir);
+    const out = wipIn(dir, ["init", "--harness", "claude-code", "--force"]);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.stderr).toContain(".claude/agents/wip.md exists without a `wip:` mark");
+    expect(tree(dir)).toEqual(before);
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+  });
+
+  test("--force in .claude/ backs up into .wip/backups/defs/ and keeps the model", () => {
+    const dir = tmp("claude-force");
+    wipIn(dir, ["init", "--harness", "claude-code"]);
+    const wise = agentFile(dir, "wise", ".claude");
+    writeFileSync(
+      wise,
+      readFileSync(wise, "utf8").replace("wip: generic", "wip: generic\nmodel: opus"),
+    );
+    writeFileSync(
+      join(dir, ".claude", "skills", "wip-flow-tasks", "SKILL.md"),
+      `${TEMPLATES["skills/wip-flow-tasks/SKILL.md"]}\nLocal.\n`,
+    );
+    const forced = wipJsonIn(dir, ["init", "--harness", "claude-code", "--force"]);
+    expect(forced.code).toBe(EXIT.OK);
+    const replaced = initFiles(forced).filter((f) => f.action === "replaced");
+    expect(replaced.map((f) => [f.path, f.backup?.replace(/\.\d{8}T\d{6}Z$/, "")])).toEqual([
+      [".claude/agents/wise.md", ".wip/backups/defs/agents/wise.md"],
+      [
+        ".claude/skills/wip-flow-tasks/SKILL.md",
+        ".wip/backups/defs/skills/wip-flow-tasks/SKILL.md",
+      ],
+    ]);
+    expect(readFileSync(wise, "utf8")).toContain("\nmodel: opus\n");
+  });
+
+  test("a project keeps its folder: init with another harness is exit 3 and writes nothing", () => {
+    const plain = tmp("keep-plain");
+    wipIn(plain, ["init"]);
+    const plainBefore = tree(plain);
+    const toClaude = wipIn(plain, ["init", "--harness", "claude-code", "--force"]);
+    expect(toClaude.code).toBe(EXIT.REJECTED);
+    expect(toClaude.stderr).toContain("keeps its definitions in .agents/");
+    expect(toClaude.stderr).toContain("run `wip init`");
+    expect(tree(plain)).toEqual(plainBefore);
+    expect(existsSync(join(plain, ".claude"))).toBe(false);
+
+    const cc = tmp("keep-claude");
+    wipIn(cc, ["init", "--harness", "claude-code"]);
+    const ccBefore = tree(cc);
+    for (const argv of [["init"], ["init", "--harness", "codex", "--force"]]) {
+      const out = wipIn(cc, argv);
+      expect(out.code).toBe(EXIT.REJECTED);
+      expect(out.stderr).toContain("keeps its definitions in .claude/");
+      expect(out.stderr).toContain("run `wip init --harness claude-code`");
+      expect(tree(cc)).toEqual(ccBefore);
+      expect(existsSync(join(cc, ".agents"))).toBe(false);
     }
   });
 });
@@ -263,7 +372,7 @@ describe("model onboarding after init (F-NEW-07)", () => {
 
   /** What the coordinator does: backup, then `model:` right after `description:`, nothing else. */
   function setModel(dir: string, name: string, model: string): string {
-    const file = genericFile(dir, name);
+    const file = agentFile(dir, name);
     const backup = join(dir, ".wip", "backups", "defs", "agents", `${name}.md.20261030T120000Z`);
     mkdirSync(dirname(backup), { recursive: true });
     copyFileSync(file, backup);
@@ -274,7 +383,7 @@ describe("model onboarding after init (F-NEW-07)", () => {
     return backup;
   }
 
-  const OWN_AGENTS = [...GENERIC_AGENTS, "wip-coordinator"];
+  const OWN_AGENTS = [...GENERIC_AGENTS, "wip"];
 
   test("check warns models_unset with the four generics and the coordinator, and stops once each has a model", () => {
     const dir = tmp("onboarding");
@@ -283,12 +392,12 @@ describe("model onboarding after init (F-NEW-07)", () => {
 
     setModel(dir, "fast", "test-model");
     setModel(dir, "wise", "test-model");
-    expect(modelsUnset(dir).agents).toEqual(["efficient", "thinker", "wip-coordinator"]);
+    expect(modelsUnset(dir).agents).toEqual(["efficient", "thinker", "wip"]);
 
     for (const name of ["efficient", "thinker"]) setModel(dir, name, "test-model");
-    expect(modelsUnset(dir).agents).toEqual(["wip-coordinator"]);
+    expect(modelsUnset(dir).agents).toEqual(["wip"]);
 
-    setModel(dir, "wip-coordinator", "test-model");
+    setModel(dir, "wip", "test-model");
     expect(modelsUnset(dir)).toEqual({ code: EXIT.OK, agents: null });
     expect(wipIn(dir, ["flow", "lint"]).code).toBe(EXIT.OK);
     expect(wipIn(dir, ["check"]).stdout).toBe("OK: no findings\n");
@@ -296,7 +405,7 @@ describe("model onboarding after init (F-NEW-07)", () => {
     for (const name of OWN_AGENTS) {
       const backup = join(dir, ".wip", "backups", "defs", "agents", `${name}.md.20261030T120000Z`);
       const before = readFileSync(backup, "utf8").split("\n");
-      const after = readFileSync(genericFile(dir, name), "utf8").split("\n");
+      const after = readFileSync(agentFile(dir, name), "utf8").split("\n");
       expect(after.length).toBe(before.length + 1);
       expect(after.filter((line) => !before.includes(line))).toEqual(["model: test-model"]);
     }
@@ -308,24 +417,5 @@ describe("model onboarding after init (F-NEW-07)", () => {
     for (const name of OWN_AGENTS) setModel(dir, name, "test-model");
     expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
     expect(modelsUnset(dir).agents).toBeNull();
-  });
-
-  test("init --force keeps the model of a coordinator written before it carried its mark", () => {
-    const dir = tmp("onboarding-legacy-coordinator");
-    wipIn(dir, ["init"]);
-    const file = genericFile(dir, "wip-coordinator");
-    writeFileSync(file, readFileSync(file, "utf8").replace("wip: coordinator\n", ""));
-    setModel(dir, "wip-coordinator", "test-model");
-
-    const forced = wipJsonIn(dir, ["init", "--force"]);
-    expect(forced.code).toBe(EXIT.OK);
-    const replaced = initFiles(forced).find((f) => f.path === ".agents/agents/wip-coordinator.md");
-    expect(replaced?.action).toBe("replaced");
-    const text = readFileSync(file, "utf8");
-    expect(text).toContain("\nwip: coordinator\n");
-    expect(text.replace("model: test-model\n", "")).toBe(
-      TEMPLATES["agents/wip-coordinator.md"] as string,
-    );
-    expect(modelsUnset(dir).agents).not.toContain("wip-coordinator");
   });
 });
