@@ -17,6 +17,8 @@ First version.
   `wip-subagent-protocol` with their `skills` key.
 - `from_any: true` on a phase of the `wip-flow` block makes it reachable from any non-terminal phase with a plain
   `wip phase`, no `--force` and no recorded decision; the `tasks` flow uses it on `plan`.
+- `color: "#RRGGBB"` at the top of the `wip-flow` block sets the tone of the flow's stage colours on the board and the
+  history (blue when absent).
 - Polling: a `polling` key in the `wip-flow` block (`{name, phases, agent, cadence}`, cadence `30m`, `1h`, `2d`)
   declares which agent checks which phases and how often; `wip poll due` tells any scheduler what is `DUE`,
   `OVERDUE` (unattended for more than 1.5 cadences), `OK` or `IDLE` (always exit 0, read `--json`), `wip poll record`

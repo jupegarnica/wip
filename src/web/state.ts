@@ -29,12 +29,12 @@ export interface IStagePaint {
 
 export const NO_PAINT: IStagePaint = { alpha: null, color: "", text: "", text_dark: "" };
 
-export function stagePaint(alpha: number): IStagePaint {
+export function stagePaint(alpha: number, tone: string = STAGE_TONE): IStagePaint {
   return {
     alpha,
-    color: stageColor(alpha),
-    text: textOn(composite(STAGE_TONE, alpha, SURFACE_LIGHT)),
-    text_dark: textOn(composite(STAGE_TONE, alpha, SURFACE_DARK)),
+    color: stageColor(alpha, tone),
+    text: textOn(composite(tone, alpha, SURFACE_LIGHT)),
+    text_dark: textOn(composite(tone, alpha, SURFACE_DARK)),
   };
 }
 
@@ -104,7 +104,7 @@ export interface IBoard {
   warnings: { code: string; flow: unknown; message: string }[];
 }
 
-/** The one hue of the board: every stage is this tone, more transparent the later it comes in the flow. */
+/** Default tone of a flow without `color`; each stage is more transparent the later it comes in the flow. */
 export const STAGE_TONE = "#2563EB";
 export const STAGE_ALPHA_FIRST = 1;
 export const STAGE_ALPHA_LAST = 0.25;
@@ -245,8 +245,9 @@ export function flowColumns(flow: IFlow | null, extraPhases: readonly string[] =
     if (!columns.some((c) => c.phases.includes(name))) add(`phase:${name}`, name, null, name);
   }
   const staged = columns.filter((c) => c.stage !== null);
+  const tone = flow?.color ?? STAGE_TONE;
   staged.forEach((c, i) => {
-    Object.assign(c, stagePaint(stageAlpha(i, staged.length)));
+    Object.assign(c, stagePaint(stageAlpha(i, staged.length), tone));
   });
   return columns;
 }

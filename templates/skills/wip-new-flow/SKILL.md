@@ -73,6 +73,7 @@ Top-level keys (any other key is an error):
 | Key | Required | Value |
 |---|---|---|
 | `version` | no | `1` |
+| `color` | no | `"#RRGGBB"` (quoted: an unquoted `#` starts a YAML comment): the tone of this flow's stage colours on the board; blue when absent |
 | `id_pattern` | no | a regular expression the whole item ID must match; the safe default (letters, digits, `.`, `_`, `-`, up to 64) always applies too |
 | `fields` | no | `name: type`; types `string`, `int`, `list`, `ts`, `enum(a\|b\|c)`; lowercase names; `title` always exists |
 | `links` | no | list of `{pattern, url}`: a regular expression over the item ID and an `http(s)` URL with `$1`… |

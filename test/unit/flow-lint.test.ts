@@ -45,7 +45,7 @@ describe("flow lint rules (F-FLU-12)", () => {
   test("schema: unknown keys and invalid values", () => {
     expect(lint("bad-schema").length).toBeGreaterThanOrEqual(7);
     expect(lint("bad-schema")).toContain(
-      "unknown key 'schedule' (version, id_pattern, fields, links, phases, seed, polling)",
+      "unknown key 'schedule' (version, color, id_pattern, fields, links, phases, seed, polling)",
     );
   });
 

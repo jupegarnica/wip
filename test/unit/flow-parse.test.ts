@@ -98,7 +98,7 @@ describe("schema problems", () => {
   test("unknown keys, bad version, reserved and unknown field types, bad kind, gate and next", () => {
     const { problems } = parseFlow("bad-schema", fixture("flows", "bad-schema"));
     expect(problems).toEqual([
-      "unknown key 'schedule' (version, id_pattern, fields, links, phases, seed, polling)",
+      "unknown key 'schedule' (version, color, id_pattern, fields, links, phases, seed, polling)",
       "version 2: only 1 is supported",
       "phase todo: kind: 'busy' is not one of work | wait | terminal",
       "phase todo: next must be a list of phase names",
@@ -275,6 +275,30 @@ describe("files of a seed", () => {
     expect(parseFlow("x", seeded("  hello: todo")).problems).toEqual([
       "seed: must be a list of {id, phase, title, next, files}",
     ]);
+  });
+});
+
+describe("color", () => {
+  const withColor = (color: string) =>
+    parseFlow("x", minimalFlow().replace("```wip-flow\n", `\`\`\`wip-flow\ncolor: ${color}\n`));
+
+  test("absent is null; a hex is stored uppercased", () => {
+    expect(parseFlow("x", minimalFlow()).flow?.color).toBeNull();
+    expect(withColor('"#eab308"').flow?.color).toBe("#EAB308");
+    expect(withColor('"#EAB308"').flow?.color).toBe("#EAB308");
+  });
+
+  test("anything but #RRGGBB is one problem", () => {
+    const cases: [string, string][] = [
+      ["yellow", "yellow"],
+      ['"#FFF"', "#FFF"],
+      ['"rgb(1,2,3)"', "rgb(1,2,3)"],
+      ["12", "12"],
+      ["[x]", '["x"]'],
+    ];
+    for (const [raw, shown] of cases) {
+      expect(withColor(raw).problems).toEqual([`color: '${shown}' is not #RRGGBB`]);
+    }
   });
 });
 

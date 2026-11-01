@@ -57,7 +57,7 @@ import {
   textOn,
 } from "../../src/web/state.ts";
 import { WIP_BIN } from "../helpers/bin.ts";
-import { minimalFlow, putFlow } from "../helpers/defs.ts";
+import { fixture, minimalFlow, putFlow } from "../helpers/defs.ts";
 import { at, itemInPlan, itemsProject, ok, T0, tick, useProject } from "../helpers/items.ts";
 import { type IProject, makeProject, scratch } from "../helpers/project.ts";
 
@@ -184,6 +184,31 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
     });
     const a1 = body.items.find((i: TJson) => i.id === "A1");
     expect(a1).toMatchObject({ column: "phase:todo", stage: null, alpha: null, color: "" });
+  });
+
+  test("a flow with `color` paints its stages in that tone and the others stay blue", async () => {
+    const p = board();
+    const valid = fixture("flows", "valid");
+    expect(valid).toContain("\nversion: 1\n");
+    putFlow(p.dir, "gold", valid.replace("\nversion: 1\n", '\nversion: 1\ncolor: "#eab308"\n'));
+    serve(p);
+    const body = await getJson("/api/kanban");
+    const gold = body.flows.find((f: TJson) => f.name === "gold");
+    const blue = body.flows.find((f: TJson) => f.name === "valid");
+    expect(gold.columns.map((c: TJson) => [c.alpha, c.color])).toEqual([
+      [1, stageColor(1, "#EAB308")],
+      [0.63, stageColor(0.63, "#EAB308")],
+      [0.25, stageColor(0.25, "#EAB308")],
+    ]);
+    expect(gold.columns[0].color).toBe("rgba(234, 179, 8, 1)");
+    expect(gold.columns[0]).toMatchObject({ text: "#111111", text_dark: "#111111" });
+    expect(gold.columns[2]).toMatchObject({ text: "#111111", text_dark: "#FFFFFF" });
+    expect(blue.columns.map((c: TJson) => c.color)).toEqual([
+      stageColor(1),
+      stageColor(0.63),
+      stageColor(0.25),
+    ]);
+    expect(blue.columns[0].color).toBe("rgba(37, 99, 235, 1)");
   });
 
   test("stage opacity steps evenly for any number of stages, from opaque to the last step", () => {

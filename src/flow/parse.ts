@@ -61,6 +61,8 @@ export interface IFlow {
   hash: string;
   version: 1;
   idPattern: string | null;
+  /** Tone of the stage ramp as `#RRGGBB`, `null` when absent. Absent in versions stored before colours existed: read it as `flow.color ?? STAGE_TONE`. */
+  color: string | null;
   fields: Record<string, IFieldDef>;
   links: ILink[];
   phases: IPhase[];
@@ -85,7 +87,8 @@ const FIELD_NAME_RE = /^[a-z][a-z0-9_]*$/;
 const ENUM_RE = /^enum\(([^)]*)\)$/;
 const BLOCK_RE = /^```wip-flow[ \t]*\n([\s\S]*?)^```[ \t]*$/gm;
 
-const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases", "seed", "polling"];
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+const TOP_KEYS = ["version", "color", "id_pattern", "fields", "links", "phases", "seed", "polling"];
 const SEED_KEYS = ["id", "phase", "title", "next", "files"];
 const POLL_KEYS = ["name", "phases", "agent", "cadence"];
 const CADENCE_RE = /^([1-9][0-9]*)(m|h|d)$/;
@@ -272,6 +275,15 @@ export function parseCadence(value: string): number | null {
   return Number(m[1]) * CADENCE_UNIT_S[m[2] as keyof typeof CADENCE_UNIT_S];
 }
 
+function parseColor(raw: unknown, problems: string[]): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string" && HEX_RE.test(raw)) return raw.toUpperCase();
+  problems.push(
+    `color: '${typeof raw === "object" ? JSON.stringify(raw) : String(raw)}' is not #RRGGBB`,
+  );
+  return null;
+}
+
 function parsePolling(raw: unknown, problems: string[]): IPoll[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
@@ -450,6 +462,7 @@ export function parseFlow(name: string, text: string): IParsed {
       hash: blockHash(block),
       version: 1,
       idPattern,
+      color: parseColor(raw.color, problems),
       fields: parseFields(raw.fields, problems),
       links: parseLinks(raw.links, problems),
       phases,
