@@ -282,7 +282,7 @@ runs without the user writing. `launch` is the `Agent` tool with `subagent_type`
 `run_in_background: true`; the handle is its agent id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is
 `AskUserQuestion`, after the 🟧 block as the last text. The generic agents preload `wip-subagent-protocol` through
 the `skills` key of their frontmatter. Claude Code reads `model:` from each agent's frontmatter. It accepts an alias
-(`haiku`, `sonnet`, `opus`, cheapest first), `inherit` or a full model ID. If the running session does not pick up a
+(`haiku`, `sonnet`, `opus`, `fable`, cheapest first), `inherit` or a full model ID. If the running session does not pick up a
 model written during onboarding, ask the user to open `/agents` or to restart the session.
 `claude --agent wip` reads the coordinator's `model:` when it starts, so a new coordinator model needs a
 restart; with `inherit`, the coordinator runs on the model `claude` is started with.

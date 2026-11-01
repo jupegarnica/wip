@@ -128,8 +128,8 @@ coordinator, or edit the line yourself.
 
 What happens with `model:` in each harness:
 
-- **Claude Code** reads it from `.claude/agents/`. It accepts an alias (`haiku`, `sonnet`, `opus`), `inherit` or a
-  full model ID. For a generic agent, `inherit` is the coordinator's model; for the coordinator, it is the model
+- **Claude Code** reads it from `.claude/agents/`. It accepts an alias (`haiku`, `sonnet`, `opus`, `fable`), `inherit`
+  or a full model ID. For a generic agent, `inherit` is the coordinator's model; for the coordinator, it is the model
   `claude` is started with. `claude --agent wip` reads the coordinator's `model:` when it starts, so a change to it
   needs a restart. If the running session does not pick up a generic's change, open `/agents` or restart it.
 - **A harness that takes its subagents' model from its own configuration** ignores the line; it stays in the
