@@ -179,6 +179,19 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
   });
 });
 
+describe("from_any in the tasks flow", () => {
+  test("plan is reachable from check without --force", () => {
+    const dir = project("from-any");
+    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
+    step(dir, ["phase", "T4", "intake", "--flow", "tasks"]);
+    step(dir, ["phase", "T4", "plan"]);
+    step(dir, ["phase", "T4", "execute"]);
+    step(dir, ["phase", "T4", "check"]);
+    step(dir, ["phase", "T4", "plan"]);
+    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "plan" });
+  });
+});
+
 describe("the guided onboarding (F-NEW-08)", () => {
   let web: IWebServer | null = null;
   afterEach(() => {

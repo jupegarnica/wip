@@ -97,6 +97,30 @@ describe("flow lint rules (F-FLU-12)", () => {
     ]);
   });
 
+  test("from_any makes a phase reachable and may sit on the terminal or repeat next", () => {
+    const flow = (extra: string, doneKeys = "") =>
+      [
+        "```wip-flow",
+        "phases:",
+        "  - name: todo",
+        "    next: [done]",
+        "  - name: plan",
+        "    from_any: true",
+        "    next: [review]",
+        "  - name: review",
+        `    next: [${extra}]`,
+        "  - name: done",
+        "    kind: terminal",
+        ...(doneKeys ? [`    ${doneKeys}`] : []),
+        "```",
+        "",
+      ].join("\n");
+    // plan has no incoming next; review is reachable only from the next of a from_any phase
+    expect(lint("x", flow("done"))).toEqual([]);
+    expect(lint("x", flow("done", "from_any: true"))).toEqual([]);
+    expect(lint("x", flow("plan, done"))).toEqual([]);
+  });
+
   test("a non-terminal phase without next", () => {
     const text = "```wip-flow\nphases:\n  - name: todo\n  - name: done\n    kind: terminal\n```\n";
     expect(lint("x", text)).toEqual([

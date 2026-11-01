@@ -72,7 +72,11 @@ function reachable(flow: IFlow): Set<string> {
     const name = queue.shift() as string;
     if (seen.has(name)) continue;
     seen.add(name);
-    for (const n of byName.get(name)?.next ?? []) if (byName.has(n)) queue.push(n);
+    const phase = byName.get(name);
+    for (const n of phase?.next ?? []) if (byName.has(n)) queue.push(n);
+    if (phase && phase.kind !== "terminal") {
+      for (const p of flow.phases) if (p.fromAny === true) queue.push(p.name);
+    }
   }
   return seen;
 }

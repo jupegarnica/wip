@@ -40,7 +40,8 @@ The invariants the CLI enforces on every write and `wip check` reports:
 - **I3** `waiting_on: user` has an open gate or a `next`.
 - **I4** `waiting_on: none` only in the terminal phase.
 
-A move the flow does not allow needs the user's decision: record it first (`wip gate close …` or
+The allowed moves are the phase's `next` and the phases with `from_any: true` (from any non-terminal phase). A move the
+flow does not allow needs the user's decision: record it first (`wip gate close …` or
 `wip log <ID> "<their words>" --kind user`), then `wip phase <ID> <phase> --force --reason "<why>"`. The CLI rejects a
 `--force` without a user decision in the previous 10 minutes.
 
@@ -49,7 +50,7 @@ A move the flow does not allow needs the user's decision: record it first (`wip 
 Read the flow again before each phase: its block gives the gate, the `next` phases, `agent:` and `writes:`; its
 `### <phase>` says what is specific.
 
-- **P1 · Next phase.** From the block (`next`), from the `### <phase>` text, or from the user's answer.
+- **P1 · Next phase.** From the block (`next` and `from_any`), from the `### <phase>` text, or from the user's answer.
 - **P2 · Launch**, in one turn and in this order:
   1. `wip phase <ID> <phase>` if the phase changes. If the CLI rejects it, do not launch: correct or open a gate.
   2. Choose the agent («Choosing the agent») and write the launch prompt («Launch prompt»).

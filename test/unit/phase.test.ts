@@ -209,6 +209,80 @@ describe("wip phase --force --reason (F-EST-09)", () => {
   });
 });
 
+describe("wip phase · from_any", () => {
+  const block = [
+    "```wip-flow",
+    "phases:",
+    "  - name: intake",
+    "    next: [plan]",
+    "  - name: plan",
+    "    from_any: true",
+    "    next: [execute]",
+    "  - name: execute",
+    "    next: [verify]",
+    "  - name: verify",
+    "    next: [done]",
+    "  - name: done",
+    "    kind: terminal",
+    "    from_any: true",
+    "```",
+    "",
+  ].join("\n");
+
+  function inExecute(name: string) {
+    const p = ctx.set(makeProject(name));
+    putFlow(p.dir, "fa", block);
+    ok(p, ["phase", "T1", "intake"]);
+    ok(p, ["phase", "T1", "plan"]);
+    ok(p, ["phase", "T1", "execute"]);
+    return p;
+  }
+
+  function kinds(p: ReturnType<typeof inExecute>, kind: string): number {
+    const db = p.db();
+    try {
+      return count(
+        db,
+        `SELECT count(*) AS n FROM events WHERE item_id = 'T1' AND kind = '${kind}'`,
+      );
+    } finally {
+      db.close();
+    }
+  }
+
+  test("a from_any phase is reachable without --force and leaves no correction", () => {
+    const p = inExecute("fa-move");
+    const phases = kinds(p, "phase");
+    const body = ok(p, ["phase", "T1", "plan"]);
+    expect(body.item).toMatchObject({ phase: "plan" });
+    expect(kinds(p, "phase")).toBe(phases + 1);
+    expect(kinds(p, "correction")).toBe(0);
+  });
+
+  test("out of the terminal phase it is rejected", () => {
+    const p = inExecute("fa-terminal");
+    ok(p, ["phase", "T1", "done"]);
+    const before = events(p.db);
+    const { code } = wipJson(p, ["phase", "T1", "plan"]);
+    expect(code).toBe(EXIT.REJECTED);
+    expect(events(p.db)).toBe(before);
+  });
+
+  test("the rejection lists the from_any phases", () => {
+    const p = inExecute("fa-list");
+    const { code, body } = wipJson(p, ["phase", "T1", "intake"]);
+    expect(code).toBe(EXIT.REJECTED);
+    expect(body.message).toContain("allowed: verify, plan, done");
+  });
+
+  test("--force on a from_any move only warns", () => {
+    const p = inExecute("fa-force");
+    const body = ok(p, ["phase", "T1", "plan", "--force", "--reason", "x"]);
+    expect(body.warnings.map((w) => w.code)).toContain("force_unused");
+    expect(kinds(p, "correction")).toBe(0);
+  });
+});
+
 describe("wip phase · flows (F-NEW-04 in a write command)", () => {
   test("it records the flow's valid version and keeps using it when the file breaks", () => {
     const p = ctx.set(itemsProject("phase-stored"));

@@ -21,7 +21,7 @@ discovers folders named `wip-flow-*`.
 1. **Understand the request.** What the items of this flow are, how each one starts and ends, which phases need a
    user decision and which subagent does each phase. For a change: `wip state --flow <flow>` lists the live items
    it affects.
-2. **Propose** (gate, per `wip-coordinate`): the phases in order with their `gate`, `next`, `agent` and `writes`; the
+2. **Propose** (gate, per `wip-coordinate`): the phases in order with their `gate`, `next` (and `from_any`), `agent` and `writes`; the
    `fields`; and, for a change, what happens to each live item in a phase that changes or disappears. Options:
    Approve · Change · Stop. A literal order of the user on one line of an existing flow skips the gate (steps 3-6
    still apply).
@@ -87,12 +87,13 @@ Phase keys:
 | `kind` | `work` | `work`, `wait` (someone outside the session) or `terminal` (exactly one) |
 | `gate` | `none` | `ask` (the user approves the result), `auto` (moves on when `done`), `none` |
 | `next` | — | phases it may move to; required except in the terminal phase, never itself |
+| `from_any` | `false` | `true` makes the phase reachable from any non-terminal phase with a plain `wip phase`, no `--force`: for a hub such as `plan`, or a terminal reachable from anywhere. A phase listed in a `next` too is fine; the terminal phase is never left through it |
 | `waiting_default` | `agent` | who it waits on when it starts: `agent`, `user`, `external`, `none` (terminal only) |
 | `stage` | — | optional column for the web board; when every phase has one, equal stages must be contiguous. The board paints each stage in one tone, more transparent stage after stage; a phase without a stage has no colour |
 | `agent` | — | the default agent of the phase; its file `<defs>/agents/<agent>.md` must exist with `name` and `description` |
 | `writes` | `artifacts` | what its subagent may write: `artifacts` (only its `ARTIFACT_DIR`) or `project` (also project files) |
 
-Other phase keys are tolerated and not validated. Every phase must be reachable from the first through `next`.
+Other phase keys are tolerated and not validated. Every phase must be reachable from the first through `next` or `from_any`.
 
 **Choosing `agent:`.** The generic agents are the default options, from cheapest to most capable: `fast` (mechanical,
 fully specified), `efficient` (a clear plan or written criteria), `thinker` (decisions, plans, investigation),

@@ -34,7 +34,7 @@ phases:
   - name: intake
     stage: preparation
     gate: none
-    next: [research, plan, done]
+    next: [research, done]
     waiting_default: user
   - name: research
     stage: preparation
@@ -45,6 +45,7 @@ phases:
   - name: plan
     stage: preparation
     gate: ask
+    from_any: true
     next: [execute]
     agent: thinker
     writes: artifacts
@@ -63,7 +64,7 @@ phases:
   - name: review
     stage: review
     gate: ask
-    next: [plan, execute, deliver, done]
+    next: [execute, deliver, done]
     waiting_default: user
   - name: deliver
     stage: review
@@ -143,13 +144,15 @@ Inputs: the approved `plan.md` and `execute-report.md`. The subagent checks the 
 on its own — runs the tests and commands of a change, confirms each question of an investigation has an answer and
 a source, checks a document covers what the plan lists — and writes `check.md`: each criterion with pass or fail and
 its evidence, and the list of changed files. All green → `review` without asking. Red → back to `execute` with
-`check.md` as input; red twice for the same reason, or a criterion the plan got wrong, opens a gate.
+`check.md` as input; red twice for the same reason, or a criterion the plan got wrong, opens a gate. `plan` is reachable from any phase
+(`from_any`), so a criterion the plan got wrong goes back to `plan` and its gate.
 
 ### review
 
 The coordinator does this phase itself, with no subagent. Gate `ask` with the result: what was delivered, `check.md`
 and where to look. «Approve» moves to `done`, or to `deliver` when the plan writes something outside the project;
-«Change» goes back to `execute` (a fix) or `plan` (the approach was wrong) with the user's feedback.
+«Change» goes back to `execute` (a fix) or `plan` (the approach was wrong; `plan` is reachable from any phase) with
+the user's feedback.
 
 ### deliver
 

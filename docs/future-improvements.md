@@ -26,11 +26,6 @@ A generic "snooze": `wip hold <ID> --until <ISO|+Nh>` takes an item out of "Your
 Opens another round (QA, review) on the same item: an iteration counter, a `round<n>.` prefix on artifacts and a way back to an earlier phase without `--force`.
 Today wip only goes back with `next` or `--force` and does not know how many iterations an item has gone through. A per-item iteration counter with its own event is useful in any `execute` → `check` loop.
 
-## from_any
-
-A flow declares phases that can be reached from any other (for example `plan`), with no `--force` and no recorded decision.
-Today they have to be listed in every `next` or forced. It is one more key in the `wip-flow` block and simplifies the flows the coordinator creates.
-
 ## wip backup
 
 Keeps rotated copies of the database. Today nothing protects `.wip/` from a corrupted or deleted database.

@@ -35,6 +35,7 @@ describe("the wip-flow block (F-FLU-01, F-FLU-04, F-FLU-07, F-FLU-10)", () => {
       stage: "todo",
       agent: null,
       writes: "artifacts",
+      fromAny: false,
     });
     expect(phases[2]).toMatchObject({
       name: "execute",
@@ -43,6 +44,16 @@ describe("the wip-flow block (F-FLU-01, F-FLU-04, F-FLU-07, F-FLU-10)", () => {
       writes: "project",
     });
     expect(phases[3]?.next).toEqual(["plan", "execute", "done"]);
+  });
+
+  test("from_any is a boolean, false by default", () => {
+    const fromAny = (keys: string) =>
+      parseFlow("x", minimalFlow(keys)).flow?.phases.map((p) => p.fromAny);
+    expect(fromAny("")).toEqual([false, false]);
+    expect(fromAny("from_any: true")).toEqual([true, false]);
+    expect(fromAny("from_any: false")).toEqual([false, false]);
+    const bad = parseFlow("x", minimalFlow('from_any: "yes"'));
+    expect(bad.problems).toEqual(["phase todo: from_any must be true or false"]);
   });
 
   test("a phase without writes is artifacts (D18)", () => {

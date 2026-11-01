@@ -19,6 +19,8 @@ export interface IPhase {
   stage: string | null;
   agent: string | null;
   writes: TWrites;
+  /** Reachable from any non-terminal phase with a plain `wip phase`. */
+  fromAny: boolean;
 }
 
 export interface IFieldDef {
@@ -162,6 +164,11 @@ function parsePhase(raw: unknown, index: number, problems: string[]): IPhase | n
     if (Array.isArray(raw.next) && raw.next.every((n) => typeof n === "string")) next = raw.next;
     else problems.push(`${where}: next must be a list of phase names`);
   }
+  let fromAny = false;
+  if (raw.from_any !== undefined && raw.from_any !== null) {
+    if (typeof raw.from_any === "boolean") fromAny = raw.from_any;
+    else problems.push(`${where}: from_any must be true or false`);
+  }
   return {
     name: raw.name,
     kind,
@@ -177,6 +184,7 @@ function parsePhase(raw: unknown, index: number, problems: string[]): IPhase | n
     stage: optionalText(raw.stage, `${where}: stage`, problems),
     agent: optionalText(raw.agent, `${where}: agent`, problems),
     writes: oneOf(raw.writes, WRITES, "artifacts", `${where}: writes`, problems),
+    fromAny,
   };
 }
 

@@ -168,7 +168,7 @@ phases:
 
 The text around the block (`## Subagents`, one `### <phase>` per phase) tells the coordinator what each phase does.
 The reference of every key (`id_pattern`, `fields` and their types, `links`, `seed` and its `files`, `stage`, `gate`,
-`waiting_default`, `agent`, `writes`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
+`waiting_default`, `agent`, `writes`, `from_any`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
 to copy from (it is not a flow itself: only folders named `wip-flow-*` are).
 
 The default flow, `tasks`, is generic: the same phases carry code, an investigation, a document or a decision,
@@ -180,7 +180,8 @@ grouped in three stages.
 | `execution`   | `execute` → `check`            | the deliverable; its check against the plan's criteria, back to `execute` when red                                                         |
 | `review`      | `review` → `deliver` → `done`  | you validate the result; `deliver` only when something is written outside the project (a pull request, a message, a ticket)                |
 
-A request that needs no work, or that you drop, goes from `intake` straight to `done`.
+A request that needs no work, or that you drop, goes from `intake` straight to `done`. `plan` is reachable from any
+phase (`from_any: true`): a wrong approach goes back to it, and its gate, without `--force`.
 
 To create a flow, ask the coordinator («create a flow for reviews with these phases…»): it follows `wip-new-flow`
 (proposal, your approval, backup, write, `wip flow lint`, restore if the lint fails). By hand:
@@ -194,30 +195,29 @@ wip state --flow review
 ```
 
 `wip flow lint` checks the frontmatter (`name` equal to the folder, a `description`), the block's schema, that
-every phase is reachable, one terminal phase, `next` targets, `waiting_default`, `links` patterns, that each `agent:`
-exists in `<defs>/agents/` with a `name` and a `description`, that `writes` is `artifacts` or `project`, and that no
-live item sits in a phase the file removes.
+every phase is reachable through `next` or `from_any`, one terminal phase, `next` targets, `waiting_default`, `links` patterns, that each `agent:`
+exists in `<defs>/agents/` with a `name` and a `description`, that `writes` is `artifacts` or `project`, and that no live item sits in a phase the file removes.
 Each valid version is stored when a command loads it: if a later edit breaks the file, `flow lint` fails, and every
 other command keeps using the last valid version with a `flow_invalid` warning until the file is fixed.
 
 ## The commands
 
-| Command                                         | What                                                          |
-| ----------------------------------------------- | ------------------------------------------------------------- |
-| `wip init`                                      | create `.wip/` and the definitions                            |
-| `wip phase <ID> <phase> [--flow F]`             | create an item, or move it along its flow's `next`            |
-| `wip set <ID> key=value …`                      | set fields (`int +N`, `list +a/-a`, `ts now/none`)            |
-| `wip wait <ID> user\|external\|none\|agent:<a>` | record who the item waits on                                  |
-| `wip agent start\|stop <ID> …`                  | record a subagent run                                         |
-| `wip gate open\|close <ID> …`                   | open or close a decision for the user                         |
-| `wip log <ID> "<text>"`                         | add a note to the item's history                              |
-| `wip show <ID>`                                 | one item with its runs, gates, history and totals             |
-| `wip state [--attention]`                       | every item and what it waits on                               |
-| `wip archive <ID>`                              | archive an item with nothing running nor open                 |
-| `wip session start`                             | a coordinator (re)starts: runs left running become `orphaned` |
-| `wip check [<ID>]`                              | the invariants (exit 1 on findings) and the warnings          |
-| `wip flow lint [<flow>]`                        | validate the flows                                            |
-| `wip web [status\|stop\|log]`                   | the kanban: serve it, check it, stop it, read its log         |
+| Command                                         | What                                                                        |
+| ----------------------------------------------- | --------------------------------------------------------------------------- |
+| `wip init`                                      | create `.wip/` and the definitions                                          |
+| `wip phase <ID> <phase> [--flow F]`             | create an item, or move it along its flow's `next` or to a `from_any` phase |
+| `wip set <ID> key=value …`                      | set fields (`int +N`, `list +a/-a`, `ts now/none`)                          |
+| `wip wait <ID> user\|external\|none\|agent:<a>` | record who the item waits on                                                |
+| `wip agent start\|stop <ID> …`                  | record a subagent run                                                       |
+| `wip gate open\|close <ID> …`                   | open or close a decision for the user                                       |
+| `wip log <ID> "<text>"`                         | add a note to the item's history                                            |
+| `wip show <ID>`                                 | one item with its runs, gates, history and totals                           |
+| `wip state [--attention]`                       | every item and what it waits on                                             |
+| `wip archive <ID>`                              | archive an item with nothing running nor open                               |
+| `wip session start`                             | a coordinator (re)starts: runs left running become `orphaned`               |
+| `wip check [<ID>]`                              | the invariants (exit 1 on findings) and the warnings                        |
+| `wip flow lint [<flow>]`                        | validate the flows                                                          |
+| `wip web [status\|stop\|log]`                   | the kanban: serve it, check it, stop it, read its log                       |
 
 Every command accepts `--json` (envelope `{ok, item, events, warnings, message, data}`) and `--help`. Exit codes:
 0 ok · 1 findings · 2 usage · 3 rejected · 4 not found (or no `.wip/`) · 10 database. `WIP_HOME` points the CLI at

@@ -427,16 +427,17 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       ph.agent ?? null,
       ph.writes,
       ph.next,
+      ph.fromAny,
     ]);
     expect(shape).toEqual([
-      ["preparation", "intake", "none", null, "artifacts", ["research", "plan", "done"]],
-      ["preparation", "research", "auto", "thinker", "artifacts", ["plan"]],
-      ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"]],
-      ["execution", "execute", "auto", "efficient", "project", ["check"]],
-      ["execution", "check", "auto", "efficient", "artifacts", ["execute", "review"]],
-      ["review", "review", "ask", null, "artifacts", ["plan", "execute", "deliver", "done"]],
-      ["review", "deliver", "ask", "efficient", "artifacts", ["done"]],
-      ["review", "done", "none", null, "artifacts", []],
+      ["preparation", "intake", "none", null, "artifacts", ["research", "done"], false],
+      ["preparation", "research", "auto", "thinker", "artifacts", ["plan"], false],
+      ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"], true],
+      ["execution", "execute", "auto", "efficient", "project", ["check"], false],
+      ["execution", "check", "auto", "efficient", "artifacts", ["execute", "review"], false],
+      ["review", "review", "ask", null, "artifacts", ["execute", "deliver", "done"], false],
+      ["review", "deliver", "ask", "efficient", "artifacts", ["done"], false],
+      ["review", "done", "none", null, "artifacts", [], false],
     ]);
     expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual([
       "user",

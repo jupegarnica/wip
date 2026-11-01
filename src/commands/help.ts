@@ -37,6 +37,9 @@ export const COMMANDS: readonly ICommandSpec[] = [
     ],
     options: ["flow", "wait", "next", "note", "reason"],
     flags: ["force"],
+    notes: [
+      "A phase with `from_any: true` in the flow is reachable from any non-terminal phase without --force.",
+    ],
   },
   {
     name: "set",

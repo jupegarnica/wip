@@ -15,6 +15,8 @@ First version.
   `.claude/agents` and `.claude/skills`. `.wip/config.json` keeps the folder and every command reads it from there.
 - Claude Code: `claude --agent wip` starts the coordinator through its `initialPrompt`; the generic agents preload
   `wip-subagent-protocol` with their `skills` key.
+- `from_any: true` on a phase of the `wip-flow` block makes it reachable from any non-terminal phase with a plain
+  `wip phase`, no `--force` and no recorded decision; the `tasks` flow uses it on `plan`.
 - Model onboarding: `wip check` warns with `models_unset` until each generic agent and the coordinator have a `model:`.
 - Guided onboarding: a flow's `seed` lists items `wip init` creates once (an existing or archived ID is never
   touched), with `files` copied from the flow's skill folder into the item's artifacts; the `tasks` flow seeds
