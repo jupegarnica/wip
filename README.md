@@ -202,6 +202,10 @@ cadence, and that no live item sits in a phase the file removes.
 Each valid version is stored when a command loads it: if a later edit breaks the file, `flow lint` fails, and every
 other command keeps using the last valid version with a `flow_invalid` warning until the file is fixed.
 
+`wip flow disable <flow>` switches a flow off in this copy of the project (a flag in `.wip/wip.sqlite`, no file
+changes): its items leave `wip state`, `wip check`, the polls and the board, and every write on them exits 3. `wip show <ID>` still shows them
+with a `flow_disabled` warning. `wip flow enable <flow>` brings it back; `wip flow lint` lists the disabled flows.
+
 ## The commands
 
 | Command                                         | What                                                                        |
@@ -218,7 +222,8 @@ other command keeps using the last valid version with a `flow_invalid` warning u
 | `wip archive <ID>`                              | archive an item with nothing running nor open                               |
 | `wip session start`                             | a coordinator (re)starts: runs left running become `orphaned`               |
 | `wip check [<ID>]`                              | the invariants (exit 1 on findings) and the warnings                        |
-| `wip flow lint [<flow>]`                        | validate the flows                                                          |
+| `wip flow lint [<flow>]`                        | validate the flows; lists the disabled ones as `DISABLED <flow>`            |
+| `wip flow disable\|enable <flow>`               | hide a flow and freeze its items, or bring it back                          |
 | `wip poll due\|record\|seen`                    | the flows' scheduled checks: what is due, record a pass, what a pass saw    |
 | `wip web [status\|stop\|log]`                   | the kanban: serve it, check it, stop it, read its log                       |
 

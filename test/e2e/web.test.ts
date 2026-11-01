@@ -22,6 +22,7 @@ import {
   urlLines,
   webMain,
 } from "../../src/commands/web.ts";
+import { SCHEMA_VERSION } from "../../src/db.ts";
 import { MARKDOWN_LIB, WEB } from "../../src/embedded/web.ts";
 import { rootAt, type TEnv } from "../../src/env.ts";
 import { EXIT } from "../../src/errors.ts";
@@ -658,14 +659,33 @@ describe("wip web · polling footer", () => {
     ok(p, ["phase", "T1", "intake", "--flow", "valid"]);
     const raw = new Database(p.dbPath);
     raw.exec("DROP TABLE poll_run_items; DROP TABLE poll_runs; DROP TABLE poll_seen;");
+    raw.exec("ALTER TABLE flows DROP COLUMN disabled");
     raw.exec("PRAGMA user_version = 1");
     raw.close();
     serve(p);
     const body = await getJson("/api/kanban");
     expect(body.items.map((i: TJson) => i.id)).toEqual(["T1"]);
     const after = new Database(p.dbPath, { readonly: true });
-    expect((after.query("PRAGMA user_version").get() as TJson).user_version).toBe(2);
+    expect((after.query("PRAGMA user_version").get() as TJson).user_version).toBe(SCHEMA_VERSION);
     after.close();
+  });
+});
+
+describe("wip web · a disabled flow", () => {
+  test("the board and the history leave it out until it is enabled", async () => {
+    const p = board();
+    serve(p);
+    const full = await getJson("/api/kanban");
+    expect(full.items.map((i: TJson) => i.id)).toContain("T1");
+    ok(p, ["flow", "disable", "valid"]);
+    const body = await getJson("/api/kanban");
+    expect(body.items.map((i: TJson) => i.id)).toEqual(["A1"]);
+    expect(JSON.stringify(body)).not.toContain("valid");
+    const history = await getJson("/api/history");
+    expect(history.items.map((i: TJson) => i.flow)).not.toContain("valid");
+    ok(p, ["flow", "enable", "valid"]);
+    expect((await getJson("/api/kanban")).items.map((i: TJson) => i.id)).toContain("T1");
+    expect((await getJson("/api/history")).items.map((i: TJson) => i.flow)).toContain("valid");
   });
 });
 

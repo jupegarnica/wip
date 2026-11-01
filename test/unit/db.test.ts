@@ -121,7 +121,7 @@ describe("schema", () => {
     }
   });
 
-  test("a database built at schema 1 migrates to 2 and keeps every row", () => {
+  test("a database built at schema 1 migrates to the current schema and keeps every row", () => {
     const path = freshPath("v1-to-v2");
     mkdirSync(dirname(path), { recursive: true });
     const old = new Database(path, { create: true, strict: true });
@@ -132,12 +132,29 @@ describe("schema", () => {
     old.exec(`INSERT INTO events (item_id, ts, kind) VALUES ('a', '2026-10-30T10:00:00Z', 'note')`);
     old.close();
     const db = openDb(path);
-    expect(userVersion(db)).toBe(2);
+    expect(userVersion(db)).toBe(SCHEMA_VERSION);
     expect(count(db, "SELECT count(*) AS n FROM items")).toBe(1);
     expect(count(db, "SELECT count(*) AS n FROM events")).toBe(1);
     for (const table of ["poll_runs", "poll_run_items", "poll_seen"]) {
       expect(count(db, `SELECT count(*) AS n FROM ${table}`)).toBe(0);
     }
+    db.close();
+  });
+
+  test("a database built at schema 2 migrates to 3 and keeps its flows enabled", () => {
+    const path = freshPath("v2-to-v3");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path, { create: true, strict: true });
+    old.exec(MIGRATIONS[0]?.[1] as string);
+    old.exec(MIGRATIONS[1]?.[1] as string);
+    old.exec("PRAGMA user_version = 2");
+    old.exec(`INSERT INTO flows (name, path, hash, json, loaded_at)
+              VALUES ('f', 'p', 'h', '{}', '2026-10-30T10:00:00Z')`);
+    old.close();
+    const db = openDb(path);
+    expect(userVersion(db)).toBe(3);
+    expect(count(db, "SELECT count(*) AS n FROM flows WHERE disabled = 0")).toBe(1);
+    expect(() => db.exec("UPDATE flows SET disabled = 2")).toThrow();
     db.close();
   });
 

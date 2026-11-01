@@ -59,7 +59,9 @@ export function historyData(
   flows: IFlowSet,
   query: IHistoryQuery = {},
 ): IHistoryPage {
-  const rows = db ? (db.query("SELECT * FROM items ORDER BY id").all() as IItemRow[]) : [];
+  const rows = (db ? (db.query("SELECT * FROM items ORDER BY id").all() as IItemRow[]) : []).filter(
+    (item) => !flows.disabled.has(item.flow),
+  );
   const all: IHistoryItem[] = rows.map((item) => {
     const flow = flows.entries.get(item.flow)?.flow ?? null;
     const category = categoryOf(item, flow);

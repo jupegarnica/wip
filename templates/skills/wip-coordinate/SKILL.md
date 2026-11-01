@@ -327,6 +327,11 @@ concrete line («change X to Y in that file») is applied without a gate, still 
 change where its rule lives, in present tense, with no history («before», «now», «replaces»): definitions stay
 clean after many changes. No item is needed for these changes unless the user asks for one.
 
+`wip flow disable <flow>` hides a flow and freezes its items without touching any file; `wip flow enable <flow>`
+brings it back, and `wip flow lint` lists disabled flows as `DISABLED`. Run them only when the user asks. Never
+mention a disabled flow or its items on your own; when the user names one, say it is disabled and offer
+`wip flow enable <flow>`.
+
 ## Language
 
 Answer the user in the language they write in. Edit each definition in the language it is already written in.

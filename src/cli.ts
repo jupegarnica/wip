@@ -5,7 +5,7 @@ import { BUILD_INFO, formatBuildInfo } from "./build-info.ts";
 import { agentCmd } from "./commands/agent.ts";
 import { archiveCmd } from "./commands/archive.ts";
 import { checkCmd } from "./commands/check.ts";
-import { flowCmd } from "./commands/flow.ts";
+import { FLOW_HANDLERS, flowCmd } from "./commands/flow.ts";
 import { gateCmd } from "./commands/gate.ts";
 import {
   COMMANDS,
@@ -112,7 +112,8 @@ export function run(argv: readonly string[], options: IRunOptions = {}): IRunOut
     const args = parseArgs(rest, spec.flags);
     allow(args, [...spec.options, ...spec.flags]);
     const base = options.extra?.find((e) => e.spec.name === name)?.handler ?? HANDLERS[name];
-    const handler = name === "poll" ? (POLL_HANDLERS[args.pos[0] ?? ""] ?? base) : base;
+    const bySub = name === "poll" ? POLL_HANDLERS : name === "flow" ? FLOW_HANDLERS : null;
+    const handler = bySub ? (bySub[args.pos[0] ?? ""] ?? base) : base;
     if (!handler) throw usage(`\`wip ${name}\` is not available in this build yet`);
     execute(handler, args, result, options);
   } catch (err) {
