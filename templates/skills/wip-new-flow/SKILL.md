@@ -78,6 +78,21 @@ Top-level keys (any other key is an error):
 | `links` | no | list of `{pattern, url}`: a regular expression over the item ID and an `http(s)` URL with `$1`… |
 | `phases` | yes | the list below, in order; the first phase is where items start |
 | `seed` | no | list of `{id, phase, title, next, files}` that `wip init` creates once, in a phase whose `waiting_default` is `user` or `external`; an ID that already exists, even archived, is never touched. `files` lists files of this flow's skill folder (artifact names, no subfolders) that init copies into the new item's artifact directory |
+| `polling` | no | list of `{name, phases, agent, cadence}`: which agent checks which phases and how often (see below) |
+
+Polling: wip never runs anything by itself. `polling` only declares scheduled checks that a scheduler (the coordinator,
+cron, CI) asks about with `wip poll due`:
+
+```yaml
+polling:
+  - name: waiting        # lowercase, unique in the flow
+    phases: [waiting]    # optional: the phases whose open items it checks; none = a flow-wide pass (discovery)
+    agent: fast          # required: <defs>/agents/<agent>.md must exist, like a phase's agent
+    cadence: 1h          # required: a whole number and m, h or d (30m, 1h, 2d)
+```
+
+A poll with `phases` applies while an item sits in one of them; a poll without them always applies. Add one to a
+phase that waits on something outside the session (`kind: wait`); the pass finds out, and the coordinator moves the item.
 
 Phase keys:
 

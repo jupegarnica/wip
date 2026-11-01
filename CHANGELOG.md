@@ -17,6 +17,13 @@ First version.
   `wip-subagent-protocol` with their `skills` key.
 - `from_any: true` on a phase of the `wip-flow` block makes it reachable from any non-terminal phase with a plain
   `wip phase`, no `--force` and no recorded decision; the `tasks` flow uses it on `plan`.
+- Polling: a `polling` key in the `wip-flow` block (`{name, phases, agent, cadence}`, cadence `30m`, `1h`, `2d`)
+  declares which agent checks which phases and how often; `wip poll due` tells any scheduler what is `DUE`,
+  `OVERDUE` (unattended for more than 1.5 cadences), `OK` or `IDLE` (always exit 0, read `--json`), `wip poll record`
+  logs a pass and `wip poll seen` remembers what a pass saw. wip has no cron of its own. `wip check` warns with
+  `poll_overdue`. This adds schema 2 (`poll_runs`, `poll_run_items`, `poll_seen`): any command migrates a schema 1
+  database, an older build then refuses it (exit 10), and `wip web` migrates it at start; restart a running
+  `wip web` after upgrading.
 - Model onboarding: `wip check` warns with `models_unset` until each generic agent and the coordinator have a `model:`.
 - Guided onboarding: a flow's `seed` lists items `wip init` creates once (an existing or archived ID is never
   touched), with `files` copied from the flow's skill folder into the item's artifacts; the `tasks` flow seeds

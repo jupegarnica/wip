@@ -52,7 +52,8 @@ output of each before the next:
 2. `wip state --attention` — the items waiting on the user now.
 3. `wip check --json` — invariants (`data.findings`) and warnings. Fix each finding with the `wip` command it
    needs before anything else. If `warnings` has the code `models_unset`, the agents it lists have no model yet:
-   follow «Model onboarding» in `wip-coordinate` before launching any subagent.
+   follow «Model onboarding» in `wip-coordinate` before launching any subagent. Then run `wip poll due --json` and
+   handle what is due as «Polling» in `wip-coordinate` says.
 4. **Kanban.** Delegate to `fast`, in the background if the runtime can, this task: run `wip web status`. Exit 0:
    this project's `wip web` is up, so start nothing and return its first `Local:` URL and port. Exit 1: start
    `wip web --open`, detached so it outlives the agent (on macOS and Linux `nohup wip web --open >/dev/null 2>&1 &`;

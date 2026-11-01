@@ -564,6 +564,86 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
   });
 });
 
+describe("wip web · polling footer", () => {
+  const POLLING_FLOW = [
+    "```wip-flow",
+    "phases:",
+    "  - name: intake",
+    "    next: [waiting]",
+    "    waiting_default: user",
+    "  - name: waiting",
+    "    kind: wait",
+    "    waiting_default: external",
+    "    next: [done]",
+    "  - name: done",
+    "    kind: terminal",
+    "polling:",
+    "  - name: waiting",
+    "    phases: [waiting]",
+    "    agent: fast",
+    "    cadence: 1h",
+    "  - name: discover",
+    "    agent: fast",
+    "    cadence: 30m",
+    "```",
+    "",
+  ].join("\n");
+
+  test("/api/kanban has an empty polling list when no flow declares polling", async () => {
+    const p = board();
+    serve(p);
+    expect((await getJson("/api/kanban")).polling).toEqual({ polls: [] });
+  });
+
+  test("a due and an overdue row, without the seen keys nor the server clock", async () => {
+    const p = ctx.set(itemsProject("web-polling"));
+    putFlow(p.dir, "review", POLLING_FLOW);
+    ok(p, ["phase", "q1", "intake", "--flow", "review"]);
+    ok(p, ["phase", "q1", "waiting", "--next", "wait"]);
+    ok(p, ["poll", "record", "review", "discover"]);
+    ok(p, ["poll", "seen", "review", "waiting", "#1"]);
+    serve(p);
+    tick(3601);
+    let body = await getJson("/api/kanban");
+    expect(Object.keys(body.polling)).toEqual(["polls"]);
+    const rows = body.polling.polls as TJson[];
+    expect(rows.map((r) => [r.poll, r.status])).toEqual([
+      ["waiting", "due"],
+      ["discover", "overdue"],
+    ]);
+    expect(rows.every((r) => !("seen" in r))).toBe(true);
+    tick(5401);
+    body = await getJson("/api/kanban");
+    expect((body.polling.polls as TJson[]).map((r) => [r.poll, r.status])).toEqual([
+      ["waiting", "overdue"],
+      ["discover", "overdue"],
+    ]);
+    const first = await (await get("/api/kanban")).text();
+    expect(await (await get("/api/kanban")).text()).toBe(first);
+  });
+
+  test("the page has the footer line for it", () => {
+    expect(WEB["index.html"]).toContain('id="env-polling"');
+    expect(WEB["app.js"]).toContain("renderPolling");
+    expect(WEB["app.css"]).toContain("--warn");
+  });
+
+  test("a database at schema 1 is migrated when wip web starts", async () => {
+    const p = ctx.set(itemsProject("web-v1"));
+    ok(p, ["phase", "T1", "intake", "--flow", "valid"]);
+    const raw = new Database(p.dbPath);
+    raw.exec("DROP TABLE poll_run_items; DROP TABLE poll_runs; DROP TABLE poll_seen;");
+    raw.exec("PRAGMA user_version = 1");
+    raw.close();
+    serve(p);
+    const body = await getJson("/api/kanban");
+    expect(body.items.map((i: TJson) => i.id)).toEqual(["T1"]);
+    const after = new Database(p.dbPath, { readonly: true });
+    expect((after.query("PRAGMA user_version").get() as TJson).user_version).toBe(2);
+    after.close();
+  });
+});
+
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
   test("the page files and @garndev/markdown are served as embedded, with their types", async () => {
     const p = board();

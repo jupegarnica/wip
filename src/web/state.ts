@@ -1,11 +1,13 @@
 import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
+import { now } from "../clock.ts";
 import { type IStateItem, listState } from "../commands/state.ts";
-import { BUSY_TIMEOUT_MS, SCHEMA_VERSION, type TDatabase, userVersion } from "../db.ts";
+import { BUSY_TIMEOUT_MS, openDb, SCHEMA_VERSION, type TDatabase, userVersion } from "../db.ts";
 import { dbError } from "../errors.ts";
 import type { IFlow } from "../flow/parse.ts";
 import type { IFlowSet, TFlowSource } from "../flow/registry.ts";
 import { phaseOf } from "../items.ts";
+import { type IPollRow, pollRows } from "../poll.ts";
 
 export interface IItemLink {
   label: string;
@@ -89,7 +91,11 @@ export interface IBoardRun {
   started_at: string;
 }
 
+/** A poll of the board's footer: `wip poll due`'s row without the seen keys. The server's clock is not in it, so an idle board's text stays equal between requests. */
+export type IBoardPoll = Omit<IPollRow, "seen">;
+
 export interface IBoard {
+  polling: { polls: IBoardPoll[] };
   flows: IBoardFlow[];
   items: IBoardItem[];
   your_turn: IYourTurn[];
@@ -168,6 +174,20 @@ export function openReadOnly(path: string): TDatabase | null {
     db.close();
     throw err;
   }
+}
+
+/** Starting the server is the one place the web writes: a database behind this build is migrated like any command would. */
+export function migrateIfBehind(path: string): void {
+  if (!existsSync(path)) return;
+  const probe = new Database(path, { readonly: true, strict: true });
+  let behind: boolean;
+  try {
+    probe.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    behind = userVersion(probe) < SCHEMA_VERSION;
+  } finally {
+    probe.close();
+  }
+  if (behind) openDb(path).close();
 }
 
 function linkValues(id: string, fields: Record<string, unknown>): [string, string][] {
@@ -285,7 +305,9 @@ export function boardData(db: TDatabase | null, flows: IFlowSet): IBoard {
   const running = items
     .flatMap((i) => i.agents.map((a) => ({ item_id: i.id, flow: i.flow, ...a })))
     .sort((a, b) => a.started_at.localeCompare(b.started_at) || a.item_id.localeCompare(b.item_id));
+  const polls = pollRows(db, flows, now()).map(({ seen: _seen, ...row }) => row);
   return {
+    polling: { polls },
     flows: boardFlows,
     items,
     your_turn: yourTurn,

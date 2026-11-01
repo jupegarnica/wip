@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   BUSY_TIMEOUT_MS,
   isSupportedSqlite,
@@ -17,7 +17,17 @@ import { PROBES } from "../helpers/probes.ts";
 import { count, type IProject, makeProject, scratch } from "../helpers/project.ts";
 import type { IWriterResult } from "../helpers/writer.ts";
 
-const TABLES = ["agent_runs", "events", "flows", "gates", "items", "sessions"];
+const TABLES = [
+  "agent_runs",
+  "events",
+  "flows",
+  "gates",
+  "items",
+  "poll_run_items",
+  "poll_runs",
+  "poll_seen",
+  "sessions",
+];
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "src", "migrations");
 
 let p: IProject | null = null;
@@ -109,6 +119,26 @@ describe("schema", () => {
     } catch (err) {
       expect((err as WipError).code).toBe(EXIT.DB);
     }
+  });
+
+  test("a database built at schema 1 migrates to 2 and keeps every row", () => {
+    const path = freshPath("v1-to-v2");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path, { create: true, strict: true });
+    old.exec(MIGRATIONS[0]?.[1] as string);
+    old.exec("PRAGMA user_version = 1");
+    old.exec(`INSERT INTO items (id, flow, phase, created_at, updated_at)
+              VALUES ('a', 'f', 'p', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
+    old.exec(`INSERT INTO events (item_id, ts, kind) VALUES ('a', '2026-10-30T10:00:00Z', 'note')`);
+    old.close();
+    const db = openDb(path);
+    expect(userVersion(db)).toBe(2);
+    expect(count(db, "SELECT count(*) AS n FROM items")).toBe(1);
+    expect(count(db, "SELECT count(*) AS n FROM events")).toBe(1);
+    for (const table of ["poll_runs", "poll_run_items", "poll_seen"]) {
+      expect(count(db, `SELECT count(*) AS n FROM ${table}`)).toBe(0);
+    }
+    db.close();
   });
 
   test("the migration manifest has every .sql file, in order", () => {

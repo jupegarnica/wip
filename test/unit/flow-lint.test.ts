@@ -45,7 +45,7 @@ describe("flow lint rules (F-FLU-12)", () => {
   test("schema: unknown keys and invalid values", () => {
     expect(lint("bad-schema").length).toBeGreaterThanOrEqual(7);
     expect(lint("bad-schema")).toContain(
-      "unknown key 'polling' (version, id_pattern, fields, links, phases, seed)",
+      "unknown key 'schedule' (version, id_pattern, fields, links, phases, seed, polling)",
     );
   });
 
@@ -456,5 +456,49 @@ describe("wip flow lint (command)", () => {
     expect(p.wip(["flow", "lint", "ignored"]).stderr).toContain(
       ".claude/skills/wip-flow-ignored/SKILL.md",
     );
+  });
+});
+
+describe("polling rules", () => {
+  const flow = (polling: string) =>
+    `${minimalFlow().replace("```\n", "")}polling:\n${polling}\n\`\`\`\n`;
+  const entry = (extra = "", name = "waiting") =>
+    `  - name: ${name}\n    agent: fast\n    cadence: 1h${extra ? `\n    ${extra}` : ""}`;
+
+  function withFast(text: string, agent = "fast", body = agentBody("fast")) {
+    dir = scratch("flow-lint");
+    if (agent) putAgent(dir, agent, body);
+    return lint("x", text);
+  }
+  const agentBody = (name: string) =>
+    `---\nname: ${name}\ndescription: test agent ${name}\nrole: subagent\n---\n\nBody.\n`;
+
+  test("a valid flow with polling passes", () => {
+    expect(withFast(flow(`${entry("phases: [todo, done]")}\n${entry("", "discover")}`))).toEqual(
+      [],
+    );
+  });
+
+  test("an unknown phase, repeated names and a phase repeated in one entry", () => {
+    expect(withFast(flow(entry("phases: [nope]")))).toEqual([
+      "polling waiting: phase 'nope' is not a phase",
+    ]);
+    expect(withFast(flow(`${entry()}\n${entry()}`))).toEqual(["polling names repeat: waiting"]);
+    expect(withFast(flow(entry("phases: [todo, todo]")))).toEqual([
+      "polling waiting: phases repeat: todo",
+    ]);
+  });
+
+  test("the agent must exist and have a description", () => {
+    expect(withFast(flow(entry()), "")).toEqual([
+      "polling waiting: agent fast: no agent file .agents/agents/fast.md",
+    ]);
+    const problems = withFast(
+      flow(entry()),
+      "fast",
+      "---\nname: fast\nrole: subagent\n---\n\nBody.\n",
+    );
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems.every((x) => x.startsWith("polling waiting: agent fast: "))).toBe(true);
   });
 });

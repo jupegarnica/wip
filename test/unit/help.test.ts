@@ -9,6 +9,7 @@ import { scratch } from "../helpers/project.ts";
 const V1 = [
   "init",
   "phase",
+  "poll",
   "set",
   "wait",
   "log",

@@ -7,6 +7,7 @@
   --ok: #1f7a3a;
   --off: #7a776f;
   --error: #b3261e;
+  --warn: #9a5b00;
   --error-bg: #fde7e5;
   --gate: #9a5b00;
   --gate-bg: #fff1d6;
@@ -24,6 +25,7 @@
     --ok: #6fcf8b;
     --off: #a39e94;
     --error: #ff8a80;
+    --warn: #ffc46b;
     --error-bg: #3d1d1a;
     --gate: #ffc46b;
     --gate-bg: #352612;
@@ -245,6 +247,27 @@ ol.env-list {
 }
 .foot-count {
   color: var(--ok);
+}
+.foot-polling {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+.foot-polling[hidden] {
+  display: none;
+}
+.foot-poll {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.foot-overdue {
+  color: var(--warn);
+  font-weight: 600;
 }
 .foot-run {
   display: block;

@@ -168,7 +168,7 @@ phases:
 
 The text around the block (`## Subagents`, one `### <phase>` per phase) tells the coordinator what each phase does.
 The reference of every key (`id_pattern`, `fields` and their types, `links`, `seed` and its `files`, `stage`, `gate`,
-`waiting_default`, `agent`, `writes`, `from_any`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
+`waiting_default`, `agent`, `writes`, `from_any`, `polling`) is in `<defs>/skills/wip-new-flow/SKILL.md`, and `wip-new-flow/example.md` is a complete flow
 to copy from (it is not a flow itself: only folders named `wip-flow-*` are).
 
 The default flow, `tasks`, is generic: the same phases carry code, an investigation, a document or a decision,
@@ -196,7 +196,8 @@ wip state --flow review
 
 `wip flow lint` checks the frontmatter (`name` equal to the folder, a `description`), the block's schema, that
 every phase is reachable through `next` or `from_any`, one terminal phase, `next` targets, `waiting_default`, `links` patterns, that each `agent:`
-exists in `<defs>/agents/` with a `name` and a `description`, that `writes` is `artifacts` or `project`, and that no live item sits in a phase the file removes.
+exists in `<defs>/agents/` with a `name` and a `description`, that `writes` is `artifacts` or `project`, that each `polling` entry names an existing phase and agent and has a valid
+cadence, and that no live item sits in a phase the file removes.
 Each valid version is stored when a command loads it: if a later edit breaks the file, `flow lint` fails, and every
 other command keeps using the last valid version with a `flow_invalid` warning until the file is fixed.
 
@@ -217,6 +218,7 @@ other command keeps using the last valid version with a `flow_invalid` warning u
 | `wip session start`                             | a coordinator (re)starts: runs left running become `orphaned`               |
 | `wip check [<ID>]`                              | the invariants (exit 1 on findings) and the warnings                        |
 | `wip flow lint [<flow>]`                        | validate the flows                                                          |
+| `wip poll due\|record\|seen`                    | the flows' scheduled checks: what is due, record a pass, what a pass saw    |
 | `wip web [status\|stop\|log]`                   | the kanban: serve it, check it, stop it, read its log                       |
 
 Every command accepts `--json` (envelope `{ok, item, events, warnings, message, data}`) and `--help`. Exit codes:
@@ -266,6 +268,45 @@ Exit codes:
 **LAN:** without `--local`, `wip web` also listens on your private LAN address and prints it as `LAN:`. Anyone on
 that network can then read the board and the item artifacts, with no authentication. Use `--local` on networks you
 do not trust.
+
+## Polling
+
+Nothing in wip runs by itself. A flow can declare scheduled checks, and `wip poll due` tells whatever schedules them
+(the coordinator, cron, CI) which are due:
+
+```wip-flow
+polling:
+  - name: waiting
+    phases: [waiting]   # checks the open items in these phases; leave it out for a flow-wide pass (discovery)
+    agent: fast         # the agent that does the check: <defs>/agents/fast.md must exist
+    cadence: 1h         # 30m, 1h, 2d
+```
+
+```sh
+wip poll due [--flow F]                                     # one line per poll
+wip poll record review waiting --result "no answer"         # a pass was made (items default to the ones due)
+wip poll seen review waiting "#123" --until +2h --note "postponed"   # do not propose it again until then
+wip poll seen review waiting                                # the active keys (--all: also the expired)
+```
+
+| Status    | Meaning                                                                                                                                                                          |
+| --------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `IDLE`    | no open item in its phases (a poll without phases always applies)                                                                                                                |
+| `OK`      | the last pass is younger than the cadence                                                                                                                                        |
+| `DUE`     | the cadence passed (or it never ran)                                                                                                                                             |
+| `OVERDUE` | due and unattended for more than 1.5 cadences, counted from the later of the last pass and the moment its items entered the phase: the scheduler missed it, it was not just idle |
+
+`wip poll due` always exits 0: it is a report. A scheduler reads `--json` (`data.polls[]` with `status`, `due`,
+`overdue`, `last_run`, `next_at`, `items` with their `last_seen`, and the `seen` keys), for example from cron or CI:
+
+```sh
+wip poll due --json | jq -r '.data.polls[] | select(.due) | "\(.flow)/\(.poll) \(.agent)"'
+```
+
+A pass is not an item event: it never touches an item's history nor its `waiting_on`; what it finds is recorded with
+the usual commands. `wip check` warns with `poll_overdue` (exit code unchanged) and `wip web` shows the last and next
+pass in its footer. Polling adds schema 2 to the database: any command migrates a schema 1 one, and an older
+`wip` then refuses it (exit 10). `wip web` migrates it when it starts; restart a running `wip web` after upgrading.
 
 ## Coordinating from any agent
 

@@ -29,6 +29,7 @@ const gatesBox = document.getElementById("gates");
 const gatesList = document.getElementById("gates-list");
 const envTetoca = document.getElementById("env-tetoca");
 const envAgents = document.getElementById("env-agents");
+const envPolling = document.getElementById("env-polling");
 const panel = document.getElementById("panel");
 const panelTitle = document.getElementById("panel-title");
 const panelBody = document.getElementById("panel-body");
@@ -330,6 +331,7 @@ async function poll() {
       }
       // Every round: the ages move even when the board does not.
       renderGates(lastData.open_gates);
+      renderPolling(lastData.polling);
       renderAgents(lastData.running);
     } else {
       let message = `HTTP ${res.status}`;
@@ -416,6 +418,51 @@ function renderTetoca(items) {
     frag.appendChild(li);
   }
   envTetoca.replaceChildren(frag);
+}
+
+// ---- Footer: polling ---------------------------------------------------------------------------------------------
+
+function pollAgo(isoText) {
+  return `${ago(Date.parse(isoText))} ago`;
+}
+
+function pollIn(isoText) {
+  const ms = Date.parse(isoText) - Date.now();
+  if (ms <= 0) return "now";
+  const s = Math.round(ms / 1000);
+  return s < 120 ? `in ${s} s` : `in ${Math.round(s / 60)} min`;
+}
+
+// One summary line when some flow declares polling, then a row per overdue and per due poll. Nothing otherwise.
+function renderPolling(polling) {
+  const polls = Array.isArray(polling?.polls) ? polling.polls : [];
+  envPolling.hidden = !polls.length;
+  if (!polls.length) {
+    envPolling.replaceChildren();
+    return;
+  }
+  const label = (p) => `${p.flow}/${p.poll}`;
+  const ran = polls.filter((p) => p.last_run).sort((a, b) => b.last_run.localeCompare(a.last_run));
+  const next = polls
+    .filter((p) => p.applies && p.next_at)
+    .sort((a, b) => a.next_at.localeCompare(b.next_at));
+  const last = ran.length
+    ? `last pass ${pollAgo(ran[0].last_run)} (${label(ran[0])})`
+    : "no pass yet";
+  const upcoming = next.length
+    ? `next ${pollIn(next[0].next_at)} (${label(next[0])})`
+    : "nothing to check";
+  const frag = document.createDocumentFragment();
+  frag.appendChild(el("span", "foot-poll", `⟳ Polling · ${last} · ${upcoming}`));
+  for (const p of polls.filter((x) => x.status === "overdue")) {
+    const when = p.last_run ? `last ${pollAgo(p.last_run)}` : "never run";
+    frag.appendChild(el("span", "foot-poll foot-overdue", `OVERDUE ${label(p)} · ${when}`));
+  }
+  for (const p of polls.filter((x) => x.status === "due")) {
+    const when = p.last_run ? `last ${pollAgo(p.last_run)}` : "never run";
+    frag.appendChild(el("span", "foot-poll", `DUE ${label(p)} · ${when}`));
+  }
+  envPolling.replaceChildren(frag);
 }
 
 // ---- Footer: running agents --------------------------------------------------------------------------------------

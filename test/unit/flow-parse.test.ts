@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { blockHash, extractSections, parseFlow } from "../../src/flow/parse.ts";
+import { blockHash, extractSections, parseCadence, parseFlow } from "../../src/flow/parse.ts";
 import { fixture, minimalFlow } from "../helpers/defs.ts";
 
 function flowOf(name: string, text: string = fixture("flows", name)) {
@@ -98,7 +98,7 @@ describe("schema problems", () => {
   test("unknown keys, bad version, reserved and unknown field types, bad kind, gate and next", () => {
     const { problems } = parseFlow("bad-schema", fixture("flows", "bad-schema"));
     expect(problems).toEqual([
-      "unknown key 'polling' (version, id_pattern, fields, links, phases, seed)",
+      "unknown key 'schedule' (version, id_pattern, fields, links, phases, seed, polling)",
       "version 2: only 1 is supported",
       "phase todo: kind: 'busy' is not one of work | wait | terminal",
       "phase todo: next must be a list of phase names",
@@ -276,4 +276,77 @@ describe("files of a seed", () => {
       "seed: must be a list of {id, phase, title, next, files}",
     ]);
   });
+});
+
+describe("polling", () => {
+  const withPolling = (polling: string) =>
+    `${minimalFlow().replace("```\n", "")}polling:\n${polling}\n\`\`\`\n`;
+  const parse = (polling: string) => parseFlow("x", withPolling(polling));
+
+  test("parsed with phases defaulting to a flow-wide poll and the cadence in seconds", () => {
+    const { flow, problems } = parse(
+      [
+        "  - name: waiting",
+        "    phases: [todo]",
+        "    agent: fast",
+        "    cadence: 1h",
+        "  - name: discover",
+        "    agent: fast",
+        "    cadence: 30m",
+        "  - name: weekly",
+        "    agent: fast",
+        "    cadence: 2d",
+      ].join("\n"),
+    );
+    expect(problems).toEqual([]);
+    expect(flow?.polling).toEqual([
+      { name: "waiting", phases: ["todo"], agent: "fast", cadence: "1h", cadenceS: 3600 },
+      { name: "discover", phases: [], agent: "fast", cadence: "30m", cadenceS: 1800 },
+      { name: "weekly", phases: [], agent: "fast", cadence: "2d", cadenceS: 172800 },
+    ]);
+  });
+
+  test("a flow without polling has an empty list", () => {
+    expect(parseFlow("x", minimalFlow()).flow?.polling).toEqual([]);
+  });
+
+  test("an unknown sub-key, a bad name, missing keys and a phases that is not a list", () => {
+    expect(parse("  - name: a\n    agent: fast\n    cadence: 1h\n    every: 1h").problems).toEqual([
+      "polling[0]: unknown key 'every'",
+    ]);
+    expect(parse("  - name: Bad\n    agent: fast\n    cadence: 1h").problems).toEqual([
+      "polling[0]: name 'Bad' must match ^[a-z][a-z0-9_-]*$",
+    ]);
+    expect(parse("  - name: a").problems).toEqual([
+      "polling a: missing agent",
+      "polling a: missing cadence",
+    ]);
+    expect(
+      parse("  - name: a\n    phases: todo\n    agent: fast\n    cadence: 1h").problems,
+    ).toEqual(["polling a: phases must be a list of phase names"]);
+  });
+
+  for (const bad of ["0m", "90s", "1w", "h", "1.5h", "01h", "-1h"]) {
+    test(`cadence '${bad}' is not a cadence`, () => {
+      const { problems, flow } = parse(`  - name: a\n    agent: fast\n    cadence: "${bad}"`);
+      expect(problems).toEqual([
+        `polling a: cadence '${bad}' must be a number and m, h or d (30m, 1h, 2d)`,
+      ]);
+      expect(flow?.polling).toEqual([]);
+    });
+  }
+
+  test("polling must be a list", () => {
+    expect(
+      parseFlow("x", `${minimalFlow().replace("```\n", "")}polling: hourly\n\`\`\`\n`).problems,
+    ).toEqual(["polling: must be a list of {name, phases, agent, cadence}"]);
+  });
+});
+
+test("parseCadence", () => {
+  expect(parseCadence("5m")).toBe(300);
+  expect(parseCadence("1h")).toBe(3600);
+  expect(parseCadence("1d")).toBe(86400);
+  expect(parseCadence("0m")).toBeNull();
+  expect(parseCadence("1x")).toBeNull();
 });

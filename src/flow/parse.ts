@@ -44,6 +44,17 @@ export interface ISeedItem {
   files: string[];
 }
 
+/** A scheduled check: which agent looks at which phases, and how often. wip never runs it; a scheduler asks `wip poll due`. */
+export interface IPoll {
+  name: string;
+  /** Phases whose open items it checks; empty: a flow-wide pass (discovery) that always applies. */
+  phases: string[];
+  agent: string;
+  /** As written: `30m`, `1h`, `2d`. */
+  cadence: string;
+  cadenceS: number;
+}
+
 /** Plain JSON: the registry stores it as the last valid version of the flow. */
 export interface IFlow {
   name: string;
@@ -54,6 +65,8 @@ export interface IFlow {
   links: ILink[];
   phases: IPhase[];
   seed: ISeedItem[];
+  /** Absent in versions stored before polling existed: read it as `flow.polling ?? []`. */
+  polling: IPoll[];
   /** Text of `## Subagents`, `null` when the file has none. */
   subagents: string | null;
   /** Text of each `### <phase>` section, by phase name. */
@@ -72,8 +85,11 @@ const FIELD_NAME_RE = /^[a-z][a-z0-9_]*$/;
 const ENUM_RE = /^enum\(([^)]*)\)$/;
 const BLOCK_RE = /^```wip-flow[ \t]*\n([\s\S]*?)^```[ \t]*$/gm;
 
-const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases", "seed"];
+const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases", "seed", "polling"];
 const SEED_KEYS = ["id", "phase", "title", "next", "files"];
+const POLL_KEYS = ["name", "phases", "agent", "cadence"];
+const CADENCE_RE = /^([1-9][0-9]*)(m|h|d)$/;
+const CADENCE_UNIT_S = { m: 60, h: 3600, d: 86400 } as const;
 export const DEFAULT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** Item columns of the CLI; `title` is a column too but a flow may declare it as a field. */
 export const RESERVED_FIELDS = [
@@ -249,6 +265,60 @@ function parseSeed(raw: unknown, problems: string[]): ISeedItem[] {
   return seed;
 }
 
+/** `30m`, `1h`, `2d` in seconds, or `null` when it is not a cadence. */
+export function parseCadence(value: string): number | null {
+  const m = CADENCE_RE.exec(value);
+  if (!m) return null;
+  return Number(m[1]) * CADENCE_UNIT_S[m[2] as keyof typeof CADENCE_UNIT_S];
+}
+
+function parsePolling(raw: unknown, problems: string[]): IPoll[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    problems.push("polling: must be a list of {name, phases, agent, cadence}");
+    return [];
+  }
+  const polling: IPoll[] = [];
+  raw.forEach((entry, i) => {
+    const where = `polling[${i}]`;
+    if (!isMap(entry)) {
+      problems.push(`${where}: must be a mapping with name, agent and cadence`);
+      return;
+    }
+    for (const key of Object.keys(entry)) {
+      if (!POLL_KEYS.includes(key)) problems.push(`${where}: unknown key '${key}'`);
+    }
+    let ok = true;
+    const name = entry.name;
+    if (typeof name !== "string" || !PHASE_NAME_RE.test(name)) {
+      problems.push(`${where}: name '${String(name)}' must match ${PHASE_NAME_RE.source}`);
+      ok = false;
+    }
+    const label = typeof name === "string" ? `polling ${name}` : where;
+    let phases: string[] = [];
+    if (entry.phases !== undefined && entry.phases !== null) {
+      if (Array.isArray(entry.phases) && entry.phases.every((p) => typeof p === "string")) {
+        phases = entry.phases;
+      } else {
+        problems.push(`${label}: phases must be a list of phase names`);
+        ok = false;
+      }
+    }
+    if (entry.agent === undefined) problems.push(`${label}: missing agent`);
+    const agent = optionalText(entry.agent, `${label}: agent`, problems);
+    if (entry.cadence === undefined) problems.push(`${label}: missing cadence`);
+    const cadence = optionalText(entry.cadence, `${label}: cadence`, problems);
+    const cadenceS = cadence === null ? null : parseCadence(cadence);
+    if (cadence !== null && cadenceS === null) {
+      problems.push(`${label}: cadence '${cadence}' must be a number and m, h or d (30m, 1h, 2d)`);
+    }
+    if (ok && typeof name === "string" && agent !== null && cadence !== null && cadenceS !== null) {
+      polling.push({ name, phases, agent, cadence, cadenceS });
+    }
+  });
+  return polling;
+}
+
 function parseFields(raw: unknown, problems: string[]): Record<string, IFieldDef> {
   const fields: Record<string, IFieldDef> = {};
   if (raw === undefined || raw === null) return fields;
@@ -384,6 +454,7 @@ export function parseFlow(name: string, text: string): IParsed {
       links: parseLinks(raw.links, problems),
       phases,
       seed: parseSeed(raw.seed, problems),
+      polling: parsePolling(raw.polling, problems),
       ...sections,
     },
   };

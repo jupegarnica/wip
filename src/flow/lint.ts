@@ -141,6 +141,27 @@ export function lintGraph(flow: IFlow): string[] {
     if (!/^https?:\/\//.test(link.url)) problems.push(`links[${i}].url must start with http(s)://`);
   });
   problems.push(...lintSeed(flow));
+  problems.push(...lintPolling(flow));
+  return problems;
+}
+
+function lintPolling(flow: IFlow): string[] {
+  const problems: string[] = [];
+  const known = new Set(flow.phases.map((p) => p.name));
+  const names = flow.polling.map((p) => p.name);
+  const repeated = names.filter((n, i) => names.indexOf(n) !== i);
+  if (repeated.length > 0)
+    problems.push(`polling names repeat: ${[...new Set(repeated)].join(", ")}`);
+  for (const poll of flow.polling) {
+    const where = `polling ${poll.name}`;
+    for (const phase of new Set(poll.phases)) {
+      if (!known.has(phase)) problems.push(`${where}: phase '${phase}' is not a phase`);
+    }
+    const twice = poll.phases.filter((p, i) => poll.phases.indexOf(p) !== i);
+    if (twice.length > 0) {
+      problems.push(`${where}: phases repeat: ${[...new Set(twice)].join(", ")}`);
+    }
+  }
   return problems;
 }
 
@@ -214,6 +235,14 @@ export function lintAgents(
     if (!checked.has(p.agent)) checked.set(p.agent, lintAgentRef(agentsDir, p.agent, defsDir));
     for (const problem of checked.get(p.agent) ?? []) {
       problems.push(`phase ${p.name}: agent ${p.agent}: ${problem}`);
+    }
+  }
+  for (const poll of flow.polling) {
+    if (!checked.has(poll.agent)) {
+      checked.set(poll.agent, lintAgentRef(agentsDir, poll.agent, defsDir));
+    }
+    for (const problem of checked.get(poll.agent) ?? []) {
+      problems.push(`polling ${poll.name}: agent ${poll.agent}: ${problem}`);
     }
   }
   return problems;

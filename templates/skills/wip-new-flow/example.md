@@ -45,6 +45,11 @@ phases:
   - name: done
     kind: terminal
     stage: closed
+polling:
+  - name: waiting
+    phases: [waiting]
+    agent: fast
+    cadence: 1h
 ```
 
 ## Subagents
@@ -76,7 +81,8 @@ relaunches it with the user's feedback; back to `read` when the change itself mo
 ### waiting
 
 The author answers outside the session: `wip wait <ID> external --next "<what we wait for>"`. New commits go back to
-`read`; an accepted answer goes to `done`.
+`read`; an accepted answer goes to `done`. The flow's `polling` has `fast` look at the change once an hour
+while an item is here (`wip poll due`); what it finds is recorded with the usual commands.
 
 ### done
 

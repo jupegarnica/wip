@@ -17,6 +17,7 @@ import {
 import { initCmd } from "./commands/init.ts";
 import { logCmd } from "./commands/log.ts";
 import { phaseCmd } from "./commands/phase.ts";
+import { POLL_HANDLERS, pollCmd } from "./commands/poll.ts";
 import { sessionCmd } from "./commands/session.ts";
 import { setCmd } from "./commands/set.ts";
 import { showCmd } from "./commands/show.ts";
@@ -48,6 +49,7 @@ export const HANDLERS: Readonly<Record<string, IHandler>> = {
   init: initCmd,
   log: logCmd,
   phase: phaseCmd,
+  poll: pollCmd,
   session: sessionCmd,
   set: setCmd,
   show: showCmd,
@@ -108,7 +110,8 @@ export function run(argv: readonly string[], options: IRunOptions = {}): IRunOut
     }
     const args = parseArgs(rest, spec.flags);
     allow(args, [...spec.options, ...spec.flags]);
-    const handler = options.extra?.find((e) => e.spec.name === name)?.handler ?? HANDLERS[name];
+    const base = options.extra?.find((e) => e.spec.name === name)?.handler ?? HANDLERS[name];
+    const handler = name === "poll" ? (POLL_HANDLERS[args.pos[0] ?? ""] ?? base) : base;
     if (!handler) throw usage(`\`wip ${name}\` is not available in this build yet`);
     execute(handler, args, result, options);
   } catch (err) {

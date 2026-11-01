@@ -2,12 +2,14 @@ import { readFileSync } from "node:fs";
 import { relative } from "node:path";
 import { hasCoordinatorMark, hasGenericMark, listAgents, modelsUnset } from "../agents.ts";
 import type { IArgs } from "../args.ts";
+import { now } from "../clock.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { GENERIC_AGENTS } from "../embedded/templates.ts";
 import type { IRoot } from "../env.ts";
 import { EXIT } from "../errors.ts";
 import { loadFlows } from "../flow/registry.ts";
 import { checkFindings } from "../invariants.ts";
+import { pollRows } from "../poll.ts";
 import { noExtra } from "./phase.ts";
 
 interface IAgentFinding {
@@ -49,6 +51,19 @@ function run(ctx: ICtx, args: IArgs): void {
       message: `agents without model: ${unset.join(", ")}; the coordinator asks for them on its first run`,
       agents: unset,
     });
+  }
+  // An overdue poll is a scheduler problem, not an item invariant: a warning, never a finding.
+  if (id === undefined) {
+    for (const p of pollRows(db, flows, now()).filter((r) => r.overdue)) {
+      ctx.result.warnings.push({
+        code: "poll_overdue",
+        message: `poll ${p.flow}/${p.poll} is overdue since ${p.overdue_at} (last pass ${p.last_run ?? "never"}, every ${p.cadence})`,
+        flow: p.flow,
+        poll: p.poll,
+        last_run: p.last_run,
+        overdue_at: p.overdue_at,
+      });
+    }
   }
   const findings = [
     ...checkFindings(db, flows, id),

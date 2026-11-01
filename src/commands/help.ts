@@ -125,6 +125,25 @@ export const COMMANDS: readonly ICommandSpec[] = [
     flags: [],
   },
   {
+    name: "poll",
+    summary: "Which scheduled checks of the flows are due, record a pass, remember what a pass saw",
+    usage: [
+      "wip poll due [--flow F]",
+      "wip poll record <flow> <poll> [--items A,B | --items none] [--result T] [--agent A]",
+      "wip poll seen <flow> <poll> [<key> [--until ISO|+Nh|+Nd] [--note T] | <key> --remove] [--all]",
+    ],
+    options: ["flow", "items", "result", "agent", "until", "note"],
+    flags: ["remove", "all"],
+    notes: [
+      "A flow declares `polling: [{name, phases, agent, cadence}]`; wip never runs it: any scheduler asks `wip poll due`.",
+      "due: DUE (its cadence passed) · OVERDUE (due and unattended for more than 1.5 cadences) · OK · IDLE (no open item in its phases).",
+      "  A poll without phases is flow-wide (discovery) and always applies. Always exit 0: scripts read --json (data.polls[].due).",
+      "record: one pass at the CLI's clock; items default to the ones `due` lists; it writes no item event.",
+      "seen: a key the pass saw and did not turn into an item; with --until it is forgotten then, without it for good.",
+      "  Without a key it lists the active keys (--all: also the expired ones).",
+    ],
+  },
+  {
     name: "web",
     summary:
       "Serve the project's kanban, read-only; check, stop or read the log of the running one",

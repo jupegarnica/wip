@@ -3,8 +3,18 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
-import { flowFile, putAgent } from "../helpers/defs.ts";
-import { itemInPlan, itemsProject, ok, useProject, wipJson } from "../helpers/items.ts";
+import { flowFile, putAgent, putFlow } from "../helpers/defs.ts";
+import {
+  agentText,
+  at,
+  itemInPlan,
+  itemsProject,
+  ok,
+  T0,
+  tick,
+  useProject,
+  wipJson,
+} from "../helpers/items.ts";
 import type { IProject } from "../helpers/project.ts";
 import { makeProject } from "../helpers/project.ts";
 
@@ -222,5 +232,50 @@ describe("wip check: generic agents (F-NEW-07)", () => {
     const out = p.wip(["check"]);
     expect(out.code).toBe(EXIT.REJECTED);
     expect(out.stderr).toContain(".wip/config.json");
+  });
+});
+
+describe("poll_overdue (polling)", () => {
+  const flow = [
+    "```wip-flow",
+    "phases:",
+    "  - name: intake",
+    "    next: [waiting]",
+    "    waiting_default: user",
+    "  - name: waiting",
+    "    kind: wait",
+    "    waiting_default: external",
+    "    next: [done]",
+    "  - name: done",
+    "    kind: terminal",
+    "polling:",
+    "  - name: waiting",
+    "    phases: [waiting]",
+    "    agent: fast",
+    "    cadence: 1h",
+    "```",
+    "",
+  ].join("\n");
+
+  test("an overdue poll is a warning with exit 0, and only without an ID", () => {
+    const p = ctx.set(makeProject("check-poll"));
+    putFlow(p.dir, "review", flow);
+    putAgent(p.dir, "fast", agentText("fast"));
+    at(T0);
+    ok(p, ["phase", "q1", "intake", "--flow", "review"]);
+    ok(p, ["phase", "q1", "waiting", "--next", "x"]);
+    expect(wipJson(p, ["check"]).body.warnings.map((w) => w.code)).not.toContain("poll_overdue");
+    tick(5401);
+    const out = wipJson(p, ["check"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.warnings.find((w) => w.code === "poll_overdue")).toMatchObject({
+      flow: "review",
+      poll: "waiting",
+      last_run: null,
+      overdue_at: "2026-10-30T11:30:00Z",
+    });
+    expect(wipJson(p, ["check", "q1"]).body.warnings.map((w) => w.code)).not.toContain(
+      "poll_overdue",
+    );
   });
 });

@@ -301,6 +301,25 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     for (const icon of ["🟦", "🟩", "🟨", "🟧", "🟥"]) expect(skill).toContain(icon);
   });
 
+  test("wip-coordinate carries the polling protocol, and the coordinator points to it", () => {
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    const polling = section(skill, "## Polling");
+    expect(polling).toContain("`wip poll due --json`");
+    expect(polling).toContain("`wip poll record <flow> <poll>");
+    expect(polling).toContain("`wip poll seen <flow> <poll> <key>`");
+    expect(polling).toContain("`last_seen`");
+    expect(polling).toContain("no `wip agent start`");
+    // the Polling section never starts a run for a pass
+    expect(polling).not.toMatch(/`wip agent start <ID>/);
+    expect(section(skill, RUNTIME_SECTION)).toContain(
+      "| 6 | `schedule(prompt, period)` (optional)",
+    );
+    const wip = template("agents/wip.md");
+    expect(wip).toContain("`wip poll due --json`");
+    expect(wip).toContain("«Polling» in `wip-coordinate`");
+    expect(wip.trimEnd().split("\n").length).toBeLessThanOrEqual(90);
+  });
+
   test("the escalation order is the generics' order, cheapest first", () => {
     const skill = template("skills/wip-coordinate/SKILL.md");
     expect(skill).toContain("`fast` →\n   `efficient` → `thinker` → `wise`");

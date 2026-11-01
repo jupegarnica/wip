@@ -66,11 +66,6 @@ Today a gate only stores the question. A generic version adds an optional `gate_
 `wip lock acquire|release|ls` reserves a shared resource (a QA environment, a port, a test slot) with an owner, exits with code 5 if it is taken, and supports `--force --reason`.
 It becomes necessary as soon as two parallel items compete for something: named locks with owner and expiry, visible in `state` and in the web.
 
-## Polling and cadences
-
-`wip poll due|record|seen` and a `polling` key in the flow say which agent checks which phase and how often, with `OVERDUE` at 1.5x the cadence and a web footer showing the last and next pass.
-Today nothing runs by itself: the user asks. A generic version declares cadences in the flow and exposes a `wip poll due` that any scheduler (cron, CI, the runtime's own) can query, without a built-in cron.
-
 ## Rules from external state
 
 A field with an external state (for example a pull request: approved, changes requested, merged) that a poller or the user updates, plus rules in the flow that propose a phase or a wait depending on its value, with a history of states.

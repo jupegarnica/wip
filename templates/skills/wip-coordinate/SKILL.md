@@ -195,6 +195,28 @@ first. End every turn that has nothing else to say with one line:
 `🟦 INFO · What next? · <2-4 suggestions from wip state --attention, separated by « · »>`, or
 `🟦 INFO · What next? · nothing waiting on you`. Then end the turn and wait for the user.
 
+## Polling
+
+Some flows declare `polling`: an agent that looks at the open items of some phases, or at the outside world, every
+so often (`cadence`). wip never runs it: you do, when you look. A pass is not an item run: no `wip agent start` or
+`stop`, and the item's `waiting_on` does not change.
+
+1. `wip poll due --json` at the start of every session, after `wip check`, and before each `What next?` line.
+   `data.polls[]` has one row per poll with its `status` (`due`, `overdue`, `ok`, `idle`), its `agent`, its `items`
+   (each with `last_seen`, the time of the last pass that listed it) and its `seen` keys. It always exits 0.
+2. For each poll with `due: true` (`overdue` first), launch its agent in the background with a prompt of the usual
+   shape: the poll, its phases, the items with their `last_seen` as the «since» of the pass (everything when
+   `null`) and the `seen` keys it must not propose again. Its answer is a short report, not a phase result.
+3. When it returns, `wip poll record <flow> <poll> --items <the ones it checked> --result "<one line>"`.
+4. Act on what it found with the usual commands: `wip log`, `wip wait`, `wip phase` (and a gate when the flow asks
+   for one). Something it saw and that must not come up again goes to `wip poll seen <flow> <poll> <key>`
+   (`--until +2h` to postpone it).
+5. An `overdue` poll means nobody polled it for more than 1.5 cadences: say so in a 🟨 line once, then run it.
+
+`wip check` also warns with `poll_overdue`. With the capability `schedule` («Runtime interface»), schedule
+«run `wip poll due --json` and handle what is due» at the shortest cadence declared; without it, the two points
+above are the whole schedule. A cron job or CI can run `wip poll due --json` outside the session too.
+
 ## Model onboarding
 
 The four generic agents (`wip: generic` in their frontmatter) and the coordinator (`wip: coordinator`) run on the
@@ -256,7 +278,7 @@ archive it, with no subagent; its `next` shows the current step on the kanban. I
 
 ## Runtime interface
 
-wip never calls the runtime: you do. These are the five capabilities the protocol uses, and what to do without
+wip never calls the runtime: you do. These are the capabilities the protocol uses (the sixth is optional), and what to do without
 each one.
 
 | # | Capability | Used for | Without it |
@@ -266,6 +288,7 @@ each one.
 | 3 | Load the agent `wip` and the skills as instructions | taking the role | the user pastes this skill into the session |
 | 4 | `launch(agent, prompt) → handle`, `stop(handle)`, collect the result | P2 and P4 in the background | run the phase yourself in the foreground, one at a time, following the agent's `.md`; `wip agent start` without `--handle` |
 | 5 | `ask(question, options)` | gates | the 🟧 block with numbered options as text, and end the turn; the answer arrives in the next turn |
+| 6 | `schedule(prompt, period)` (optional) | «Polling» | check `wip poll due` at the two points of «Polling» |
 
 - **launch:** start the agent named in P2 with the launch prompt, in the background; keep the handle the runtime
   returns and pass it to `wip agent start --handle`.
@@ -281,7 +304,8 @@ each one.
 (`<defs>` is `.claude`). The coordinator's `initialPrompt` is the session's first message, so the start protocol
 runs without the user writing. `launch` is the `Agent` tool with `subagent_type` set to the agent's name and
 `run_in_background: true`; the handle is its agent id. `stop` is `TaskStop`; `send` is `SendMessage`; `ask` is
-`AskUserQuestion`, after the 🟧 block as the last text. The generic agents preload `wip-subagent-protocol` through
+`AskUserQuestion`, after the 🟧 block as the last text. `schedule` is the `/loop` skill, which repeats a prompt at an
+interval while the session is open. The generic agents preload `wip-subagent-protocol` through
 the `skills` key of their frontmatter. Claude Code reads `model:` from each agent's frontmatter. It accepts an alias
 (`haiku`, `sonnet`, `opus`, `fable`, cheapest first), `inherit` or a full model ID. If the running session does not pick up a
 model written during onboarding, ask the user to open `/agents` or to restart the session.

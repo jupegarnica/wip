@@ -11,7 +11,7 @@ import { findItem } from "../items.ts";
 import { ARTIFACT_MAX_BYTES, artifactFile, itemDir, listArtifacts } from "./artifacts.ts";
 import { historyData, parseHistoryQuery } from "./history.ts";
 import type { TWebLog } from "./log.ts";
-import { boardData, itemLinks, openReadOnly } from "./state.ts";
+import { boardData, itemLinks, migrateIfBehind, openReadOnly } from "./state.ts";
 
 // A read-only kanban on 127.0.0.1 and, unless `local`, on the machine's private LAN IPv4 too. Stateless: each /api
 // request opens the database read-only, reads and closes it, so a concurrent `wip phase` is never blocked.
@@ -166,6 +166,7 @@ function itemRef(rawFlow: string | undefined, rawId: string | undefined): IItemR
 
 export function startWeb(options: IWebOptions): IWebServer {
   const { root } = options;
+  migrateIfBehind(root.db); // a database one build behind is migrated here; one ahead still fails below
   openReadOnly(root.db)?.close(); // fail fast on a schema this build does not read
 
   function read<T>(fn: (db: TDatabase | null, flows: IFlowSet) => T): T {
