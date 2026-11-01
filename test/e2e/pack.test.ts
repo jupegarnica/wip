@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
 import { scratch } from "../helpers/project.ts";
 
@@ -37,6 +37,9 @@ function exec(cmd: string[], cwd: string, env: Record<string, string> = {}) {
 
 function npmInstall(dir: string, prefix: string, tarballs: string[], flags: string[] = []): void {
   rmSync(prefix, { recursive: true, force: true });
+  // cwd is `dir`: pass `./name.tgz`, the form the README gives. npm reads `dir/name.tgz` (no leading ./)
+  // as the GitHub repository `dir/name.tgz`.
+  const relative = tarballs.map((tarball) => `./${basename(tarball)}`);
   const out = exec(
     [
       NPM,
@@ -48,7 +51,7 @@ function npmInstall(dir: string, prefix: string, tarballs: string[], flags: stri
       "--no-audit",
       "--no-fund",
       ...flags,
-      ...tarballs,
+      ...relative,
     ],
     dir,
   );

@@ -26,13 +26,14 @@ Build them (see [Development](#development)) and install the main tarball plus t
 
 ```sh
 bun scripts/build.ts --targets host --out dist --pack
-npm install -g dist/garndev-wip-0.1.0.tgz dist/garndev-wip-darwin-arm64-0.1.0.tgz
+npm install -g ./dist/garndev-wip-0.1.0.tgz ./dist/garndev-wip-darwin-arm64-0.1.0.tgz
 wip --version
 ```
 
-npm needs no registry for this: add `--offline` to be sure it does not try one. To try it without touching your
-global npm, install into a throwaway prefix with `--prefix <dir>` and run `<dir>/bin/wip` (`<dir>\wip.cmd` on
-Windows).
+Write the tarball paths with `./` (or absolute): npm reads `dist/x.tgz` without it as the GitHub repository
+`dist/x.tgz` and fails with a git error. npm needs no registry for this: add `--offline` to be sure it does not try
+one. To try it without touching your global npm, install into a throwaway prefix with `--prefix <dir>` and run
+`<dir>/bin/wip` (`<dir>\wip.cmd` on Windows), or use `bun run install:local` (see [Development](#development)).
 
 If `wip` says it cannot find its platform package, the platform package is missing: it was installed with
 `--omit=optional` (or `--no-optional`) and not passed explicitly, or your platform is not supported. Reinstall it, or
@@ -350,10 +351,26 @@ bun src/cli.ts --version       # the CLI from source
 bun scripts/build.ts --targets host --out dist --pack   # or --targets all, or darwin-arm64,linux-x64,…
 ```
 
-It leaves in `dist/` the six tarballs (`garndev-wip-<version>.tgz` and `garndev-wip-<os>-<arch>-<version>.tgz`) and
-the package folders under `dist/npm/`. Everything that `wip init` writes (`templates/`) and that `wip web` serves
+It leaves in `dist/` the main tarball (`garndev-wip-<version>.tgz`) and one tarball per target
+(`garndev-wip-<os>-<arch>-<version>.tgz`: two files with `--targets host`, six with `--targets all`) and the package
+folders under `dist/npm/`. Everything that `wip init` writes (`templates/`) and that `wip web` serves
 (`web/`, `@garndev/markdown`) is embedded in the binary; a test fails if a file in those folders is missing from its
 manifest.
+
+**Try the build locally.** `bun run install:local` builds the host tarballs into `dist/` and installs them with npm
+into `dist/local`, without the registry and without touching your global npm; run `dist/local/bin/wip`.
+`--prefix <dir>` installs elsewhere (for example `--prefix ~/.local/wip-dev`), `--out <dir>` builds elsewhere.
+
+```sh
+bun run install:local                 # then dist/local/bin/wip --version
+mkdir /tmp/wip-try && cd /tmp/wip-try && <repo>/dist/local/bin/wip init
+```
+
+Any command of a newer build migrates the database of the project it opens, and an older `wip` then refuses it
+(exit 10), so try it in a project made with `wip init` in an empty folder, not in one your installed `wip`
+still uses. `wip --version` does not tell two builds of the same version apart. Without npm, point a link at
+the binary (`ln -s <repo>/dist/npm/wip-<os>-<arch>/bin/wip ~/.local/bin/wip-dev`), or run one command of an
+installed launcher against it with `WIP_BINARY_PATH=<absolute path to the binary> wip …`.
 
 **End-to-end against the binary.** The e2e tests run the CLI in-process unless `WIP_BIN` names a binary, and
 `test/e2e/pack.test.ts` only runs with `WIP_PACK_DIR`: it builds the host tarballs there (if they are not there

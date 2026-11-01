@@ -15,7 +15,8 @@
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
-    "build": "bun scripts/build.ts --targets host --out dist --pack"
+    "build": "bun scripts/build.ts --targets host --out dist --pack",
+    "install:local": "bun scripts/install-local.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
