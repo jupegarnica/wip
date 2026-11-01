@@ -30,7 +30,7 @@ discovers folders named `wip-flow-*`.
 4. **Write** the file. For a new flow, start from a copy of `example.md` (next to this skill) or of
    `<defs>/skills/wip-flow-tasks/SKILL.md`, set `name: wip-flow-<flow>` and its `description`, drop the `wip:` line
    (that mark is only for the files `wip init` writes), and change what the proposal says. Present tense, no history: the file describes the flow as it is, never what it replaced.
-5. **Lint:** `wip flow lint <flow>`. Exit 1 → restore the backup (or delete the new file), tell the user what failed,
+5. **Lint:** `wip flow lint <flow>` (exit 3: the flow is disabled; enable it first or skip the lint). Exit 1 → restore the backup (or delete the new file), tell the user what failed,
    and go back to step 2 or fix the obvious mistake and lint again.
 6. **Check:** `wip check`. The next command on an item of this flow already uses the new version.
 7. **Live items** in a phase that no longer exists: lint reports them and the flow is not activated. With the user's

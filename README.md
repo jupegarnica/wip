@@ -203,8 +203,8 @@ Each valid version is stored when a command loads it: if a later edit breaks the
 other command keeps using the last valid version with a `flow_invalid` warning until the file is fixed.
 
 `wip flow disable <flow>` switches a flow off in this copy of the project (a flag in `.wip/wip.sqlite`, no file
-changes): its items leave `wip state`, `wip check`, the polls and the board, and every write on them exits 3. `wip show <ID>` still shows them
-with a `flow_disabled` warning. `wip flow enable <flow>` brings it back; `wip flow lint` lists the disabled flows.
+changes): its items leave `wip state`, `wip check`, the polls and the board, and every write on them exits 3.
+`wip show <ID>` still shows them with a `flow_disabled` warning. `wip flow enable <flow>` brings it back; `wip flow lint` lists the disabled flows.
 
 ## The commands
 
