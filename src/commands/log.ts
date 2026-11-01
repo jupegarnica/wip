@@ -1,7 +1,8 @@
 import { type IArgs, need } from "../args.ts";
 import { iso } from "../clock.ts";
 import type { ICtx, IHandler } from "../context.ts";
-import { usage } from "../errors.ts";
+import { rejected, usage } from "../errors.ts";
+import { disabledMessage, isFlowDisabled } from "../flow/registry.ts";
 import { addEvent, getItem, publicItem } from "../items.ts";
 
 const MILESTONE_RE = /^milestone:([a-z0-9][a-z0-9_-]*)$/;
@@ -17,6 +18,7 @@ function run(ctx: ICtx, args: IArgs): void {
   }
   const kind = milestone ? "milestone" : kindArg;
   const item = getItem(ctx.db, id);
+  if (isFlowDisabled(ctx.db, item.flow)) throw rejected(disabledMessage(item.flow));
   ctx.result.events.push(
     addEvent(ctx.db, {
       itemId: id,

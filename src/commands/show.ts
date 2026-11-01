@@ -3,7 +3,7 @@ import { parseIso } from "../clock.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import type { TDatabase } from "../db.ts";
 import { notFound, usage } from "../errors.ts";
-import { type IFlowSet, loadFlows } from "../flow/registry.ts";
+import { disabledMessage, type IFlowSet, loadFlows } from "../flow/registry.ts";
 import {
   getItem,
   type IEventRow,
@@ -54,7 +54,11 @@ export function itemView(
       .query("SELECT * FROM agent_runs WHERE item_id = ? ORDER BY id")
       .all(id) as IRunRow[],
     gates: db.query("SELECT * FROM gates WHERE item_id = ? ORDER BY id").all(id) as IGateRow[],
-    signals: itemSignals(db, item, flows.entries.get(item.flow)?.flow ?? null),
+    signals: itemSignals(
+      db,
+      item,
+      flows.entries.get(item.flow)?.flow ?? flows.disabled.get(item.flow) ?? null,
+    ),
     totals: itemTotals(db, id),
   };
 }
@@ -118,6 +122,14 @@ function run(ctx: ICtx, args: IArgs): void {
     since,
   });
   ctx.result.warnings.push(...flows.warnings.filter((w) => w.flow === view.item.flow));
+  const flowName = String(view.item.flow);
+  if (flows.disabled.has(flowName)) {
+    ctx.result.warnings.push({
+      code: "flow_disabled",
+      message: disabledMessage(flowName),
+      flow: flowName,
+    });
+  }
   ctx.result.item = view.item;
   ctx.result.events = view.events;
   ctx.result.data = {

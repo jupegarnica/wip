@@ -119,8 +119,9 @@ export const COMMANDS: readonly ICommandSpec[] = [
   },
   {
     name: "flow",
-    summary: "Validate the flows, the skills <defs>/skills/wip-flow-<flow>/ (exit 1 on findings)",
-    usage: ["wip flow lint [<flow>]"],
+    summary:
+      "Validate, disable and enable the flows, the skills <defs>/skills/wip-flow-<flow>/ (lint exits 1 on findings)",
+    usage: ["wip flow lint [<flow>]", "wip flow disable <flow>", "wip flow enable <flow>"],
     options: [],
     flags: [],
   },

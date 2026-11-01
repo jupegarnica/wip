@@ -26,6 +26,10 @@ First version.
   `poll_overdue`. This adds schema 2 (`poll_runs`, `poll_run_items`, `poll_seen`): any command migrates a schema 1
   database, an older build then refuses it (exit 10), and `wip web` migrates it at start; restart a running
   `wip web` after upgrading.
+- `wip flow disable <flow>` and `wip flow enable <flow>`: a disabled flow and its items leave `wip state`, `wip check`,
+  `wip poll due`, the seeds and the board, writes on them exit 3, `wip show` still works with a `flow_disabled`
+  warning and `wip flow lint` lists them as `DISABLED`. This adds schema 3 (`flows.disabled`): any command migrates
+  an older database, an older build then refuses it (exit 10); restart a running `wip web` after upgrading.
 - `bun run install:local` builds the host tarballs and installs them with npm into `dist/local` (or `--prefix <dir>`),
   without the registry and without touching the global npm.
 - Model onboarding: `wip check` warns with `models_unset` until each generic agent and the coordinator have a `model:`.

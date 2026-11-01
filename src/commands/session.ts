@@ -51,6 +51,7 @@ function run(ctx: ICtx, args: IArgs): void {
       );
     }
     if (item.status === "archived" || !flows) continue;
+    if (flows.disabled.has(item.flow)) continue;
     const flow = getFlow(flows, item.flow);
     const terminal = item.phase === terminalPhase(flow)?.name;
     const agents = [...new Set(itemRuns.map((r) => r.agent))].join(", ");

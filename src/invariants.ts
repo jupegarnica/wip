@@ -73,7 +73,7 @@ export function checkFindings(db: TDatabase | null, flows: IFlowSet, id?: string
     one !== null
       ? [one]
       : (db.query("SELECT * FROM items WHERE status = 'open' ORDER BY id").all() as IItemRow[]);
-  return items.flatMap((item) =>
-    itemFindings(db, item, flows.entries.get(item.flow)?.flow ?? null),
-  );
+  return items
+    .filter((item) => !flows.disabled.has(item.flow))
+    .flatMap((item) => itemFindings(db, item, flows.entries.get(item.flow)?.flow ?? null));
 }

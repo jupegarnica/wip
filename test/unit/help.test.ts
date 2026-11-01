@@ -54,6 +54,18 @@ describe("wip help", () => {
     });
   }
 
+  test("`wip flow --help` lists lint, disable and enable", () => {
+    const out = bare(["flow", "--help"]);
+    expect(out.code).toBe(EXIT.OK);
+    for (const line of [
+      "wip flow lint [<flow>]",
+      "wip flow disable <flow>",
+      "wip flow enable <flow>",
+    ]) {
+      expect(out.stdout).toContain(line);
+    }
+  });
+
   test("--json lists the commands with their usage", () => {
     const body = JSON.parse(bare(["help", "--json"]).stdout) as {
       ok: boolean;

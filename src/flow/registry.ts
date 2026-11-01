@@ -4,7 +4,7 @@ import { iso } from "../clock.ts";
 import type { IWarning } from "../context.ts";
 import type { TDatabase } from "../db.ts";
 import { FLOW_SKILL_PREFIX, flowPath, type IRoot } from "../env.ts";
-import { EXIT, notFound, usage, WipError } from "../errors.ts";
+import { EXIT, notFound, rejected, usage, WipError } from "../errors.ts";
 import { type ILiveItem, lintFlow } from "./lint.ts";
 import { DEFAULT_ID_RE, type IFlow } from "./parse.ts";
 
@@ -24,6 +24,8 @@ export interface IFlowEntry {
 export interface IFlowSet {
   entries: Map<string, IFlowEntry>;
   warnings: IWarning[];
+  /** Flows switched off (`flows.disabled`): left out of `entries`, kept with their stored version for `show`. */
+  disabled: Map<string, IFlow>;
   /** The project's definitions folder, relative: it names the files in messages. */
   defsDir: string;
 }
@@ -39,6 +41,7 @@ interface IStoredRow {
   hash: string;
   json: string;
   loaded_at: string;
+  disabled: number;
 }
 
 interface IStoredJson {
@@ -69,7 +72,7 @@ export function flowFiles(skillsDir: string): IFlowFile[] {
 function storedRows(db: TDatabase | null): Map<string, IStoredRow> {
   if (!db) return new Map();
   const rows = db
-    .query("SELECT name, path, hash, json, loaded_at FROM flows")
+    .query("SELECT name, path, hash, json, loaded_at, disabled FROM flows")
     .all() as IStoredRow[];
   return new Map(rows.map((r) => [r.name, r]));
 }
@@ -132,7 +135,12 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
   const items = liveItems(db);
   const entries = new Map<string, IFlowEntry>();
   const warnings: IWarning[] = [];
+  const disabled = new Map<string, IFlow>();
+  for (const row of stored.values()) {
+    if (row.disabled === 1) disabled.set(row.name, (JSON.parse(row.json) as IStoredJson).flow);
+  }
   for (const { name, file } of flowFiles(root.skills)) {
+    if (disabled.has(name)) continue;
     const path = relative(root.project, file).split("\\").join("/");
     const result = lintFlow({
       name,
@@ -165,7 +173,7 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
     warnings.push(fallback(entry, row, "flow_invalid"));
   }
   for (const [name, row] of stored) {
-    if (entries.has(name) || !items.has(name)) continue;
+    if (entries.has(name) || disabled.has(name) || !items.has(name)) continue;
     const entry: IFlowEntry = {
       name,
       path: row.path,
@@ -177,11 +185,23 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
     entries.set(name, entry);
     warnings.push(fallback(entry, row, "flow_missing"));
   }
-  return { entries, warnings, defsDir: root.defsDir };
+  return { entries, warnings, disabled, defsDir: root.defsDir };
+}
+
+export const disabledMessage = (name: string): string =>
+  `flow ${name} is disabled; enable it with wip flow enable ${name}`;
+
+/** Whether `flows.disabled` is set for the flow; for commands that do not load the flows. */
+export function isFlowDisabled(db: TDatabase, name: string): boolean {
+  const row = db.query("SELECT disabled FROM flows WHERE name = ?").get(name) as {
+    disabled: number;
+  } | null;
+  return row?.disabled === 1;
 }
 
 /** The active version of a flow: exit 4 when it does not exist, 1 when it has no valid version. */
 export function getFlow(set: IFlowSet, name: string): IFlow {
+  if (set.disabled.has(name)) throw rejected(disabledMessage(name));
   const entry = set.entries.get(name);
   if (!entry) throw notFound(`flow not found: ${name} (no ${flowPath(set.defsDir, name)})`);
   if (!entry.flow) {
