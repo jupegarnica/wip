@@ -3,6 +3,7 @@ import {
   copyFileSync,
   mkdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -103,7 +104,58 @@ interface IPackageJson {
   [key: string]: unknown;
 }
 
-function buildPlatform(target: ITarget, out: string, root: IPackageJson): number {
+export interface IGitInfo {
+  branch: string | null;
+  commit: string | null;
+  dirty: boolean | null;
+}
+
+export type TGitRunner = (root: string, args: string[]) => string | null;
+
+/** Runs git in `root`; null when git is missing or exits non-zero. */
+export const runGit: TGitRunner = (root, args) => {
+  try {
+    const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    return result.exitCode === 0 ? result.stdout.toString().trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+const sameDir = (a: string, b: string): boolean => {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+};
+
+/** Branch, short commit and dirty flag of the repo whose top level is `root`; null fields when git is unusable. */
+export function gitInfo(root: string, git: TGitRunner = runGit): IGitInfo {
+  const none: IGitInfo = { branch: null, commit: null, dirty: null };
+  const top = git(root, ["rev-parse", "--show-toplevel"]);
+  if (top === null || !sameDir(top, root)) return none;
+  const commit = git(root, ["rev-parse", "--short", "HEAD"]) || null;
+  const abbrev = git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = commit === null || abbrev === null || abbrev === "HEAD" ? null : abbrev || null;
+  const status = git(root, ["status", "--porcelain"]);
+  return { branch, commit, dirty: status === null ? null : status.length > 0 };
+}
+
+/** `SOURCE_DATE_EPOCH` (integer seconds) when valid, else `now`; ISO 8601 UTC without milliseconds. */
+export function buildDate(env: Record<string, string | undefined>, now: Date): string {
+  const raw = env.SOURCE_DATE_EPOCH;
+  const epoch = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) * 1000 : Number.NaN;
+  const date = Number.isFinite(epoch) ? new Date(epoch) : now;
+  return `${date.toISOString().slice(0, 19)}Z`;
+}
+
+/** The value of `--define WIP_BUILD_INFO=…`: the info as a JSON string literal holding a JSON object. */
+export function buildInfoDefine(info: IGitInfo & { built_at: string }): string {
+  return JSON.stringify(JSON.stringify(info));
+}
+
+function buildPlatform(target: ITarget, out: string, root: IPackageJson, define: string): number {
   const key = targetKey(target);
   const dir = join(out, "npm", `wip-${key}`);
   const binary = join(dir, "bin", binaryName(target));
@@ -116,6 +168,8 @@ function buildPlatform(target: ITarget, out: string, root: IPackageJson): number
     "--compile",
     "--minify",
     `--target=bun-${key}`,
+    "--define",
+    `WIP_BUILD_INFO=${define}`,
     ENTRY,
     "--outfile",
     binary,
@@ -179,9 +233,14 @@ function main(): void {
   const root = readJson<IPackageJson>(join(ROOT, "package.json"));
   mkdirSync(options.out, { recursive: true });
 
+  const define = buildInfoDefine({
+    ...gitInfo(ROOT),
+    built_at: buildDate(process.env, new Date()),
+  });
+
   const sizes: [string, number][] = [];
   for (const target of options.targets) {
-    sizes.push([targetKey(target), buildPlatform(target, options.out, root)]);
+    sizes.push([targetKey(target), buildPlatform(target, options.out, root, define)]);
   }
   buildMain(options.out, root);
 

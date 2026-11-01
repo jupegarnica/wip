@@ -91,7 +91,7 @@ function main(): void {
   const wip = WINDOWS ? join(prefix, "wip.cmd") : join(prefix, "bin", "wip");
   // `--version` never opens a project, so the working directory does not matter.
   const installed = exec([wip, "--version"], prefix).trim();
-  console.log(`installed wip ${installed} (${HOST}) in ${prefix}`);
+  console.log(`installed wip ${installed} for ${HOST} in ${prefix}`);
   console.log(`run: ${wip}`);
   console.log(
     "it migrates the database of every project it opens, and an older wip cannot read it afterwards:",

@@ -17,6 +17,9 @@ const HOST = `${WINDOWS ? "windows" : process.platform}-${process.arch}`;
 const NPM = WINDOWS ? "npm.cmd" : "npm";
 const NO_NODE_PATH = WINDOWS ? "C:\\Windows\\System32" : "/usr/bin:/bin";
 
+const VERSION_LINE = new RegExp(
+  `^${VERSION.replaceAll(".", "\\.")} \\(.+, built \\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ\\)\n$`,
+);
 const mainTgz = (dir: string): string => join(dir, `garndev-wip-${VERSION}.tgz`);
 const hostTgz = (dir: string): string => join(dir, `garndev-wip-${HOST}-${VERSION}.tgz`);
 
@@ -92,7 +95,9 @@ describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_
 
   test("without --omit=optional and with no registry, the installed wip answers through the launcher", () => {
     const wip = installedWip(full);
-    expect(exec([wip, "--version"], dir)).toMatchObject({ code: EXIT.OK, stdout: `${VERSION}\n` });
+    const version = exec([wip, "--version"], dir);
+    expect(version.code).toBe(EXIT.OK);
+    expect(version.stdout).toMatch(VERSION_LINE);
     const help = exec([wip, "help"], dir);
     expect(help.code).toBe(EXIT.OK);
     expect(help.stdout).toContain("init");
@@ -101,10 +106,9 @@ describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_
   });
 
   test("with --omit=optional the platform tarball installed alongside still resolves", () => {
-    expect(exec([installedWip(omit), "--version"], dir)).toMatchObject({
-      code: EXIT.OK,
-      stdout: `${VERSION}\n`,
-    });
+    const version = exec([installedWip(omit), "--version"], dir);
+    expect(version.code).toBe(EXIT.OK);
+    expect(version.stdout).toMatch(VERSION_LINE);
   });
 
   test("without the platform package the launcher exits 2 and names --omit=optional", () => {
@@ -119,10 +123,14 @@ describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_
     const project = scratch("pack-no-node");
     try {
       const env = { PATH: NO_NODE_PATH };
-      expect(exec([binary, "--version"], project, env)).toMatchObject({
-        code: EXIT.OK,
-        stdout: `${VERSION}\n`,
-      });
+      const version = exec([binary, "--version"], project, env);
+      expect(version.code).toBe(EXIT.OK);
+      expect(version.stdout).toMatch(VERSION_LINE);
+      const info = JSON.parse(exec([binary, "version", "--json"], project, env).stdout) as {
+        data: { source: boolean; built_at: unknown };
+      };
+      expect(info.data.source).toBe(false);
+      expect(typeof info.data.built_at).toBe("string");
       expect(exec([binary, "init"], project, env).code).toBe(EXIT.OK);
       expect(exec([binary, "flow", "lint"], project, env).code).toBe(EXIT.OK);
       const check = exec([binary, "check", "--json"], project, env);

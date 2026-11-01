@@ -27,7 +27,7 @@ Build them (see [Development](#development)) and install the main tarball plus t
 ```sh
 bun scripts/build.ts --targets host --out dist --pack
 npm install -g ./dist/garndev-wip-0.1.0.tgz ./dist/garndev-wip-darwin-arm64-0.1.0.tgz
-wip --version
+wip --version    # 0.1.0 (v1 d5a93ec, built 2026-11-01T10:20:31Z): branch, commit and build date
 ```
 
 Write the tarball paths with `./` (or absolute): npm reads `dist/x.tgz` without it as the GitHub repository
@@ -341,7 +341,7 @@ bun install
 bunx tsc --noEmit
 bunx biome check .
 bun test                       # unit and e2e, the CLI in-process
-bun src/cli.ts --version       # the CLI from source
+bun src/cli.ts --version       # the CLI from source: 0.1.0 (source)
 ```
 
 **Build.** `scripts/build.ts` compiles one binary per target with `bun build --compile` and writes the npm packages;
@@ -357,6 +357,10 @@ folders under `dist/npm/`. Everything that `wip init` writes (`templates/`) and 
 (`web/`, `@garndev/markdown`) is embedded in the binary; a test fails if a file in those folders is missing from its
 manifest.
 
+`scripts/build.ts` fixes the branch, the short commit, whether the tree is dirty (untracked files count) and the build
+date into the binary; `SOURCE_DATE_EPOCH` sets the date. Without git they read `no git`. `wip version --json`
+returns them as `branch`, `commit`, `dirty`, `built_at` and `source` (true when run from source), next to `version`.
+
 **Try the build locally.** `bun run install:local` builds the host tarballs into `dist/` and installs them with npm
 into `dist/local`, without the registry and without touching your global npm; run `dist/local/bin/wip`.
 `--prefix <dir>` installs elsewhere (for example `--prefix ~/.local/wip-dev`), `--out <dir>` builds elsewhere.
@@ -368,7 +372,8 @@ mkdir /tmp/wip-try && cd /tmp/wip-try && <repo>/dist/local/bin/wip init
 
 Any command of a newer build migrates the database of the project it opens, and an older `wip` then refuses it
 (exit 10), so try it in a project made with `wip init` in an empty folder, not in one your installed `wip`
-still uses. `wip --version` does not tell two builds of the same version apart. Without npm, point a link at
+still uses. `wip --version` prints the branch, the commit, a `-dirty` mark and the build date, so two builds of
+the same version can be told apart. Without npm, point a link at
 the binary (`ln -s <repo>/dist/npm/wip-<os>-<arch>/bin/wip ~/.local/bin/wip-dev`), or run one command of an
 installed launcher against it with `WIP_BINARY_PATH=<absolute path to the binary> wip …`.
 

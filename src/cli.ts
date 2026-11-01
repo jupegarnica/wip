@@ -1,6 +1,7 @@
 import { writeSync } from "node:fs";
 import pkg from "../package.json" with { type: "json" };
 import { allow, type IArgs, parseArgs } from "./args.ts";
+import { BUILD_INFO, formatBuildInfo } from "./build-info.ts";
 import { agentCmd } from "./commands/agent.ts";
 import { archiveCmd } from "./commands/archive.ts";
 import { checkCmd } from "./commands/check.ts";
@@ -34,8 +35,8 @@ export const VERSION: string = pkg.version;
 const versionCmd: IHandler = {
   db: "none",
   run: (ctx) => {
-    ctx.result.lines.push(VERSION);
-    ctx.result.data = { version: VERSION };
+    ctx.result.lines.push(formatBuildInfo(BUILD_INFO));
+    ctx.result.data = { ...BUILD_INFO };
   },
 };
 

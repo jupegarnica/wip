@@ -40,3 +40,5 @@ First version.
   `wip web status`, then `wip web --open` when this project has none running.
 - One binary per platform (`darwin-arm64`, `darwin-x64`, `linux-x64`, `linux-arm64`, `windows-x64`), packaged for npm
   as `@garndev/wip` plus one optional package per platform.
+- `wip --version` prints the branch, short commit, `-dirty` mark and build date fixed by `scripts/build.ts`
+  (`(source)` from source); `--json` returns them as `branch`, `commit`, `dirty`, `built_at` and `source`.

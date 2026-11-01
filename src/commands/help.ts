@@ -178,8 +178,8 @@ export const COMMANDS: readonly ICommandSpec[] = [
   },
   {
     name: "version",
-    summary: "Print the version",
-    usage: ["wip --version"],
+    summary: "Print the version, branch and commit of this build",
+    usage: ["wip --version [--json]"],
     options: [],
     flags: [],
   },
