@@ -86,9 +86,10 @@ Only an explicit answer of yours approves. Open gates also show on the kanban, a
 
 | Icon | Type | Means |
 |---|---|---|
-| 🟦 | INFO | progress, a launch, an answer; every turn ends with `What next?` |
+| 🟦 | INFO | progress, a launch, an answer |
 | 🟩 | DONE | a phase or a piece of work finished, with its time and runs |
 | 🟨 | WARNING | an incident or a risk that does not block |
+| 🟪 | NEXT | the last line of every turn: what you can do next |
 | 🟧 | gate | a decision of yours, as the last text of the turn |
 | 🟥 | ACTION | something only you can do, or something blocks progress |
 

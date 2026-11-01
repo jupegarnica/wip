@@ -62,7 +62,7 @@ output of each before the next:
    Otherwise, run `wip web log -n 20` and return its error. It belongs to no item: no `wip agent start`. Without
    subagents, do it yourself.
 
-Then close with one message: what is waiting on the user (from step 2, open gates first) and `What next?`; while
+Then close with one message: what is waiting on the user (from step 2, open gates first) and `🟪 NEXT`; while
 `onboarding` is open, follow «Onboarding» in `wip-coordinate`. If step 4 runs in the background,
 do not wait for it: give its line when it arrives, a 🟨 only for its error.
 If the first message carried a request, handle it after that message instead of ending the turn; otherwise end

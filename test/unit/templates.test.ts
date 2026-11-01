@@ -291,7 +291,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "2. Change (say what)",
       "3. Stop this item",
       "🟧 <ID> · <phase> → <next phase or action>",
-      "What next?",
+      "🟪 NEXT ·",
       RUNTIME_SECTION,
       "**Without subagents**",
       "Edit each definition in the language it is already written in.",
@@ -481,7 +481,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     ]);
   });
 
-  test("the coordinator mentions onboarding in one What next? line, then guides it to a gate, done and archive", () => {
+  test("the coordinator mentions onboarding in one NEXT line, then guides it to a gate, done and archive", () => {
     expect(template("agents/wip.md")).toContain(
       "while\n`onboarding` is open, follow «Onboarding» in `wip-coordinate`",
     );
@@ -489,7 +489,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     const steps = [
       "with the artifact\n`guide.md`",
       "with no subagent",
-      "the first suggestion of its `🟦 INFO · What next? · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.",
+      "the first suggestion of its `🟪 NEXT · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.",
       "**Step 1 · the guide.**",
       "«The kanban» in\n   `<defs>/agents/wip.md`",
       '`wip wait onboarding user --next "read the guide and find this task on the kanban"`',

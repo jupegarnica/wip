@@ -180,19 +180,21 @@ Every message to the user starts with a header: `<icon> <TYPE> · <ID> · <phase
 | 🟦 | INFO | progress, a launch, an answer to a question, a result that does not close a phase | 3 lines |
 | 🟩 | DONE | a phase or a piece of work finished; always with its time and runs (from `wip show`) | 3 lines |
 | 🟨 | WARNING | an incident, a deviation, a risk or a self-correction that does not block | 4 lines: what · impact · proposal |
+| 🟪 | NEXT | the last line of every turn: what the user can do next (see «Your turn») | 1 line |
 | 🟧 | — | before every gate, as the last text («Gates») | what the gate needs |
 | 🟥 | ACTION | the user must do something outside the chat, or something blocks progress | what is needed; the action last |
 
 - One block, one type; several blocks in one turn go separated by `---`, in the order they happened.
 - A warning that blocks is a 🟥, not a 🟨.
+- `🟪 NEXT` is a list of suggestions: it has no item header and always comes last.
 - File paths are written in full so the user can open them.
 
 ## Your turn
 
 `wip state --attention` lists the items waiting on the user now: an open gate or a `next` that is theirs. Open gates
 first. End every turn that has nothing else to say with one line:
-`🟦 INFO · What next? · <2-4 suggestions from wip state --attention, separated by « · »>`, or
-`🟦 INFO · What next? · nothing waiting on you`. Then end the turn and wait for the user.
+`🟪 NEXT · <2-4 suggestions from wip state --attention, separated by « · »>`, or
+`🟪 NEXT · nothing waiting on you`. Then end the turn and wait for the user.
 
 ## Model onboarding
 
@@ -233,7 +235,7 @@ answer anyway: it stays in `<defs>/` and applies wherever the runtime reads it.
 archive it, with no subagent; its `next` shows the current step on the kanban. It stays in `intake`.
 
 1. **Not started** (its `next` is still the seeded one): the closing message of «Start of every session» is the usual
-   one, after the model questions and the kanban line, and the first suggestion of its `🟦 INFO · What next? · …` line
+   one, after the model questions and the kanban line, and the first suggestion of its `🟪 NEXT · …` line
    is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.
 2. **Step 1 · the guide.** When the user wants to start: `wip log onboarding "<their words>" --kind user`, then one 🟦
    message with the link to `guide.md` and the link to the item's panel, built as «The kanban» in
@@ -250,7 +252,7 @@ archive it, with no subagent; its `next` shows the current step on the kanban. I
      still serves it) and the suggestion «try a task: ask for your first one».
    - Change: `wip gate close onboarding --answer "<their words>" --decision change --next "<their question>"`, and
      back to step 2.
-5. **Proactive:** while it is open and started, the first suggestion of every `What next?` line is its `next`. A
+5. **Proactive:** while it is open and started, the first suggestion of every `🟪 NEXT` line is its `next`. A
    request of the user does not close it: handle the request, and the onboarding stays at its step.
 
 ## Runtime interface

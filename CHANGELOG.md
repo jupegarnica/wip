@@ -35,7 +35,7 @@ First version.
 - Model onboarding: `wip check` warns with `models_unset` until each generic agent and the coordinator have a `model:`.
 - Guided onboarding: a flow's `seed` lists items `wip init` creates once (an existing or archived ID is never
   touched), with `files` copied from the flow's skill folder into the item's artifacts; the `tasks` flow seeds
-  `onboarding` in `intake` with `guide.md`. The coordinator mentions it in one `What next?` suggestion and, when the
+  `onboarding` in `intake` with `guide.md`. The coordinator mentions it in one `🟪 NEXT` suggestion and, when the
   user starts it, links the guide on the kanban, answers from it and closes it at a gate, in `done` and archived.
 - `wip web`: a read-only kanban served from the binary, each stage in one blue that grows more transparent stage
   after stage (light and dark themes); `--open` opens the browser on it, `wip web status` lists this project's

@@ -81,7 +81,7 @@ writing anything and names it, also with `--force`.
 `wip init` also creates the items a flow lists under `seed` in its block, and copies each seed's `files` from the
 flow's skill folder into the item's artifact directory. The `tasks` flow seeds one, `onboarding` («Get to know wip»),
 in `intake` and waiting on you, with the artifact `guide.md`: everything you can do with wip, the kanban included.
-On the first start the coordinator only tells you, in its `What next?` line, that you have an onboarding task. When
+On the first start the coordinator only tells you, in its `🟪 NEXT` line, that you have an onboarding task. When
 you want to start, it gives you the links to the guide (`view/item/tasks/onboarding/artifact/guide.md` on the
 kanban) and to the item's panel, answers your questions from the guide, and closes the item at a real gate («Close
 the onboarding?») in `done`, archived. An ID that already exists, open or archived, is never touched: a second init
