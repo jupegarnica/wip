@@ -195,10 +195,26 @@ describe("wip flow disable / enable", () => {
 
   test("the flag survives reloads and file changes", () => {
     const p = setup("fd-reload");
-    ok(p, ["flow", "disable", "a"]);
+    // The file changes while the flow is active: disable reloads in write mode (the upsert) before it flags the row.
     writeFileSync(
       flowFile(p.dir, "a"),
       readFileSync(flowFile(p.dir, "a"), "utf8").replace("Flow a of the tests.", "Changed."),
+    );
+    ok(p, ["flow", "disable", "a"]);
+    const stored = () => {
+      const db = p.db();
+      const r = db.query("SELECT hash, disabled FROM flows WHERE name = 'a'").get() as {
+        hash: string;
+        disabled: number;
+      };
+      db.close();
+      return r;
+    };
+    const atDisable = stored();
+    expect(atDisable.disabled).toBe(1);
+    writeFileSync(
+      flowFile(p.dir, "a"),
+      readFileSync(flowFile(p.dir, "a"), "utf8").replace("Changed.", "Changed again."),
     );
     ok(p, ["log", "b-1", "writes load the flows"]);
     expect(wipJson(p, ["log", "a-2", "x"]).code).toBe(EXIT.REJECTED);
@@ -209,6 +225,8 @@ describe("wip flow disable / enable", () => {
     putFlow(p.dir, "a", FLOW_A.replace("cadence: 1h", "cadence: 2h"));
     ok(p, ["log", "b-1", "again"]);
     expect(stateIds(p)).toEqual(["b-1"]);
+    // A disabled flow's file is never reloaded: the stored version and the flag stay as they were at disable.
+    expect(stored()).toEqual(atDisable);
   });
 
   test("unknown flow exits 4", () => {
@@ -267,6 +285,17 @@ describe("wip flow disable / enable", () => {
     };
     expect(run.status).toBe("orphaned");
     db.close();
+    ok(p, ["flow", "enable", "a"]);
+    expect(p.wip(["check"]).code).toBe(0);
+    expect(ok(p, ["show", "a-2"]).item?.waiting_on).toBe("user");
+  });
+
+  test("enable records an active flow that was never recorded", () => {
+    const p = ctx.set(makeProject("fd-unrecorded"));
+    putFlow(p.dir, "a", FLOW_A);
+    putAgent(p.dir, "fast", agentText("fast"));
+    expect(p.wip(["flow", "enable", "a"]).code).toBe(0);
+    expect(p.wip(["flow", "enable", "zzz"]).code).toBe(EXIT.NOT_FOUND);
   });
 
   test("flow disable|enable leave the items and the log alone", () => {

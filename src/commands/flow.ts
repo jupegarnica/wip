@@ -47,7 +47,7 @@ function toggle(disabled: boolean): (ctx: ICtx, args: IArgs) => void {
     const [, name, extra] = args.pos;
     if (name === undefined || extra !== undefined) throw usage(`usage: wip flow ${verb} <flow>`);
     // A valid file is recorded as the flow's version first: only a flow with a stored version has a row to flag.
-    if (disabled) loadFlows(ctx.root, ctx.db, { write: true });
+    loadFlows(ctx.root, ctx.db, { write: true });
     const changed = ctx.db
       .query("UPDATE flows SET disabled = ? WHERE name = ?")
       .run(disabled ? 1 : 0, name).changes;
