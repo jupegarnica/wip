@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { relative } from "node:path";
+import { basename } from "node:path";
 import { hasCoordinatorMark, hasGenericMark, listAgents, modelsUnset } from "../agents.ts";
 import type { IArgs } from "../args.ts";
 import { now } from "../clock.ts";
@@ -33,7 +33,7 @@ function agentFindings(root: IRoot): IAgentFinding[] {
     .map((a) => ({
       code: "agent_invalid",
       agent: a.name,
-      path: relative(root.project, a.file).split("\\").join("/"),
+      path: `${root.defsDir}/agents/${basename(a.file)}`,
       text: a.problems.join("; "),
     }));
 }

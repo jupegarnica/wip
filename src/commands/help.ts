@@ -15,14 +15,15 @@ export const COMMANDS: readonly ICommandSpec[] = [
   {
     name: "init",
     summary:
-      "Create .wip/ and the default definitions (.agents/, or .claude/ with --harness claude-code)",
-    usage: ["wip init [<path>] [--force] [--harness <name>]"],
+      "Create .wip/ and the default definitions (.agents/, or .claude/ with --harness claude-code; ~/ with --global)",
+    usage: ["wip init [<path>] [--global] [--force] [--harness <name>]"],
     options: ["harness"],
-    flags: ["force"],
+    flags: ["global", "force"],
     notes: [
       "--harness claude-code writes the agents and skills straight into .claude/; any other value, or none, into .agents/.",
-      "The folder is kept in .wip/config.json (defs_dir); every command reads the definitions from there.",
-      "A project keeps its folder: an init that would write to another one exits 3 and writes nothing.",
+      "--global writes the agents and skills into your home folder (~/.agents/, or ~/.claude/ with --harness claude-code) instead of the project, shared by every project initialised with --global; .wip/ stays in the project.",
+      ".wip/config.json (defs_dir) keeps the folder: relative to the project, or ~/… for --global; every command reads the definitions from there.",
+      "A project keeps its folder (local and --global included): an init that would write to another one exits 3 and writes nothing.",
       "A file at a template's path without a `wip:` mark is another tool's: exit 3 and nothing written, also with --force.",
       "--force replaces only files with a `wip:` mark, each backed up in .wip/backups/defs/; `model:` is kept.",
       "Creates the items a flow lists under `seed` (tasks: onboarding) once; an existing or archived ID is never touched.",

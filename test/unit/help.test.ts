@@ -104,3 +104,11 @@ describe("<cmd> --help", () => {
     expect(result.stdout.toString()).toContain("wip gate open <ID>");
   });
 });
+
+describe("wip help init", () => {
+  test("init help describes --global", () => {
+    const out = bare(["help", "init"]);
+    expect(out.stdout).toContain("--global");
+    expect(out.stdout).toContain("~/.agents/");
+  });
+});

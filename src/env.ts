@@ -1,9 +1,9 @@
 import { statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { defsDirOf, WIP_DIR } from "./config.ts";
-import { notFound } from "./errors.ts";
+import { defsDirOf, HOME_PREFIX, WIP_DIR } from "./config.ts";
+import { notFound, rejected } from "./errors.ts";
 
-export { WIP_DIR };
+export { HOME_PREFIX, WIP_DIR };
 
 export type TEnv = Readonly<Record<string, string | undefined>>;
 
@@ -15,7 +15,7 @@ export interface IRoot {
   items: string;
   backups: string;
   tmp: string;
-  /** Relative to the project, forward slashes: `.agents` unless `.wip/config.json` says otherwise. */
+  /** As shown in messages: relative to the project, or `~/…`; `.agents` unless `.wip/config.json` says otherwise. */
   defsDir: string;
   agents: string;
   skills: string;
@@ -36,9 +36,20 @@ function isDirectory(path: string): boolean {
   }
 }
 
-export function rootAt(project: string): IRoot {
+/** Where the definitions folder is on disk: `~/…` under the user's home folder, anything else under the project. */
+export function defsPath(project: string, defsDir: string, env: TEnv): string {
+  if (!defsDir.startsWith(HOME_PREFIX)) return join(project, defsDir);
+  const home = env.HOME || env.USERPROFILE;
+  if (!home) {
+    throw rejected(`defs_dir ${defsDir} needs HOME (the user's home folder)`);
+  }
+  return join(home, defsDir.slice(HOME_PREFIX.length));
+}
+
+export function rootAt(project: string, env: TEnv = {}): IRoot {
   const wip = join(project, WIP_DIR);
   const defsDir = defsDirOf(project);
+  const defs = defsPath(project, defsDir, env);
   return {
     project,
     wip,
@@ -47,8 +58,8 @@ export function rootAt(project: string): IRoot {
     backups: join(wip, "backups"),
     tmp: join(wip, "tmp"),
     defsDir,
-    agents: join(project, defsDir, "agents"),
-    skills: join(project, defsDir, "skills"),
+    agents: join(defs, "agents"),
+    skills: join(defs, "skills"),
   };
 }
 
@@ -60,14 +71,14 @@ export function findRoot(cwd: string, env: TEnv): IRoot {
   const home = env.WIP_HOME;
   if (home) {
     const project = resolve(cwd, home);
-    if (isDirectory(join(project, WIP_DIR))) return rootAt(project);
+    if (isDirectory(join(project, WIP_DIR))) return rootAt(project, env);
     throw notFound(
       `WIP_HOME=${home} has no ${WIP_DIR}/ directory; unset WIP_HOME or run \`wip init ${home}\``,
     );
   }
   let dir = resolve(cwd);
   while (true) {
-    if (isDirectory(join(dir, WIP_DIR))) return rootAt(dir);
+    if (isDirectory(join(dir, WIP_DIR))) return rootAt(dir, env);
     const parent = dirname(dir);
     if (parent === dir) break;
     dir = parent;

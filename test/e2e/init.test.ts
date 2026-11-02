@@ -8,6 +8,7 @@ import {
   readFileSync,
   readlinkSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
@@ -507,5 +508,252 @@ describe("model onboarding after init (F-NEW-07)", () => {
     for (const name of OWN_AGENTS) setModel(dir, name, "test-model");
     expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
     expect(modelsUnset(dir).agents).toBeNull();
+  });
+});
+
+describe("wip init --global", () => {
+  const NO_ENV = {};
+
+  const home = (): string => tmp("home");
+  const g = (dir: string, argv: readonly string[], h: string) => wipIn(dir, argv, { HOME: h });
+  const gj = (dir: string, argv: readonly string[], h: string) => wipJsonIn(dir, argv, { HOME: h });
+  const flowSkill = (name: string): string =>
+    `---\nname: wip-flow-${name}\ndescription: "flow ${name}"\nwip: flow\n---\n\n# ${name}\n\n\`\`\`wip-flow\nphases:\n  - name: todo\n    next: [done]\n  - name: done\n    kind: terminal\n\`\`\`\n`;
+
+  function twoProjects(): { h: string; a: string; b: string } {
+    const h = home();
+    const a = tmp("ga");
+    const b = tmp("gb");
+    expect(g(a, ["init", "--global"], h).code).toBe(EXIT.OK);
+    return { h, a, b };
+  }
+
+  test("writes every template into $HOME/.agents and the state into the project", () => {
+    const h = home();
+    const dir = tmp("g1");
+    const out = g(dir, ["init", "--global"], h);
+    expect(out.code).toBe(EXIT.OK);
+    expect(tree(join(h, ".agents"))).toEqual(sortedTemplates());
+    expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(".wip/\n");
+    expect(out.stdout).toContain("seeded item onboarding (tasks · intake) with guide.md");
+    expect(existsSync(join(dir, ".wip", "items", "tasks", "onboarding", "guide.md"))).toBe(true);
+    expect(existsSync(join(dir, ".agents"))).toBe(false);
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    for (const key of Object.keys(TEMPLATES))
+      expect(out.stdout).toContain(`created ~/.agents/${key}`);
+  });
+
+  test("--harness claude-code writes into $HOME/.claude/agents and skills", () => {
+    const h = home();
+    const dir = tmp("g2");
+    const out = g(dir, ["init", "--global", "--harness", "claude-code"], h);
+    expect(out.code).toBe(EXIT.OK);
+    expect(tree(join(h, ".claude"))).toEqual(sortedTemplates());
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+    expect(out.stdout).toContain("claude --agent wip");
+    expect(config(dir)).toEqual({ defs_dir: "~/.claude", harness: "claude-code" });
+  });
+
+  test("the project keeps ~/.agents and every command reads it", () => {
+    const h = home();
+    const dir = tmp("g3");
+    const out = g(dir, ["init", "--global"], h);
+    expect(config(dir)).toEqual({ defs_dir: "~/.agents", harness: null });
+    expect(out.stdout).toContain(
+      "created .wip/config.json (definitions in ~/.agents/, shared by every --global project)",
+    );
+    expect(g(dir, ["state"], h).code).toBe(EXIT.OK);
+    expect(g(dir, ["check"], h).code).toBe(EXIT.OK);
+    const lint = g(dir, ["flow", "lint"], h);
+    expect(lint.code).toBe(EXIT.OK);
+    expect(lint.stdout).toBe("OK tasks\n");
+  });
+
+  test("init --global <path> creates .wip/ in <path>", () => {
+    const h = home();
+    const dir = tmp("g4");
+    const out = g(dir, ["init", "--global", "sub"], h);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, "sub", ".wip"))).toBe(true);
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+    expect(tree(join(h, ".agents"))).toEqual(sortedTemplates());
+  });
+
+  test("a second project finds the definitions: exists, unchanged, its own onboarding", () => {
+    const { h, b } = twoProjects();
+    const keys = Object.keys(TEMPLATES);
+    const before = tree(h);
+    const times = keys.map((k) => statSync(join(h, ".agents", k)).mtimeMs);
+    const out = g(b, ["init", "--global"], h);
+    expect(out.code).toBe(EXIT.OK);
+    for (const key of keys) expect(out.stdout).toContain(`exists ~/.agents/${key}`);
+    expect(tree(h)).toEqual(before);
+    expect(keys.map((k) => statSync(join(h, ".agents", k)).mtimeMs)).toEqual(times);
+    expect(existsSync(join(b, ".wip"))).toBe(true);
+    expect(out.stdout).toContain("seeded item onboarding");
+  });
+
+  test("a second run in the same project changes nothing", () => {
+    const { h, a } = twoProjects();
+    const beforeDir = tree(a);
+    const beforeHome = tree(h);
+    const out = g(a, ["init", "--global"], h);
+    expect(out.code).toBe(EXIT.OK);
+    for (const key of Object.keys(TEMPLATES))
+      expect(out.stdout).toContain(`exists ~/.agents/${key}`);
+    expect(tree(a)).toEqual(beforeDir);
+    expect(tree(h)).toEqual(beforeHome);
+  });
+
+  test("--force rewrites a changed global template, keeps model: and backs up in the project", () => {
+    const { h, a } = twoProjects();
+    const fast = join(h, ".agents", "agents", "fast.md");
+    const edited = `${readFileSync(fast, "utf8").replace("wip: generic", "wip: generic\nmodel: haiku")}\nExtra.\n`;
+    writeFileSync(fast, edited);
+    const out = gj(a, ["init", "--global", "--force"], h);
+    expect(out.code).toBe(EXIT.OK);
+    const file = initFiles(out).find((f) => f.path === "~/.agents/agents/fast.md");
+    expect(file?.action).toBe("replaced");
+    expect(file?.backup).toMatch(/^\.wip\/backups\/defs\/agents\/fast\.md\./);
+    const text = readFileSync(fast, "utf8");
+    expect(text).toContain("model: haiku");
+    expect(text).not.toContain("Extra.");
+    expect(readFileSync(join(a, file?.backup as string), "utf8")).toBe(edited);
+    expect(existsSync(join(h, ".wip"))).toBe(false);
+    expect(Object.keys(tree(h)).some((k) => k.includes("backup"))).toBe(false);
+  });
+
+  test("a global file without the wip: mark is exit 3 and nothing written, also with --force", () => {
+    const h = home();
+    const dir = tmp("g8");
+    mkdirSync(join(h, ".agents", "agents"), { recursive: true });
+    writeFileSync(join(h, ".agents", "agents", "fast.md"), "# mine\n");
+    const before = tree(h);
+    for (const argv of [
+      ["init", "--global"],
+      ["init", "--global", "--force"],
+    ]) {
+      const out = g(dir, argv, h);
+      expect(out.code).toBe(EXIT.REJECTED);
+      expect(out.stderr).toContain("~/.agents/agents/fast.md");
+      expect(tree(h)).toEqual(before);
+      expect(existsSync(join(dir, ".wip"))).toBe(false);
+    }
+  });
+
+  test("other files in $HOME/.claude stay as they were", () => {
+    const h = home();
+    const dir = tmp("g9");
+    mkdirSync(join(h, ".claude", "agents"), { recursive: true });
+    mkdirSync(join(h, ".claude", "skills", "other"), { recursive: true });
+    writeFileSync(join(h, ".claude", "agents", "mine.md"), "mine\n");
+    writeFileSync(join(h, ".claude", "skills", "other", "SKILL.md"), "other\n");
+    const args = ["init", "--global", "--harness", "claude-code", "--force"];
+    expect(g(dir, args, h).code).toBe(EXIT.OK);
+    expect(readFileSync(join(h, ".claude", "agents", "mine.md"), "utf8")).toBe("mine\n");
+    expect(readFileSync(join(h, ".claude", "skills", "other", "SKILL.md"), "utf8")).toBe("other\n");
+  });
+
+  test("a project keeps its folder between local and --global", () => {
+    const h = home();
+    const local = tmp("g10l");
+    expect(g(local, ["init"], h).code).toBe(EXIT.OK);
+    const beforeLocal = tree(local);
+    const beforeHome = tree(h);
+    const toGlobal = g(local, ["init", "--global"], h);
+    expect(toGlobal.code).toBe(EXIT.REJECTED);
+    expect(toGlobal.stderr).toContain("keeps its definitions in .agents/");
+    expect(toGlobal.stderr).toContain("run `wip init`");
+    expect(tree(local)).toEqual(beforeLocal);
+    expect(tree(h)).toEqual(beforeHome);
+
+    const global = tmp("g10g");
+    expect(g(global, ["init", "--global"], h).code).toBe(EXIT.OK);
+    const beforeGlobal = tree(global);
+    const afterGlobal = tree(h);
+    for (const argv of [["init"], ["init", "--harness", "claude-code"]]) {
+      const out = g(global, argv, h);
+      expect(out.code).toBe(EXIT.REJECTED);
+      expect(out.stderr).toContain("keeps its definitions in ~/.agents/");
+      expect(out.stderr).toContain("run `wip init --global`");
+    }
+    expect(tree(global)).toEqual(beforeGlobal);
+    expect(tree(h)).toEqual(afterGlobal);
+
+    const claude = tmp("g10c");
+    expect(g(claude, ["init", "--global", "--harness", "claude-code"], h).code).toBe(EXIT.OK);
+    const out = g(claude, ["init", "--global"], h);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.stderr).toContain("run `wip init --global --harness claude-code`");
+  });
+
+  test("a global project ignores the repo's .agents/", () => {
+    const h = home();
+    const dir = tmp("g11");
+    expect(g(dir, ["init", "--global"], h).code).toBe(EXIT.OK);
+    const zzz = join(dir, ".agents", "skills", "wip-flow-zzz");
+    mkdirSync(zzz, { recursive: true });
+    writeFileSync(join(zzz, "SKILL.md"), flowSkill("zzz"));
+    const lint = g(dir, ["flow", "lint"], h);
+    expect(lint.stdout).toBe("OK tasks\n");
+    expect(lint.stdout).not.toContain("zzz");
+  });
+
+  test("a flow in $HOME/.agents is valid in every global project", () => {
+    const { h, a, b } = twoProjects();
+    expect(g(b, ["init", "--global"], h).code).toBe(EXIT.OK);
+    const x = join(h, ".agents", "skills", "wip-flow-x");
+    mkdirSync(x, { recursive: true });
+    writeFileSync(join(x, "SKILL.md"), flowSkill("x"));
+    for (const dir of [a, b]) {
+      expect(g(dir, ["flow", "lint", "x"], h).code).toBe(EXIT.OK);
+      expect(g(dir, ["phase", "X1", "todo", "--flow", "x"], h).code).toBe(EXIT.OK);
+    }
+  });
+
+  test("the stored path and the warnings show ~/ when the global flow file is gone", () => {
+    const { h, a } = twoProjects();
+    rmSync(join(h, ".agents", "skills", "wip-flow-tasks"), { recursive: true });
+    const gone = gj(a, ["check"], h);
+    const text = gone.body.warnings.map((w) => w.message).join("\n");
+    expect(text).toContain("flow tasks has no file at ~/.agents/skills/wip-flow-tasks/SKILL.md");
+  });
+
+  test("a broken global agent is reported with its ~/ path", () => {
+    const { h, a } = twoProjects();
+    writeFileSync(join(h, ".agents", "agents", "fast.md"), "---\nwip: generic\n---\nno name\n");
+    const out = gj(a, ["check"], h);
+    const finding = JSON.stringify(out.body);
+    expect(finding).toContain("agent_invalid");
+    expect(finding).toContain("~/.agents/agents/fast.md");
+  });
+
+  test("--json gives defs_dir and file paths with ~/", () => {
+    const h = home();
+    const dir = tmp("g14");
+    const out = gj(dir, ["init", "--global"], h);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.data?.defs_dir).toBe("~/.agents");
+    const files = initFiles(out);
+    expect(files.length).toBe(Object.keys(TEMPLATES).length);
+    for (const f of files) expect(f.path.startsWith("~/.agents/")).toBe(true);
+  });
+
+  test("--global takes no value", () => {
+    const h = home();
+    const dir = tmp("g15");
+    expect(g(dir, ["init", "--global", "a", "b"], h).code).toBe(EXIT.USAGE);
+    const eq = g(dir, ["init", "--global=x"], h);
+    expect(eq.code).toBe(EXIT.USAGE);
+    expect(eq.stderr).toContain("takes no value");
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+  });
+
+  test("without HOME, --global is exit 3 and writes nothing", () => {
+    const dir = tmp("g-nohome");
+    const out = wipIn(dir, ["init", "--global"], NO_ENV);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.stderr).toContain("HOME");
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
   });
 });

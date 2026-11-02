@@ -13,6 +13,9 @@ First version.
   `wip-subagent-protocol`, and the `tasks` flow (stages `preparation`: intake, research, plan · `execution`:
   execute, check · `review`: review, deliver, done), in `.agents/`; `--harness claude-code` writes them straight into
   `.claude/agents` and `.claude/skills`. `.wip/config.json` keeps the folder and every command reads it from there.
+- `wip init --global`: writes the definitions into `~/.agents/` (or `~/.claude/` with `--harness claude-code`) instead of
+  the project, shared by every project initialised that way; `.wip/` stays in the project and its config keeps
+  `defs_dir` as `~/.agents`. A project keeps either a local or a global folder, with no migration.
 - Claude Code: `claude --agent wip` starts the coordinator through its `initialPrompt`; the generic agents preload
   `wip-subagent-protocol` with their `skills` key.
 - `from_any: true` on a phase of the `wip-flow` block makes it reachable from any non-terminal phase with a plain

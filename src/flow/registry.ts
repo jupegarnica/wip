@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
+import { dirname, join } from "node:path";
 import { iso } from "../clock.ts";
 import type { IWarning } from "../context.ts";
 import type { TDatabase } from "../db.ts";
@@ -141,7 +141,7 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
   }
   for (const { name, file } of flowFiles(root.skills)) {
     if (disabled.has(name)) continue;
-    const path = relative(root.project, file).split("\\").join("/");
+    const path = flowPath(root.defsDir, name);
     const result = lintFlow({
       name,
       text: readFileSync(file, "utf8"),

@@ -8,7 +8,8 @@ you. The coordinator (any agent harness that can run a shell) drives it with `wi
 the terminal or in a read-only kanban (`wip web`).
 
 - **State** lives in `.wip/` (SQLite, git-ignored), found by walking up from the current directory.
-- **Definitions** live in one folder, `.agents/` or, with Claude Code, `.claude/` (versioned): `agents/` holds the
+- **Definitions** live in one folder, `.agents/` or, with Claude Code, `.claude/` (versioned), or in your home folder
+  with `wip init --global` (`~/.agents/`, `~/.claude/`): `agents/` holds the
   coordinator and four generic subagents; `skills/` holds the coordinator's skills, the subagents' protocol and the
   flows, each flow a skill `wip-flow-<name>`.
 - No network, no daemon, no runtime dependency: one binary per platform.
@@ -57,6 +58,7 @@ On macOS the binaries are signed ad hoc; on Windows, `wip.exe` works in PowerShe
 cd my-project
 wip init                          # definitions in .agents/; or: wip init <path>
 wip init --harness claude-code    # definitions straight in .claude/
+wip init --global                 # definitions in ~/.agents/ (or ~/.claude/ with --harness claude-code), shared
 ```
 
 `wip init` creates, with `<defs>` being `.agents` (or `.claude` with `--harness claude-code`):
@@ -89,6 +91,19 @@ or `--force` neither duplicates nor revives it, nor rewrites its files.
 
 A project keeps its definitions folder. An init that would write to another one (`wip init --harness claude-code` on
 a project set up in `.agents/`, or the other way round) exits 3 and writes nothing; wip never moves definitions.
+
+### `--global`
+
+`wip init --global` writes the definitions into your home folder, `~/.agents/` (or `~/.claude/` with `--harness
+claude-code`), instead of the project, so the repository carries no agents or skills. `.wip/`, its config, the
+`.gitignore` entry and the seeded items still go in the project. `.wip/config.json` keeps `defs_dir` as `~/.agents` and
+every command resolves it against the home folder of whoever runs it (`HOME`, or `USERPROFILE` on Windows; without
+either, exit 3). The definitions are one copy shared by every project initialised with `--global`: the second project
+says `exists` on each file, and `wip init --global --force` from any project refreshes them for all, with the backup in
+`.wip/backups/defs/` of the project you ran it from. The rules about files without a `wip:` mark and about other tools'
+files in the folder are the same. A project is either local or global and wip never mixes the two folders nor migrates
+one into the other (`--global` on a local project, or the reverse, exits 3 and says which command to run). Whoever
+clones the repository needs their own `wip init` (with or without `--global`).
 
 ### `--harness claude-code`
 
@@ -124,7 +139,8 @@ which `wip init` leaves empty on purpose and `wip init --force` keeps. Until it 
 warning `models_unset` (exit code unchanged), and on its first run the coordinator asks you which model each one
 uses, itself included, writes `model:` with a backup in `.wip/backups/defs/agents/`, and checks the result with
 `wip flow lint` and `wip check`. The coordinator's own model applies when you restart the session. The choice is
-versioned in the definitions folder: whoever clones the project is not asked again. To change a model later, ask the
+kept in the definitions folder (versioned with the project, or shared by every `--global` project when it lives in your
+home folder): whoever clones the project is not asked again. To change a model later, ask the
 coordinator, or edit the line yourself.
 
 What happens with `model:` in each harness:

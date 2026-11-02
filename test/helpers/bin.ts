@@ -1,14 +1,15 @@
 import { type IRunOutput, run } from "../../src/cli.ts";
+import type { TEnv } from "../../src/env.ts";
 import type { TExitCode } from "../../src/errors.ts";
 
 /** `WIP_BIN` points the e2e tests at a compiled binary; without it they run the CLI in-process. */
 export const WIP_BIN = process.env.WIP_BIN ?? null;
 
-export function wipIn(cwd: string, argv: readonly string[]): IRunOutput {
-  if (WIP_BIN === null) return run(argv, { cwd, env: {} });
+export function wipIn(cwd: string, argv: readonly string[], env: TEnv = {}): IRunOutput {
+  if (WIP_BIN === null) return run(argv, { cwd, env });
   const proc = Bun.spawnSync([WIP_BIN, ...argv], {
     cwd,
-    env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
+    env: { PATH: process.env.PATH ?? "/usr/bin:/bin", ...(env as Record<string, string>) },
   });
   return {
     code: (proc.exitCode ?? 10) as TExitCode,
@@ -28,8 +29,8 @@ export interface IEnvelopeOut {
   };
 }
 
-export function wipJsonIn(cwd: string, argv: readonly string[]): IEnvelopeOut {
-  const out = wipIn(cwd, [...argv, "--json"]);
+export function wipJsonIn(cwd: string, argv: readonly string[], env: TEnv = {}): IEnvelopeOut {
+  const out = wipIn(cwd, [...argv, "--json"], env);
   return { code: out.code, body: JSON.parse(out.stdout) as IEnvelopeOut["body"] };
 }
 

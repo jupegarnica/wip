@@ -8,7 +8,7 @@ export type TFileAction = "created" | "exists" | "replaced";
 export type TGitignoreAction = "created" | "added" | "exists";
 
 export interface IInitFile {
-  /** Relative to the project, forward slashes. */
+  /** As shown: relative to the project, or `~/…`; forward slashes. */
   path: string;
   action: TFileAction;
   backup: string | null;
@@ -24,8 +24,10 @@ export interface IScaffoldOptions {
   force: boolean;
   /** Suffix of the backup files: `compact()` of the run. */
   stamp: string;
-  /** Relative to the project, forward slashes: where the templates go. */
+  /** As shown: relative to the project, or `~/…`; forward slashes: where the templates go. */
   defsDir: string;
+  /** Absolute path of that folder on disk. */
+  defsRoot: string;
 }
 
 const GITIGNORE_ENTRY = `${WIP_DIR}/`;
@@ -35,14 +37,14 @@ const BACKUPS_DIR = `${WIP_DIR}/backups/defs`;
 const genericKeys = new Set<string>(GENERIC_AGENTS.map((name) => `agents/${name}.md`));
 
 /** Files at a template's path without a `wip:` mark: another tool's, never written over, not even with `--force`. */
-export function foreignFiles(project: string, defsDir: string): string[] {
+export function foreignFiles(defsRoot: string, defsDir: string): string[] {
   return Object.keys(TEMPLATES)
     .sort()
-    .map((key) => `${defsDir}/${key}`)
-    .filter((rel) => {
-      const file = join(project, rel);
+    .filter((key) => {
+      const file = join(defsRoot, key);
       return existsSync(file) && !hasWipMark(readFileSync(file, "utf8"));
-    });
+    })
+    .map((key) => `${defsDir}/${key}`);
 }
 
 function ensureGitignore(project: string): TGitignoreAction {
@@ -83,7 +85,7 @@ function placeTemplate(
   options: IScaffoldOptions,
 ): IInitFile {
   const rel = `${options.defsDir}/${key}`;
-  const file = join(project, rel);
+  const file = join(options.defsRoot, key);
   if (!existsSync(file)) {
     write(file, template);
     return { path: rel, action: "created", backup: null };

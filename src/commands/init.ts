@@ -2,11 +2,11 @@ import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { IArgs } from "../args.ts";
 import { compact } from "../clock.ts";
-import { CONFIG_FILE, readConfig, WIP_DIR, writeConfig } from "../config.ts";
+import { CONFIG_FILE, HOME_PREFIX, readConfig, WIP_DIR, writeConfig } from "../config.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { openForRead } from "../db.ts";
 import { COORDINATOR_AGENT } from "../embedded/templates.ts";
-import { rootAt } from "../env.ts";
+import { defsPath, rootAt } from "../env.ts";
 import { EXIT, rejected, usage } from "../errors.ts";
 import { loadFlows } from "../flow/registry.ts";
 import { CLAUDE_CODE, defsDirFor, nativeDefsDir } from "../init/harness.ts";
@@ -16,14 +16,18 @@ import { seedItems } from "../init/seed.ts";
 export const FIRST_RUN_LINE =
   "Start your coordinator: on its first run it asks which model it and each generic agent use.";
 
-const INIT_USAGE = "usage: wip init [<path>] [--force] [--harness <name>]";
+const INIT_USAGE = "usage: wip init [<path>] [--global] [--force] [--harness <name>]";
+
+function claudeCodeInit(defs: string): string {
+  return `wip init ${defs.startsWith(HOME_PREFIX) ? "--global " : ""}--harness claude-code`;
+}
 
 function pointAHarness(defs: string): string[] {
   return [
     `Point your harness at ${defs}/:`,
     `  - the coordinator is ${defs}/agents/${COORDINATOR_AGENT}.md and loads the skill ${defs}/skills/wip-coordinate/SKILL.md;`,
     `  - subagents are ${defs}/agents/<name>.md; skills, flows included, are ${defs}/skills/<name>/SKILL.md;`,
-    "  - Claude Code: in a new project, `wip init --harness claude-code` writes them into .claude/ instead;",
+    `  - Claude Code: in a new project, \`${claudeCodeInit(defs)}\` writes them into ${defs.startsWith(HOME_PREFIX) ? HOME_PREFIX : ""}.claude/ instead;`,
     `  - a harness without agent definitions: paste ${defs}/skills/wip-coordinate/SKILL.md into a session as its first message.`,
   ];
 }
@@ -38,7 +42,7 @@ function assertDirectory(project: string): void {
 }
 
 function lint(ctx: ICtx, project: string): boolean {
-  const root = rootAt(project);
+  const root = rootAt(project, ctx.env);
   const db = openForRead(root.db);
   try {
     const set = loadFlows(root, db);
@@ -54,7 +58,10 @@ function lint(ctx: ICtx, project: string): boolean {
 }
 
 function initCommandFor(defsDir: string): string {
-  return defsDirFor(CLAUDE_CODE) === defsDir ? "wip init --harness claude-code" : "wip init";
+  const global = defsDir.startsWith(HOME_PREFIX);
+  const folder = global ? defsDir.slice(HOME_PREFIX.length) : defsDir;
+  const claude = defsDirFor(CLAUDE_CODE) === folder;
+  return `wip init${global ? " --global" : ""}${claude ? " --harness claude-code" : ""}`;
 }
 
 /** A project already set up keeps its definitions folder: init never moves it. */
@@ -73,13 +80,15 @@ function run(ctx: ICtx, args: IArgs): void {
   const harness = harnessOpt ?? null;
   const project = resolve(ctx.cwd, path ?? ".");
   const force = args.flags.has("force");
-  const defsDir = defsDirFor(harness);
+  const global = args.flags.has("global");
+  const defsDir = (global ? HOME_PREFIX : "") + defsDirFor(harness);
+  const defsRoot = defsPath(project, defsDir, ctx.env);
   assertDirectory(project);
 
   const moved = folderConflict(project, defsDir);
   const conflicts = [
     ...(moved ? [moved] : []),
-    ...foreignFiles(project, defsDir).map(
+    ...foreignFiles(defsRoot, defsDir).map(
       (rel) =>
         `${rel} exists without a \`wip:\` mark (another tool's file); rename or move it and run init again`,
     ),
@@ -88,7 +97,7 @@ function run(ctx: ICtx, args: IArgs): void {
 
   mkdirSync(project, { recursive: true });
   const before = readConfig(project);
-  const done = scaffold(project, { force, stamp: compact(), defsDir });
+  const done = scaffold(project, { force, stamp: compact(), defsDir, defsRoot });
   writeConfig(project, { defs_dir: defsDir, harness });
   let configAction: "created" | "exists" | "updated" = "created";
   if (before !== null) configAction = before.harness === harness ? "exists" : "updated";
@@ -102,11 +111,12 @@ function run(ctx: ICtx, args: IArgs): void {
     exists: `exists ${WIP_DIR}/ in .gitignore`,
   } as const;
   lines.push(gitignoreLine[done.gitignore]);
-  lines.push(`${configAction} ${WIP_DIR}/${CONFIG_FILE} (definitions in ${defsDir}/)`);
+  const shared = global ? ", shared by every --global project" : "";
+  lines.push(`${configAction} ${WIP_DIR}/${CONFIG_FILE} (definitions in ${defsDir}/${shared})`);
   for (const f of done.files) {
     lines.push(`${f.action} ${f.path}${f.backup ? ` (backup ${f.backup})` : ""}`);
   }
-  const items = seedItems(rootAt(project));
+  const items = seedItems(rootAt(project, ctx.env));
   for (const i of items) {
     const verb = i.action === "seeded" ? "seeded item" : "exists item";
     const files = i.files.length > 0 ? ` with ${i.files.join(", ")}` : "";

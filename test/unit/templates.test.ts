@@ -663,3 +663,24 @@ describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () =>
     expect(problems).toEqual([]);
   });
 });
+
+describe("the definitions folder in the user's home", () => {
+  test("no template says <defs>/ is always versioned, and each that defines <defs> names ~/", () => {
+    for (const [key, text] of Object.entries(TEMPLATES)) {
+      expect(text).not.toContain("is versioned with the project:");
+      if (key === "skills/wip-new-flow/SKILL.md") expect(text).toContain("A «~/…» folder is not");
+    }
+    for (const key of [
+      "agents/wip.md",
+      "skills/wip-coordinate/SKILL.md",
+      "skills/wip-subagent-protocol/SKILL.md",
+      "skills/wip-new-flow/SKILL.md",
+      "skills/wip-new-agent/SKILL.md",
+      "skills/wip-flow-tasks/guide.md",
+    ]) {
+      const text = TEMPLATES[key] ?? "";
+      expect(text).toContain("«~/");
+      expect(text).toContain("--global");
+    }
+  });
+});

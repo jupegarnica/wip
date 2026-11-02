@@ -10,7 +10,7 @@ Every subagent the coordinator launches follows these rules, whatever its level 
 flow's `## Subagents` section add the task; they never relax a rule in this file unless the rule says so. The
 coordinator does not follow this file: it is only for the subagents it launches.
 
-`<defs>` below is the project's definitions folder: `defs_dir` in `.wip/config.json`, `.agents` when there is none.
+`<defs>` below is the project's definitions folder: `defs_dir` in `.wip/config.json`, `.agents` when there is none. A `defs_dir` that starts with «~/» is in the user's home folder (`wip init --global`), shared by every project initialised that way.
 
 ## You do not ask
 

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { run } from "../../src/cli.ts";
-import { artifactDir, findRoot } from "../../src/env.ts";
+import { artifactDir, findRoot, rootAt } from "../../src/env.ts";
 import { EXIT, WipError } from "../../src/errors.ts";
 import { PROBES, probeRoot, probeWrite } from "../helpers/probes.ts";
 import { makeProject, scratch } from "../helpers/project.ts";
@@ -128,6 +128,54 @@ describe("root through the CLI", () => {
       expect(p.wip(["probe-root"], { extra: [probeRoot] }).code).toBe(EXIT.NOT_FOUND);
     } finally {
       p.cleanup();
+    }
+  });
+});
+
+describe("defs_dir in the user's home", () => {
+  function globalProject(defsDir: string): string {
+    const dir = tmp("home-defs");
+    mkdirSync(join(dir, ".wip"));
+    writeFileSync(
+      join(dir, ".wip", "config.json"),
+      JSON.stringify({ defs_dir: defsDir, harness: null }),
+    );
+    return dir;
+  }
+
+  test("~/.agents in the config resolves agents and skills under env HOME", () => {
+    const dir = globalProject("~/.agents");
+    const h = tmp("home-h");
+    for (const root of [rootAt(dir, { HOME: h }), findRoot(dir, { HOME: h })]) {
+      expect(root.defsDir).toBe("~/.agents");
+      expect(root.agents).toBe(join(h, ".agents", "agents"));
+      expect(root.skills).toBe(join(h, ".agents", "skills"));
+    }
+  });
+
+  test("USERPROFILE stands in for HOME", () => {
+    const dir = globalProject("~/.claude");
+    const h = tmp("home-up");
+    expect(rootAt(dir, { USERPROFILE: h }).agents).toBe(join(h, ".claude", "agents"));
+  });
+
+  test("a ~/ defs_dir without HOME is exit 3", () => {
+    const dir = globalProject("~/.agents");
+    expect(codeOf(() => rootAt(dir, {}))).toBe(EXIT.REJECTED);
+    expect(codeOf(() => findRoot(dir, {}))).toBe(EXIT.REJECTED);
+  });
+
+  test("~, ~x, ~/../x, /abs and ../x stay invalid", () => {
+    for (const bad of ["~", "~x", "~/../x", "/abs", "../x", "~/"]) {
+      const dir = globalProject(bad);
+      let message = "";
+      try {
+        rootAt(dir, { HOME: "/h" });
+      } catch (err) {
+        expect((err as WipError).code).toBe(EXIT.REJECTED);
+        message = (err as Error).message;
+      }
+      expect(message).toContain("has no valid defs_dir");
     }
   });
 });
