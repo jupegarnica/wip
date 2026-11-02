@@ -7,7 +7,7 @@ wip: skill
 # Creating or changing a flow
 
 A flow is one skill, `<defs>/skills/wip-flow-<flow>/SKILL.md` (`<defs>` is the definitions folder: `defs_dir` in
-`.wip/config.json`, `.agents` when there is none; a `defs_dir` that starts with «~/» is in the user's home folder
+`.wip/config.json`, `.agents` when there is none; a `defs_dir` that starts with `~/` is in the user's home folder
 (`wip init --global`), shared by every project initialised that way). The folder's suffix is the flow's name. The file holds a
 frontmatter (`name: wip-flow-<flow>` and a `description` that says which items the flow is for), a title, a short
 description, one `wip-flow` block (the only source of phases), a `## Subagents` section and one `### <phase>`
@@ -39,7 +39,7 @@ discovers folders named `wip-flow-*`.
    `wip phase <ID> <phase> --force --reason "<why>"`, then write the flow again.
 
 When `<defs>/` is inside the project it is versioned with it: the user reviews the change as any other diff.
-A «~/…» folder is not: the change applies at once to every `--global` project.
+A `~/…` folder is not: the change applies at once to every `--global` project.
 
 ## The block
 

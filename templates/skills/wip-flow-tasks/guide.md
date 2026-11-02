@@ -5,7 +5,7 @@ wip: guide
 # Get to know wip
 
 This guide describes the defaults `wip init` writes. Your project may have changed its flows and agents since: the
-source is always the definitions folder, `<defs>/` (`defs_dir` in `.wip/config.json`, `.agents/` by default; a `defs_dir` that starts with «~/» is in the user's home
+source is always the definitions folder, `<defs>/` (`defs_dir` in `.wip/config.json`, `.agents/` by default; a `defs_dir` that starts with `~/` is in the user's home
 folder (`wip init --global`), shared by every project initialised that way).
 
 ## What wip is

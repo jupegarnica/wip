@@ -139,8 +139,9 @@ which `wip init` leaves empty on purpose and `wip init --force` keeps. Until it 
 warning `models_unset` (exit code unchanged), and on its first run the coordinator asks you which model each one
 uses, itself included, writes `model:` with a backup in `.wip/backups/defs/agents/`, and checks the result with
 `wip flow lint` and `wip check`. The coordinator's own model applies when you restart the session. The choice is
-kept in the definitions folder (versioned with the project, or shared by every `--global` project when it lives in your
-home folder): whoever clones the project is not asked again. To change a model later, ask the
+kept in the definitions folder. For a local project that folder is versioned with it, so whoever clones the project is
+not asked again. For a `--global` project the definitions and the models live in your home folder: they are shared by
+every `--global` project on your machine, and a clone on another machine is asked for them again. To change a model later, ask the
 coordinator, or edit the line yourself.
 
 What happens with `model:` in each harness:

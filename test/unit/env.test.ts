@@ -161,8 +161,42 @@ describe("defs_dir in the user's home", () => {
 
   test("a ~/ defs_dir without HOME is exit 3", () => {
     const dir = globalProject("~/.agents");
-    expect(codeOf(() => rootAt(dir, {}))).toBe(EXIT.REJECTED);
-    expect(codeOf(() => findRoot(dir, {}))).toBe(EXIT.REJECTED);
+    for (const fn of [() => rootAt(dir, {}), () => findRoot(dir, {})]) {
+      let code: number | null = null;
+      let message = "";
+      try {
+        fn();
+      } catch (err) {
+        code = (err as WipError).code;
+        message = (err as Error).message;
+      }
+      expect(code).toBe(EXIT.REJECTED);
+      expect(message).toContain("needs HOME");
+    }
+  });
+
+  test("a relative HOME or USERPROFILE counts as missing and writes nothing under cwd", () => {
+    const dir = globalProject("~/.agents");
+    const cwd = tmp("home-rel-cwd");
+    const before = process.cwd();
+    process.chdir(cwd);
+    try {
+      for (const env of [{ HOME: "rel/home" }, { USERPROFILE: "rel/home" }, { HOME: "." }]) {
+        let code: number | null = null;
+        let message = "";
+        try {
+          rootAt(dir, env);
+        } catch (err) {
+          code = (err as WipError).code;
+          message = (err as Error).message;
+        }
+        expect(code).toBe(EXIT.REJECTED);
+        expect(message).toContain("needs HOME");
+      }
+      expect(readdirSync(cwd)).toEqual([]);
+    } finally {
+      process.chdir(before);
+    }
   });
 
   test("~, ~x, ~/../x, /abs and ../x stay invalid", () => {

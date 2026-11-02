@@ -7,7 +7,7 @@ wip: skill
 # Creating or changing an agent
 
 An agent is one file, `<defs>/agents/<name>.md` (`<defs>` is the definitions folder: `defs_dir` in
-`.wip/config.json`, `.agents` when there is none; a `defs_dir` that starts with «~/» is in the user's home folder
+`.wip/config.json`, `.agents` when there is none; a `defs_dir` that starts with `~/` is in the user's home folder
 (`wip init --global`), shared by every project initialised that way): a YAML frontmatter and a Markdown body with its instructions.
 Most phases need no new agent: the generic `fast`, `efficient`, `thinker` and `wise` cover any task by level. Create
 one when a phase needs knowledge or a procedure that the generic agents would have to rediscover every time.

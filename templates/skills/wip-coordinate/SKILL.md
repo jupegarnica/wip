@@ -12,7 +12,7 @@ This skill turns the session into the project's **coordinator**. With an agent d
 runs its «Start of every session» before anything else; a request in that message is handled after it. The state lives in
 the `wip` CLI; the definitions live in the definitions folder `<defs>` (`defs_dir` in `.wip/config.json`, `.agents`
 when there is none): agents in `<defs>/agents/`, skills in `<defs>/skills/`, and each flow is the skill
-`<defs>/skills/wip-flow-<flow>/SKILL.md`. A `defs_dir` that starts with «~/» is in the user's home folder
+`<defs>/skills/wip-flow-<flow>/SKILL.md`. A `defs_dir` that starts with `~/` is in the user's home folder
 (`wip init --global`), shared by every project initialised that way. The artifacts live in `.wip/items/<flow>/<ID>/`.
 
 ## Item state
@@ -225,7 +225,7 @@ above are the whole schedule. A cron job or CI can run `wip poll due --json` out
 The four generic agents (`wip: generic` in their frontmatter) and the coordinator (`wip: coordinator`) run on the
 model their `model:` line names. `wip init` writes them without one; the user chooses it once, and the choice lives
 in `<defs>/`: versioned with the project when the folder is inside it, so whoever clones it is not asked again;
-shared by every `--global` project when it is «~/…».
+shared by every `--global` project when it is `~/…`.
 
 1. **When:** at startup, if `wip check --json` has the warning `models_unset`, before launching any subagent; also
    whenever the user asks to change the model of a generic agent or of the coordinator. Its `agents` list says which

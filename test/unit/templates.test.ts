@@ -608,7 +608,7 @@ describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () =>
     /run_in_background/,
   ];
   const ABSOLUTE_PATH =
-    /(^|[\s`"'(])(\/(Users|home|tmp|var|private|etc|opt|root)\/|~\/|[A-Za-z]:\\)/m;
+    /(^|[\s`"'(])(\/(Users|home|tmp|var|private|etc|opt|root)\/|~\/(?![…`])|[A-Za-z]:\\)/m;
 
   test("no template names a company, a tracker, a model tier or an absolute path", () => {
     for (const [key, text] of Object.entries(TEMPLATES)) {
@@ -668,7 +668,7 @@ describe("the definitions folder in the user's home", () => {
   test("no template says <defs>/ is always versioned, and each that defines <defs> names ~/", () => {
     for (const [key, text] of Object.entries(TEMPLATES)) {
       expect(text).not.toContain("is versioned with the project:");
-      if (key === "skills/wip-new-flow/SKILL.md") expect(text).toContain("A «~/…» folder is not");
+      if (key === "skills/wip-new-flow/SKILL.md") expect(text).toContain("A `~/…` folder is not");
     }
     for (const key of [
       "agents/wip.md",
@@ -679,7 +679,7 @@ describe("the definitions folder in the user's home", () => {
       "skills/wip-flow-tasks/guide.md",
     ]) {
       const text = TEMPLATES[key] ?? "";
-      expect(text).toContain("«~/");
+      expect(text).toContain("`~/");
       expect(text).toContain("--global");
     }
   });

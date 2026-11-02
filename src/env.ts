@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { defsDirOf, HOME_PREFIX, WIP_DIR } from "./config.ts";
 import { notFound, rejected } from "./errors.ts";
 
@@ -40,7 +40,7 @@ function isDirectory(path: string): boolean {
 export function defsPath(project: string, defsDir: string, env: TEnv): string {
   if (!defsDir.startsWith(HOME_PREFIX)) return join(project, defsDir);
   const home = env.HOME || env.USERPROFILE;
-  if (!home) {
+  if (!home || !isAbsolute(home)) {
     throw rejected(`defs_dir ${defsDir} needs HOME (the user's home folder)`);
   }
   return join(home, defsDir.slice(HOME_PREFIX.length));

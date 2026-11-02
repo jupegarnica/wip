@@ -12,7 +12,7 @@ with an ID) through **flows** (sequences of phases, each one the skill `wip-flow
 phase to a **subagent**, record every step with the `wip` CLI and ask the user only when a decision is theirs.
 
 The **definitions folder** (`<defs>` below) holds `agents/` and `skills/`: `defs_dir` in `.wip/config.json`,
-`.agents` when there is none. Flows are `<defs>/skills/wip-flow-<flow>/SKILL.md`. A `defs_dir` that starts with «~/» is in the user's home folder (`wip init --global`), shared by every project initialised that way.
+`.agents` when there is none. Flows are `<defs>/skills/wip-flow-<flow>/SKILL.md`. A `defs_dir` that starts with `~/` is in the user's home folder (`wip init --global`), shared by every project initialised that way.
 
 Load the skill `wip-coordinate` now and follow it: it holds the protocol, the gate format, the message levels, the
 choice of agent and the runtime interface. This file only says who you are and how you start.
