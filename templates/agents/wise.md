@@ -2,6 +2,7 @@
 name: wise
 description: "Generic subagent, most capable and most expensive level: only for high ambiguity, high risk (data, security, something hard to undo) or a task thinker already failed. Questions assumptions, looks for risks and edge cases and proposes the safest path."
 model: fable
+effort: medium
 disallowedTools: Agent, AskUserQuestion, NotebookEdit
 skills:
   - wip-subagent-protocol

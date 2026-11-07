@@ -2,7 +2,7 @@
 name: efficient
 description: "Generic subagent, second level: carries clear tasks end to end with bounded exploration (execute an approved plan, a scoped change in a few files, a check against written criteria). The default for execute, check and deliver."
 model: sonnet
-tools: Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch
+disallowedTools: Agent, AskUserQuestion, NotebookEdit
 skills:
   - wip-subagent-protocol
 wip: generic
