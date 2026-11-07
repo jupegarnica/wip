@@ -24,7 +24,7 @@ export interface ILintInput {
   liveItems: readonly ILiveItem[];
 }
 
-// A harness loads the flow as a skill by its frontmatter; without it the coordinator never sees the flow.
+// Claude Code loads the flow as a skill by its frontmatter; without it the coordinator never sees the flow.
 export function lintSkillFrontmatter(name: string, text: string): string[] {
   const folder = `${FLOW_SKILL_PREFIX}${name}`;
   let fm: Record<string, unknown> | null;
@@ -72,9 +72,34 @@ function reachable(flow: IFlow): Set<string> {
     const name = queue.shift() as string;
     if (seen.has(name)) continue;
     seen.add(name);
-    for (const n of byName.get(name)?.next ?? []) if (byName.has(n)) queue.push(n);
+    const phase = byName.get(name);
+    for (const n of phase?.next ?? []) if (byName.has(n)) queue.push(n);
+    if (phase && phase.kind !== "terminal") {
+      for (const p of flow.phases) if (p.fromAny === true) queue.push(p.name);
+    }
   }
   return seen;
+}
+
+/**
+ * The phases that can reach a terminal phase through `next` or `from_any` (backward fixpoint from the terminals).
+ * A `from_any` phase in the set makes every non-terminal phase reach it, since each one can move to it.
+ */
+export function reachesTerminal(flow: IFlow): Set<string> {
+  const set = new Set(flow.phases.filter((p) => p.kind === "terminal").map((p) => p.name));
+  let grew = true;
+  while (grew) {
+    grew = false;
+    const hub = flow.phases.some((p) => p.fromAny === true && set.has(p.name));
+    for (const p of flow.phases) {
+      if (set.has(p.name) || p.kind === "terminal") continue;
+      if (hub || p.next.some((n) => set.has(n))) {
+        set.add(p.name);
+        grew = true;
+      }
+    }
+  }
+  return set;
 }
 
 /** Rules on the phase graph, patterns and stages; no file system and no database. */
@@ -88,10 +113,7 @@ export function lintGraph(flow: IFlow): string[] {
 
   const terminals = flow.phases.filter((p) => p.kind === "terminal").map((p) => p.name);
   if (terminals.length === 0)
-    problems.push("no terminal phase: exactly one phase has kind terminal");
-  if (terminals.length > 1) {
-    problems.push(`${terminals.length} terminal phases (${terminals.join(", ")}): exactly one`);
-  }
+    problems.push("no terminal phase: at least one phase has kind terminal");
 
   for (const p of flow.phases) {
     const where = `phase ${p.name}`;
@@ -105,7 +127,7 @@ export function lintGraph(flow: IFlow): string[] {
     } else {
       if (p.next.length === 0) problems.push(`${where}: no next, the item could never leave it`);
       if (p.waitingDefault === "none") {
-        problems.push(`${where}: waiting_default none is only for the terminal phase`);
+        problems.push(`${where}: waiting_default none is only for a terminal phase`);
       }
     }
   }
@@ -116,6 +138,24 @@ export function lintGraph(flow: IFlow): string[] {
     problems.push(
       `unreachable from ${names[0]}: ${[...new Set(unreachable)].join(", ")} (no next leads there)`,
     );
+  }
+
+  // Skipped without a terminal (already reported) and for phases with no next or unreachable (reported above).
+  if (terminals.length > 0) {
+    const reaching = reachesTerminal(flow);
+    const stuck = [...new Set(names)].filter(
+      (n) =>
+        !reaching.has(n) &&
+        seen.has(n) &&
+        (flow.phases.find((p) => p.name === n)?.next.length ?? 0) > 0,
+    );
+    if (stuck.length > 0) {
+      problems.push(
+        stuck.length === 1
+          ? `phase ${stuck[0]}: never reaches a terminal phase`
+          : `phases ${stuck.join(", ")}: never reach a terminal phase`,
+      );
+    }
   }
 
   if (flow.phases.every((p) => p.stage !== null)) {
@@ -137,6 +177,27 @@ export function lintGraph(flow: IFlow): string[] {
     if (!/^https?:\/\//.test(link.url)) problems.push(`links[${i}].url must start with http(s)://`);
   });
   problems.push(...lintSeed(flow));
+  problems.push(...lintPolling(flow));
+  return problems;
+}
+
+function lintPolling(flow: IFlow): string[] {
+  const problems: string[] = [];
+  const known = new Set(flow.phases.map((p) => p.name));
+  const names = flow.polling.map((p) => p.name);
+  const repeated = names.filter((n, i) => names.indexOf(n) !== i);
+  if (repeated.length > 0)
+    problems.push(`polling names repeat: ${[...new Set(repeated)].join(", ")}`);
+  for (const poll of flow.polling) {
+    const where = `polling ${poll.name}`;
+    for (const phase of new Set(poll.phases)) {
+      if (!known.has(phase)) problems.push(`${where}: phase '${phase}' is not a phase`);
+    }
+    const twice = poll.phases.filter((p, i) => poll.phases.indexOf(p) !== i);
+    if (twice.length > 0) {
+      problems.push(`${where}: phases repeat: ${[...new Set(twice)].join(", ")}`);
+    }
+  }
   return problems;
 }
 
@@ -210,6 +271,14 @@ export function lintAgents(
     if (!checked.has(p.agent)) checked.set(p.agent, lintAgentRef(agentsDir, p.agent, defsDir));
     for (const problem of checked.get(p.agent) ?? []) {
       problems.push(`phase ${p.name}: agent ${p.agent}: ${problem}`);
+    }
+  }
+  for (const poll of flow.polling) {
+    if (!checked.has(poll.agent)) {
+      checked.set(poll.agent, lintAgentRef(agentsDir, poll.agent, defsDir));
+    }
+    for (const problem of checked.get(poll.agent) ?? []) {
+      problems.push(`polling ${poll.name}: agent ${poll.agent}: ${problem}`);
     }
   }
   return problems;

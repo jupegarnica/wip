@@ -5,10 +5,11 @@ import type { IFlowSet } from "./flow/registry.ts";
 import {
   getItem,
   type IItemRow,
+  isTerminal,
   openGates,
   phaseOf,
   runningRuns,
-  terminalPhase,
+  terminalPhases,
   WAITING_RE,
   waitingAgents,
 } from "./items.ts";
@@ -50,9 +51,9 @@ export function itemFindings(db: TDatabase, item: IItemRow, flow: IFlow | null):
     add("I3", "waiting_on user without an open gate nor a next step (--next or gate open)");
   }
   if (waiting === "none" && item.status !== "archived" && flow) {
-    const terminal = terminalPhase(flow)?.name;
-    if (item.phase !== terminal) {
-      add("I4", `waiting_on none outside the terminal phase (${terminal ?? "none"})`);
+    if (!isTerminal(flow, item.phase)) {
+      const terminals = terminalPhases(flow).map((p) => p.name);
+      add("I4", `waiting_on none outside a terminal phase (${terminals.join(", ") || "none"})`);
     }
   }
   return out;
@@ -73,7 +74,7 @@ export function checkFindings(db: TDatabase | null, flows: IFlowSet, id?: string
     one !== null
       ? [one]
       : (db.query("SELECT * FROM items WHERE status = 'open' ORDER BY id").all() as IItemRow[]);
-  return items.flatMap((item) =>
-    itemFindings(db, item, flows.entries.get(item.flow)?.flow ?? null),
-  );
+  return items
+    .filter((item) => !flows.disabled.has(item.flow))
+    .flatMap((item) => itemFindings(db, item, flows.entries.get(item.flow)?.flow ?? null));
 }

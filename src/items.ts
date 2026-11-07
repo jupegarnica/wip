@@ -143,8 +143,14 @@ export function phaseOf(flow: IFlow, name: string): IPhase | undefined {
   return flow.phases.find((p) => p.name === name);
 }
 
-export function terminalPhase(flow: IFlow): IPhase | undefined {
-  return flow.phases.find((p) => p.kind === "terminal");
+/** Every terminal phase of the flow: a flow may have one or more. */
+export function terminalPhases(flow: IFlow): IPhase[] {
+  return flow.phases.filter((p) => p.kind === "terminal");
+}
+
+/** Whether `phaseName` is one of the flow's terminal phases. */
+export function isTerminal(flow: IFlow, phaseName: string): boolean {
+  return terminalPhases(flow).some((p) => p.name === phaseName);
 }
 
 /** Loads the flows for a write command and returns the active version of `name`, with its warnings. */

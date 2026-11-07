@@ -1,21 +1,38 @@
 {
   "name": "@garndev/wip",
   "version": "0.0.0",
-  "private": true,
-  "description": "wip: per-project workflow state for coding agents",
-  "license": "UNLICENSED",
+  "description": "wip: per-project workflow state for Claude Code",
+  "keywords": [
+    "agents",
+    "coding-agents",
+    "workflow",
+    "claude-code",
+    "cli",
+    "sqlite"
+  ],
+  "homepage": "https://github.com/jupegarnica/wip#readme",
+  "bugs": {
+    "url": "https://github.com/jupegarnica/wip/issues"
+  },
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/jupegarnica/wip.git"
   },
+  "type": "module",
   "bin": {
-    "wip": "bin/wip.js"
+    "wip": "bin/wip.mjs"
   },
   "files": [
-    "bin"
+    "bin",
+    "dist",
+    "README.md",
+    "LICENSE"
   ],
   "engines": {
-    "node": ">=18"
+    "node": ">=22.13.0"
   },
-  "optionalDependencies": {}
+  "publishConfig": {
+    "access": "public"
+  }
 }

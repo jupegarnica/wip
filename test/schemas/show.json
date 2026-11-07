@@ -77,9 +77,38 @@
     "message": { "type": ["string", "null"] },
     "data": {
       "type": "object",
-      "required": ["agent_runs", "gates", "signals", "totals"],
+      "required": ["agent_runs", "gates", "signals", "totals", "crons"],
       "additionalProperties": false,
       "properties": {
+        "crons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "key",
+              "kind",
+              "source",
+              "id",
+              "status",
+              "at",
+              "at_local",
+              "cron",
+              "due",
+              "missed",
+              "every",
+              "text",
+              "item"
+            ],
+            "properties": {
+              "id": { "type": "string" },
+              "kind": { "enum": ["reminder", "poll"] },
+              "status": { "enum": ["open"] },
+              "at": { "type": "string" },
+              "at_local": { "type": "string" },
+              "item": { "type": "string" }
+            }
+          }
+        },
         "agent_runs": {
           "type": "array",
           "items": {

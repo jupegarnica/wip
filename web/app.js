@@ -10,7 +10,7 @@ const INCOHERENT = {
   I2f: "I2f: waiting_on has an invalid format",
   I2: "I2: waits on agents with no running run, or runs without waiting on them",
   I3: "I3: more than one open gate",
-  I4: "I4: waiting_on none before the terminal phase",
+  I4: "I4: waiting_on none outside a terminal phase",
 };
 
 const VIEW_KEY = "wip-web.view";
@@ -29,6 +29,8 @@ const gatesBox = document.getElementById("gates");
 const gatesList = document.getElementById("gates-list");
 const envTetoca = document.getElementById("env-tetoca");
 const envAgents = document.getElementById("env-agents");
+const envPolling = document.getElementById("env-polling");
+const envScheduled = document.getElementById("env-scheduled");
 const panel = document.getElementById("panel");
 const panelTitle = document.getElementById("panel-title");
 const panelBody = document.getElementById("panel-body");
@@ -125,6 +127,7 @@ function cardKey(item) {
     item.signals.incoherent,
     item.open_gates.length,
     item.agents.length,
+    item.cron_at,
   ]);
 }
 
@@ -146,6 +149,20 @@ function incoherentTitle(codes) {
   return codes.map((code) => INCOHERENT[code] || code).join("\n");
 }
 
+// Local time of a cron: HH:MM today, or "D Mon HH:MM" another day.
+function cronTime(isoText) {
+  const d = new Date(isoText);
+  const hm = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (d.toDateString() === new Date().toDateString()) return hm;
+  return `${d.toLocaleDateString([], { day: "numeric", month: "short" })} ${hm}`;
+}
+
+function cronBadge(item) {
+  const badge = el("span", "cron-badge", `⏰ ${cronTime(item.cron_at)}`);
+  badge.setAttribute("title", `scheduled: ${item.cron_at}`);
+  return badge;
+}
+
 function card(item, changed) {
   const node = el("div", "card");
   paintCard(node, item, changed);
@@ -162,6 +179,7 @@ function card(item, changed) {
     inc.setAttribute("title", incoherentTitle(item.signals.incoherent));
     node.appendChild(inc);
   }
+  if (item.cron_at) node.appendChild(cronBadge(item));
   if (item.title) node.appendChild(el("span", "title", item.title));
   return node;
 }
@@ -173,6 +191,7 @@ function fullCard(item, changed) {
   const head = el("div", "row");
   head.appendChild(idWithLinks(item, "id"));
   node.appendChild(head);
+  if (item.cron_at) head.appendChild(cronBadge(item));
   if (item.title) node.appendChild(el("div", "row", item.title));
   const where = el("div", "row detail");
   where.appendChild(el("span", "ph-full", item.phase));
@@ -271,7 +290,7 @@ function render(data) {
     frag.appendChild(section);
   }
   if (!data.flows.length) {
-    frag.appendChild(el("p", "empty", "No flows in .agents/flows/: run `wip init`."));
+    frag.appendChild(el("p", "empty", "No flows in `<defs>/skills/wip-flow-*/`: run `wip init`."));
   } else if (!data.items.length) {
     frag.appendChild(el("p", "empty", "No open items."));
   }
@@ -330,6 +349,8 @@ async function poll() {
       }
       // Every round: the ages move even when the board does not.
       renderGates(lastData.open_gates);
+      renderPolling(lastData.polling);
+      renderScheduled(lastData.crons);
       renderAgents(lastData.running);
     } else {
       let message = `HTTP ${res.status}`;
@@ -416,6 +437,81 @@ function renderTetoca(items) {
     frag.appendChild(li);
   }
   envTetoca.replaceChildren(frag);
+}
+
+// ---- Footer: polling ---------------------------------------------------------------------------------------------
+
+function pollAgo(isoText) {
+  return `${ago(Date.parse(isoText))} ago`;
+}
+
+function pollIn(isoText) {
+  const ms = Date.parse(isoText) - Date.now();
+  if (ms <= 0) return "now";
+  const s = Math.round(ms / 1000);
+  return s < 120 ? `in ${s} s` : `in ${Math.round(s / 60)} min`;
+}
+
+// One summary line when some flow declares polling, then a row per overdue and per due poll. Nothing otherwise.
+function renderPolling(polling) {
+  const polls = Array.isArray(polling?.polls) ? polling.polls : [];
+  envPolling.hidden = !polls.length;
+  if (!polls.length) {
+    envPolling.replaceChildren();
+    return;
+  }
+  const label = (p) => `${p.flow}/${p.poll}`;
+  const ran = polls.filter((p) => p.last_run).sort((a, b) => b.last_run.localeCompare(a.last_run));
+  const next = polls
+    .filter((p) => p.applies && p.next_at)
+    .sort((a, b) => a.next_at.localeCompare(b.next_at));
+  const last = ran.length
+    ? `last pass ${pollAgo(ran[0].last_run)} (${label(ran[0])})`
+    : "no pass yet";
+  const upcoming = next.length
+    ? `next ${pollIn(next[0].next_at)} (${label(next[0])})`
+    : "nothing to check";
+  const frag = document.createDocumentFragment();
+  frag.appendChild(el("span", "foot-poll", `⟳ Polling · ${last} · ${upcoming}`));
+  for (const p of polls.filter((x) => x.status === "overdue")) {
+    const when = p.last_run ? `last ${pollAgo(p.last_run)}` : "never run";
+    frag.appendChild(el("span", "foot-poll foot-overdue", `OVERDUE ${label(p)} · ${when}`));
+  }
+  for (const p of polls.filter((x) => x.status === "due")) {
+    const when = p.last_run ? `last ${pollAgo(p.last_run)}` : "never run";
+    frag.appendChild(el("span", "foot-poll", `DUE ${label(p)} · ${when}`));
+  }
+  envPolling.replaceChildren(frag);
+}
+
+// ---- Footer: scheduled ------------------------------------------------------------------------------------------
+
+// «Scheduled»: the open crons and the next pass of each flow poll in the next 7 days, earliest first. Hidden when empty.
+function renderScheduled(crons) {
+  const list = Array.isArray(crons) ? crons : [];
+  envScheduled.hidden = !list.length;
+  if (!list.length) {
+    envScheduled.replaceChildren();
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  frag.appendChild(el("span", "foot-poll", `⏰ Scheduled · ${list.length}`));
+  for (const j of list.slice(0, 8)) {
+    const what =
+      j.kind === "reminder"
+        ? j.text
+        : `${j.flow}/${j.poll}${j.source === "flow" ? " · next pass" : ""}${j.text ? ` · ${j.text}` : ""}`;
+    const tag = j.due ? "DUE " : "";
+    const item = j.item ? ` · ${j.item}` : "";
+    const row = el(
+      "span",
+      j.due ? "foot-poll foot-due" : "foot-poll",
+      `${tag}${cronTime(j.at)} · ${j.id ? `${j.id} · ` : ""}${what}${item}`,
+    );
+    frag.appendChild(row);
+  }
+  if (list.length > 8) frag.appendChild(el("span", "foot-poll muted", `… ${list.length - 8} more`));
+  envScheduled.replaceChildren(frag);
 }
 
 // ---- Footer: running agents --------------------------------------------------------------------------------------

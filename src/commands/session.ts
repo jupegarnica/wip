@@ -4,7 +4,7 @@ import type { ICtx, IHandler } from "../context.ts";
 import { usage } from "../errors.ts";
 import { getFlow, loadFlows } from "../flow/registry.ts";
 import { assertItem } from "../invariants.ts";
-import { addEvent, getItem, type IRunRow, terminalPhase, updateItem } from "../items.ts";
+import { addEvent, getItem, type IRunRow, isTerminal, updateItem } from "../items.ts";
 import { noExtra } from "./phase.ts";
 
 const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -51,8 +51,9 @@ function run(ctx: ICtx, args: IArgs): void {
       );
     }
     if (item.status === "archived" || !flows) continue;
-    const flow = getFlow(flows, item.flow);
-    const terminal = item.phase === terminalPhase(flow)?.name;
+    // A disabled flow keeps its stored version, so its orphaned items stay consistent for when it is enabled.
+    const flow = flows.disabled.get(item.flow) ?? getFlow(flows, item.flow);
+    const terminal = isTerminal(flow, item.phase);
     const agents = [...new Set(itemRuns.map((r) => r.agent))].join(", ");
     const waiting = terminal ? "none" : "user";
     const next = terminal ? null : `relaunch ${item.phase} (${agents}) or decide`;

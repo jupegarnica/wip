@@ -8,15 +8,15 @@ export function fixture(kind: "flows" | "agents", name: string): string {
   return readFileSync(join(FIXTURES, kind, `${name}.md`), "utf8");
 }
 
-export function skillsDir(project: string, defs = ".agents"): string {
+export function skillsDir(project: string, defs = ".claude"): string {
   return join(project, defs, "skills");
 }
 
-export function flowFile(project: string, name: string, defs = ".agents"): string {
+export function flowFile(project: string, name: string, defs = ".claude"): string {
   return join(skillsDir(project, defs), `wip-flow-${name}`, "SKILL.md");
 }
 
-export function agentsDir(project: string, defs = ".agents"): string {
+export function agentsDir(project: string, defs = ".claude"): string {
   return join(project, defs, "agents");
 }
 
@@ -26,7 +26,7 @@ export function asFlowSkill(name: string, text: string): string {
   return `---\nname: wip-flow-${name}\ndescription: "Flow ${name} of the tests."\n---\n\n${text}`;
 }
 
-export function putFlow(project: string, name: string, text: string, defs = ".agents"): string {
+export function putFlow(project: string, name: string, text: string, defs = ".claude"): string {
   const file = flowFile(project, name, defs);
   mkdirSync(dirname(file), { recursive: true });
   writeFileSync(file, asFlowSkill(name, text));
@@ -37,12 +37,21 @@ export function putAgent(
   project: string,
   name: string,
   text: string = fixture("agents", name),
-  defs = ".agents",
+  defs = ".claude",
 ): string {
   mkdirSync(agentsDir(project, defs), { recursive: true });
   const file = join(agentsDir(project, defs), `${name}.md`);
   writeFileSync(file, text);
   return file;
+}
+
+/** Writes `.wip/config.json` with `defs_dir`, for a test that needs a legacy folder. */
+export function configDefs(project: string, defs: string): void {
+  mkdirSync(join(project, ".wip"), { recursive: true });
+  writeFileSync(
+    join(project, ".wip", "config.json"),
+    `${JSON.stringify({ defs_dir: defs }, null, 2)}\n`,
+  );
 }
 
 /** The two agents the `valid` fixture names. */

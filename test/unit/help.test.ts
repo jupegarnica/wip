@@ -9,10 +9,14 @@ import { scratch } from "../helpers/project.ts";
 const V1 = [
   "init",
   "phase",
+  "poll",
+  "cron",
+  "prune",
   "set",
   "wait",
   "log",
   "show",
+  "start",
   "state",
   "agent",
   "gate",
@@ -53,6 +57,18 @@ describe("wip help", () => {
     });
   }
 
+  test("`wip flow --help` lists lint, disable and enable", () => {
+    const out = bare(["flow", "--help"]);
+    expect(out.code).toBe(EXIT.OK);
+    for (const line of [
+      "wip flow lint [<flow>]",
+      "wip flow disable <flow>",
+      "wip flow enable <flow>",
+    ]) {
+      expect(out.stdout).toContain(line);
+    }
+  });
+
   test("--json lists the commands with their usage", () => {
     const body = JSON.parse(bare(["help", "--json"]).stdout) as {
       ok: boolean;
@@ -85,9 +101,18 @@ describe("<cmd> --help", () => {
   });
 
   test("as a process", () => {
-    const cli = join(import.meta.dir, "..", "..", "src", "cli.ts");
+    const cli = join(import.meta.dir, "..", "..", "src", "main.ts");
     const result = Bun.spawnSync([process.execPath, cli, "gate", "--help"]);
     expect(result.exitCode).toBe(EXIT.OK);
     expect(result.stdout.toString()).toContain("wip gate open <ID>");
+  });
+});
+
+describe("wip help init", () => {
+  test("init help describes the Claude Code definitions folder and has no --harness", () => {
+    const out = bare(["help", "init"]);
+    expect(out.stdout).toContain("--global");
+    expect(out.stdout).toContain("~/.claude/");
+    expect(out.stdout).not.toContain("--harness");
   });
 });

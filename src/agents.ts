@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { DEFAULT_DEFS_DIR } from "./config.ts";
+import { parseYaml } from "./yaml.ts";
 
 export const GENERIC_MARK = "generic";
 export const COORDINATOR_MARK = "coordinator";
@@ -22,7 +23,7 @@ const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/;
 export function parseFrontmatter(text: string): Record<string, unknown> | null {
   const match = text.match(FRONTMATTER_RE);
   if (!match) return null;
-  const parsed: unknown = Bun.YAML.parse(match[1] ?? "");
+  const parsed: unknown = parseYaml(match[1] ?? "");
   if (parsed === null || parsed === undefined) return {};
   if (typeof parsed !== "object" || Array.isArray(parsed)) {
     throw new Error("the frontmatter is not a YAML mapping");

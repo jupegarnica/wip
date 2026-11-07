@@ -159,7 +159,7 @@ describe("safe activation (F-NEW-04)", () => {
     putFlow(proj.dir, "minimal", fixture("flows", "minimal"));
     const valid = probe(proj, "minimal");
     expect(valid.warnings).toEqual([]);
-    putFlow(proj.dir, "minimal", fixture("flows", "two-terminals"));
+    putFlow(proj.dir, "minimal", fixture("flows", "no-exit"));
     const broken = probe(proj, "minimal");
     expect(broken.ok).toBe(true);
     expect(broken.data).toEqual({ hash: valid.data.hash, phases: ["todo", "done"] });

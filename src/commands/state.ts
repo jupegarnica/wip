@@ -53,6 +53,7 @@ export function listState(
   const needle = filter.grep?.toLowerCase();
   const out: IStateItem[] = [];
   for (const item of rows) {
+    if (flows.disabled.has(item.flow)) continue;
     if (filter.flow !== undefined && item.flow !== filter.flow) continue;
     if (filter.waiting !== undefined && !waitingMatches(item.waiting_on, filter.waiting)) continue;
     const signals = itemSignals(db, item, flows.entries.get(item.flow)?.flow ?? null);

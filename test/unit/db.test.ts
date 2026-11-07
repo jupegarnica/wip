@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
   BUSY_TIMEOUT_MS,
   isSupportedSqlite,
@@ -13,11 +13,23 @@ import {
 } from "../../src/db.ts";
 import { MIGRATIONS } from "../../src/embedded/migrations.ts";
 import { EXIT, WipError } from "../../src/errors.ts";
+import { Database as WipDatabase } from "../../src/sqlite.ts";
 import { PROBES } from "../helpers/probes.ts";
 import { count, type IProject, makeProject, scratch } from "../helpers/project.ts";
 import type { IWriterResult } from "../helpers/writer.ts";
 
-const TABLES = ["agent_runs", "events", "flows", "gates", "items", "sessions"];
+const TABLES = [
+  "agent_runs",
+  "crons",
+  "events",
+  "flows",
+  "gates",
+  "items",
+  "poll_run_items",
+  "poll_runs",
+  "poll_seen",
+  "sessions",
+];
 const MIGRATIONS_DIR = join(import.meta.dir, "..", "..", "src", "migrations");
 
 let p: IProject | null = null;
@@ -109,6 +121,151 @@ describe("schema", () => {
     } catch (err) {
       expect((err as WipError).code).toBe(EXIT.DB);
     }
+  });
+
+  test("a database built at schema 1 migrates to the current schema and keeps every row", () => {
+    const path = freshPath("v1-to-v2");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path, { create: true, strict: true });
+    old.exec(MIGRATIONS[0]?.[1] as string);
+    old.exec("PRAGMA user_version = 1");
+    old.exec(`INSERT INTO items (id, flow, phase, created_at, updated_at)
+              VALUES ('a', 'f', 'p', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
+    old.exec(`INSERT INTO events (item_id, ts, kind) VALUES ('a', '2026-10-30T10:00:00Z', 'note')`);
+    old.close();
+    const db = openDb(path);
+    expect(userVersion(db)).toBe(SCHEMA_VERSION);
+    expect(count(db, "SELECT count(*) AS n FROM items")).toBe(1);
+    expect(count(db, "SELECT count(*) AS n FROM events")).toBe(1);
+    for (const table of ["poll_runs", "poll_run_items", "poll_seen"]) {
+      expect(count(db, `SELECT count(*) AS n FROM ${table}`)).toBe(0);
+    }
+    db.close();
+  });
+
+  test("a database built at schema 2 migrates to 3 and keeps its flows enabled", () => {
+    const path = freshPath("v2-to-v3");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path, { create: true, strict: true });
+    old.exec(MIGRATIONS[0]?.[1] as string);
+    old.exec(MIGRATIONS[1]?.[1] as string);
+    old.exec("PRAGMA user_version = 2");
+    old.exec(`INSERT INTO flows (name, path, hash, json, loaded_at)
+              VALUES ('f', 'p', 'h', '{}', '2026-10-30T10:00:00Z')`);
+    old.close();
+    const db = openDb(path);
+    expect(userVersion(db)).toBe(SCHEMA_VERSION);
+    expect(count(db, "SELECT count(*) AS n FROM flows WHERE disabled = 0")).toBe(1);
+    expect(() => db.exec("UPDATE flows SET disabled = 2")).toThrow();
+    db.close();
+  });
+
+  test("a database built at schema 3 migrates to 4: crons is added, no other row changes, the v3 copy comes first", () => {
+    const path = freshPath("v3-to-v4");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path, { create: true, strict: true });
+    for (const [, sql] of MIGRATIONS.slice(0, 3)) old.exec(sql);
+    old.exec("PRAGMA user_version = 3");
+    old.exec(`INSERT INTO flows (name, path, hash, json, loaded_at, disabled)
+              VALUES ('f', 'p', 'h', '{}', '2026-10-30T10:00:00Z', 1)`);
+    old.exec(`INSERT INTO items (id, flow, phase, created_at, updated_at)
+              VALUES ('a', 'f', 'p', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
+    old.exec(`INSERT INTO events (item_id, ts, kind) VALUES ('a', '2026-10-30T10:00:00Z', 'note')`);
+    old.exec(`INSERT INTO sessions (id, started_at) VALUES ('s1', '2026-10-30T10:00:00Z')`);
+    old.exec(
+      `INSERT INTO poll_runs (flow, poll, agent, ts) VALUES ('f', 'p', 'fast', '2026-10-30T10:00:00Z')`,
+    );
+    const dump = (db: { query(sql: string): { all(): unknown[] } }) =>
+      ["flows", "items", "events", "sessions", "poll_runs"].map((t) =>
+        db.query(`SELECT * FROM ${t} ORDER BY rowid`).all(),
+      );
+    const before = dump(old);
+    old.close();
+    const db = openDb(path);
+    expect(userVersion(db)).toBe(4);
+    expect(dump(db)).toEqual(before);
+    expect(count(db, "SELECT count(*) AS n FROM crons")).toBe(0);
+    expect(() =>
+      db.exec(
+        "INSERT INTO crons (kind, at, created_at) VALUES ('reminder', '2026-11-01T10:00:00Z', 'x')",
+      ),
+    ).toThrow();
+    expect(() =>
+      db.exec(
+        "INSERT INTO crons (kind, text, at, created_at) VALUES ('poll', 't', '2026-11-01T10:00:00Z', 'x')",
+      ),
+    ).toThrow();
+    db.close();
+    const copies = readdirSync(join(dirname(path), "backups", "db"));
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toMatch(/^wip\.sqlite\.v3\.\d{8}T\d{6}Z\.\d+$/);
+  });
+
+  test("a migration first copies the database as it was to .wip/backups/db/", () => {
+    const path = freshPath("backup-v2");
+    mkdirSync(dirname(path), { recursive: true });
+    const old = new Database(path, { create: true, strict: true });
+    old.exec(MIGRATIONS[0]?.[1] as string);
+    old.exec(MIGRATIONS[1]?.[1] as string);
+    old.exec("PRAGMA user_version = 2");
+    old.exec(`INSERT INTO items (id, flow, phase, created_at, updated_at)
+              VALUES ('a', 'f', 'p', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
+    old.close();
+    openDb(path).close();
+    const dir = join(dirname(path), "backups", "db");
+    const copies = readdirSync(dir);
+    expect(copies).toHaveLength(1);
+    expect(copies[0]).toMatch(/^wip\.sqlite\.v2\.\d{8}T\d{6}Z\.\d+$/);
+    const copy = new WipDatabase(join(dir, copies[0] as string), { readOnly: true });
+    expect(userVersion(copy)).toBe(2);
+    expect(count(copy, "SELECT count(*) AS n FROM items")).toBe(1);
+    copy.close();
+    openDb(path).close();
+    expect(readdirSync(dir)).toHaveLength(1);
+  });
+
+  // A read-only folder: chmod does not make one on Windows, and root writes into it anyway.
+  test.skipIf(process.platform === "win32" || process.getuid?.() === 0)(
+    "a backup that cannot be written stops the migration with a clear error and leaves no file",
+    () => {
+      const path = freshPath("backup-fails");
+      mkdirSync(dirname(path), { recursive: true });
+      const old = new Database(path, { create: true, strict: true });
+      old.exec(MIGRATIONS[0]?.[1] as string);
+      old.exec(MIGRATIONS[1]?.[1] as string);
+      old.exec("PRAGMA user_version = 2");
+      old.close();
+      const dir = join(dirname(path), "backups", "db");
+      mkdirSync(dir, { recursive: true });
+      chmodSync(dir, 0o555);
+      try {
+        let caught: unknown = null;
+        try {
+          openDb(path).close();
+        } catch (err) {
+          caught = err;
+        }
+        expect(caught).toBeInstanceOf(WipError);
+        expect((caught as WipError).code).toBe(EXIT.DB);
+        expect((caught as WipError).message).toContain(
+          "cannot back up the database before migrating it",
+        );
+        expect((caught as WipError).message).toContain(dir);
+        expect(readdirSync(dir)).toEqual([]);
+      } finally {
+        chmodSync(dir, 0o755);
+      }
+      const check = new WipDatabase(path, { readOnly: true });
+      expect(userVersion(check)).toBe(2);
+      check.close();
+    },
+  );
+
+  test("a new database and one already at the current schema are not copied", () => {
+    const path = freshPath("backup-none");
+    openDb(path).close();
+    openDb(path).close();
+    expect(existsSync(join(dirname(path), "backups"))).toBe(false);
   });
 
   test("the migration manifest has every .sql file, in order", () => {
@@ -249,7 +406,7 @@ describe("concurrency", () => {
     const path = freshPath("concurrent");
     openDb(path).close();
     expect(await writers(path, 4, 25)).toEqual(Array(4).fill(NO_ERRORS));
-    const db = new Database(path, { readonly: true });
+    const db = new Database(path);
     expect(count(db, "SELECT count(*) AS n FROM events")).toBe(100);
     expect(db.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
     db.close();
@@ -258,7 +415,7 @@ describe("concurrency", () => {
   test("four processes racing to create the database migrate it once", async () => {
     const path = freshPath("concurrent-create");
     expect(await writers(path, 4, 5)).toEqual(Array(4).fill(NO_ERRORS));
-    const db = new Database(path, { readonly: true });
+    const db = new WipDatabase(path, { readOnly: true });
     expect(userVersion(db)).toBe(SCHEMA_VERSION);
     expect(count(db, "SELECT count(*) AS n FROM events")).toBe(20);
     db.close();

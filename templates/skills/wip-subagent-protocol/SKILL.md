@@ -10,7 +10,7 @@ Every subagent the coordinator launches follows these rules, whatever its level 
 flow's `## Subagents` section add the task; they never relax a rule in this file unless the rule says so. The
 coordinator does not follow this file: it is only for the subagents it launches.
 
-`<defs>` below is the project's definitions folder: `defs_dir` in `.wip/config.json`, `.agents` when there is none.
+`<defs>` below is the project's definitions folder: `defs_dir` in `.wip/config.json`, `.claude` when there is none. A `defs_dir` that starts with `~/` is in the user's home folder (`wip init --global`), shared by every project initialised that way.
 
 ## You do not ask
 
@@ -21,6 +21,8 @@ guessing, stop and return `STATUS: needs-input` with concrete questions in `QUES
 
 - Use the paths the prompt gives, written in full. `ARTIFACT_DIR` is absolute; resolve any relative path in the
   prompt against the project root before you use it.
+- `ID: none` means there is no item and no `ARTIFACT_DIR` under `.wip/items/`: the prompt's `ARTIFACT_DIR` is then a
+  folder for your `tmp/` and an optional `report.md`.
 - Do not change directory and rely on it later: write each path in full in every command.
 
 ## What you may write
@@ -41,9 +43,11 @@ Temporary files go in `ARTIFACT_DIR/tmp/`, never in the project tree.
 
 ## The state belongs to the coordinator
 
-Only the coordinator changes the state of an item. You may read it (`wip show <ID> --json`, `wip state --json`,
-`wip help`), but you never run a `wip` command that writes: `phase`, `set`, `wait`, `log`, `agent`, `gate`,
-`archive`, `session`. If the state looks wrong, say so in `SUMMARY` with the command you would run.
+Only the coordinator changes the state of an item. You may read it (`"$WIP_BIN" show <ID> --json`, `"$WIP_BIN" state --json`,
+`"$WIP_BIN" help`, `"$WIP_BIN" cron list --json`, `"$WIP_BIN" poll due --json`), but you never run a `wip` command that
+writes: `phase`, `set`, `wait`, `log`, `agent`, `gate`, `archive`, `session`, `start --set`, `start --unset`, `cron add`,
+`cron done`, `cron cancel`, `cron snooze`, `poll record` and `poll seen`. If the state looks wrong, say so in `SUMMARY`
+with the command you would run.
 
 ## Proposal, then APPROVED
 

@@ -1,11 +1,17 @@
 name: CI
 
 on:
+  # push:
+  #   branches: [main, v1]
+  pull_request:
   workflow_dispatch:
+  # release.yml runs this whole workflow first.
+  workflow_call:
 
 permissions:
   contents: read
 
+# Actions are pinned by commit SHA; the comment names the tag it was taken from.
 jobs:
   test:
     strategy:
@@ -14,86 +20,89 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      - run: bunx tsc --noEmit
+      - run: bun run typecheck
       - run: bunx biome check .
       - run: bun test
 
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            targets: linux-x64,linux-arm64,windows-x64
-            name: linux-windows
-          - os: macos-latest
-            targets: darwin-arm64,darwin-x64
-            name: darwin
-    runs-on: ${{ matrix.os }}
+  # The npm package (src/ bundled for Node) built once, then the e2e suite against it on each Node line. The compiled
+  # binaries (`bun scripts/build.ts --targets …`) are not built in CI for now; see docs/future-improvements.md.
+  package:
+    runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
       - run: bun install --frozen-lockfile
-      # build.ts fails when a binary is over 120 MB and signs the darwin binaries ad hoc.
-      - run: bun scripts/build.ts --targets ${{ matrix.targets }} --out dist --pack
-      - if: runner.os == 'macOS'
-        run: |
-          codesign -v dist/npm/wip-darwin-arm64/bin/wip
-          codesign -v dist/npm/wip-darwin-x64/bin/wip
-      - run: ls -la dist/npm/*/bin dist/*.tgz
-      - uses: actions/upload-artifact@v4
+      - run: bun scripts/build.ts --out dist --pack
+      - name: npm publish --dry-run
+        run: npm publish --dry-run dist/npm/wip
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: tarballs-${{ matrix.name }}
-          path: dist/*.tgz
+          name: npm-package
+          path: dist/garndev-wip-*.tgz
           if-no-files-found: error
 
-  smoke:
-    needs: build
+  node-e2e:
+    needs: package
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
-            platform: linux-x64
-          - os: ubuntu-24.04-arm
-            platform: linux-arm64
-          - os: macos-latest
-            platform: darwin-arm64
-          - os: macos-15-intel
-            platform: darwin-x64
-          - os: windows-latest
-            platform: windows-x64
+          - { os: ubuntu-latest, node: "22" }
+          - { os: ubuntu-latest, node: "24" }
+          - { os: ubuntu-latest, node: "26" }
+          - { os: macos-latest, node: "24" }
+          - { os: windows-latest, node: "24" }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
         shell: bash
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          pattern: tarballs-*
-          merge-multiple: true
-          path: tarballs
-      # --omit=optional keeps npm away from the registry: the platform package is installed from
-      # its tarball as a sibling, where the launcher resolves it.
-      - name: Install from the tarballs
+          node-version: ${{ matrix.node }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-package
+          path: package
+      - name: Install the packed package
         run: |
-          main=$(ls tarballs/garndev-wip-[0-9]*.tgz)
-          platform=$(ls tarballs/garndev-wip-${{ matrix.platform }}-*.tgz)
-          npm i -g --omit=optional --prefix "$RUNNER_TEMP/npm-prefix" "$main" "$platform"
-      - name: wip --version through the launcher
+          prefix="$RUNNER_TEMP/npm-prefix"
+          npm install -g --prefix "$prefix" --no-audit --no-fund package/garndev-wip-*.tgz
+          if [ "$RUNNER_OS" = "Windows" ]; then echo "WIP=$prefix/wip.cmd" >> "$GITHUB_ENV"; else echo "WIP=$prefix/bin/wip" >> "$GITHUB_ENV"; fi
+          echo "MODULE=$(ls -d "$prefix"/lib/node_modules/@garndev/wip "$prefix"/node_modules/@garndev/wip 2>/dev/null | head -1)" >> "$GITHUB_ENV"
+      - name: wip --version prints the version and no warning
         run: |
-          if [ "$RUNNER_OS" = "Windows" ]; then bin="$RUNNER_TEMP/npm-prefix"; else bin="$RUNNER_TEMP/npm-prefix/bin"; fi
-          "$bin/wip" --version
-      - name: wip --version from the binary, without Node or Bun
+          node --version
+          version=$(node -p 'require("./package.json").version')
+          "$WIP" --version > stdout.txt 2> stderr.txt
+          cat stdout.txt
+          if [ -s stderr.txt ]; then cat stderr.txt; exit 1; fi
+          grep -q "^$version " stdout.txt
+      # `wip init` records wip_bin like `wip start`: the npm link on Unix, nothing on Windows (R7: the .mjs behind
+      # npm's .cmd shim is nothing the coordinator can run, so it calls `wip` from PATH).
+      - name: wip init records wip_bin only where it can be run
         run: |
-          mkdir -p "$RUNNER_TEMP/unpacked"
-          tar -xzf tarballs/garndev-wip-${{ matrix.platform }}-*.tgz -C "$RUNNER_TEMP/unpacked"
-          if [ "$RUNNER_OS" = "Windows" ]; then exe=wip.exe; else exe=wip; fi
-          PATH=/usr/bin:/bin "$RUNNER_TEMP/unpacked/package/bin/$exe" --version
+          mkdir -p "$RUNNER_TEMP/p" && cd "$RUNNER_TEMP/p" && git init -q
+          "$WIP" init --yes > /dev/null
+          "$WIP" check
+          cat .wip/config.json
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            if grep -q '"wip_bin"' .wip/config.json; then echo "wip_bin recorded on Windows"; exit 1; fi
+          else
+            grep -q "\"wip_bin\": \"$WIP\"" .wip/config.json
+          fi
+      # A .mjs WIP_TEST_BIN runs under node in the e2e helpers, on every OS.
+      - name: e2e suite against the package
+        run: WIP_TEST_BIN="$MODULE/bin/wip.mjs" bun test test/e2e

@@ -1,35 +1,48 @@
 import { existsSync, mkdirSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import type { IArgs } from "../args.ts";
+import { modelsUnset } from "../agents.ts";
+import { allow, type IArgs, parseArgs } from "../args.ts";
 import { compact } from "../clock.ts";
-import { CONFIG_FILE, readConfig, WIP_DIR, writeConfig } from "../config.ts";
+import {
+  CONFIG_FILE,
+  DEFAULT_DEFS_DIR,
+  defaultStart,
+  HOME_PREFIX,
+  readConfig,
+  validateStart,
+  WIP_DIR,
+  writeConfig,
+} from "../config.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { openForRead } from "../db.ts";
-import { COORDINATOR_AGENT } from "../embedded/templates.ts";
-import { rootAt } from "../env.ts";
+import { defsPath, FLOW_SKILL_PREFIX, rootAt, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, usage } from "../errors.ts";
-import { loadFlows } from "../flow/registry.ts";
-import { CLAUDE_CODE, defsDirFor, nativeDefsDir } from "../init/harness.ts";
+import { liveItems, loadFlows } from "../flow/registry.ts";
+import { askInit } from "../init/ask.ts";
+import { splitCommand } from "../init/command.ts";
+import { currentModels, savedStart } from "../init/current.ts";
+import { defaultModel, MODEL_AGENTS, parseModels } from "../init/models.ts";
+import { Aborted, type IAsker, terminalAsker } from "../init/prompt.ts";
 import { foreignFiles, scaffold } from "../init/scaffold.ts";
 import { seedItems } from "../init/seed.ts";
+import { leftBehind, uncoveredFlows } from "../init/switch.ts";
+import { COMMANDS } from "./help.ts";
+import { launchBin } from "./start.ts";
 
-export const FIRST_RUN_LINE =
-  "Start your coordinator: on its first run it asks which model it and each generic agent use.";
-
-const INIT_USAGE = "usage: wip init [<path>] [--force] [--harness <name>]";
-
-function pointAHarness(defs: string): string[] {
-  return [
-    `Point your harness at ${defs}/:`,
-    `  - the coordinator is ${defs}/agents/${COORDINATOR_AGENT}.md and loads the skill ${defs}/skills/wip-coordinate/SKILL.md;`,
-    `  - subagents are ${defs}/agents/<name>.md; skills, flows included, are ${defs}/skills/<name>/SKILL.md;`,
-    "  - Claude Code: in a new project, `wip init --harness claude-code` writes them into .claude/ instead;",
-    `  - a harness without agent definitions: paste ${defs}/skills/wip-coordinate/SKILL.md into a session as its first message.`,
-  ];
+/** Printed when a model or the start command is still unset after init: says which and how to set them. */
+export function unsetLine(models: readonly string[], startUnset: boolean): string | null {
+  const parts: string[] = [];
+  if (models.length > 0) parts.push(`no model for ${models.join(", ")}`);
+  if (startUnset) parts.push("no start command");
+  if (parts.length === 0) return null;
+  return `Still unset: ${parts.join("; ")}. Run \`wip init\` in a terminal (or with --yes, --models, --start) to set them; until then the runtime default model applies.`;
 }
 
+const INIT_USAGE =
+  "usage: wip init [<path>] [--global] [--force] [--yes] [--models <agent>=<model>,…] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none]";
+
 const CLAUDE_CODE_NEXT = [
-  `Run the coordinator with \`claude --agent ${COORDINATOR_AGENT}\` in this directory: it starts on its own.`,
+  "Run `wip start` (or bare `wip`) in this directory: it starts the coordinator, the runtime that runs the project's flows.",
 ];
 
 function assertDirectory(project: string): void {
@@ -38,7 +51,7 @@ function assertDirectory(project: string): void {
 }
 
 function lint(ctx: ICtx, project: string): boolean {
-  const root = rootAt(project);
+  const root = rootAt(project, ctx.env);
   const db = openForRead(root.db);
   try {
     const set = loadFlows(root, db);
@@ -53,45 +66,187 @@ function lint(ctx: ICtx, project: string): boolean {
   }
 }
 
-function initCommandFor(defsDir: string): string {
-  return defsDirFor(CLAUDE_CODE) === defsDir ? "wip init --harness claude-code" : "wip init";
+/** The command that refreshes a project whose definitions live in `current`: `--force` moves a legacy folder. */
+function refreshCommandFor(current: string): string {
+  const global = current.startsWith(HOME_PREFIX);
+  const folder = global ? current.slice(HOME_PREFIX.length) : current;
+  const target = folder === DEFAULT_DEFS_DIR;
+  return `wip init${global ? " --global" : ""}${target ? "" : " --force"}`;
 }
 
-/** A project already set up keeps its definitions folder: init never moves it. */
-function folderConflict(project: string, defsDir: string): string | null {
-  if (!existsSync(join(project, WIP_DIR))) return null;
-  const current = readConfig(project)?.defs_dir ?? defsDirFor(null);
-  if (current === defsDir) return null;
-  return `this project keeps its definitions in ${current}/ and this init would write them to ${defsDir}/; wip does not move them: run \`${initCommandFor(current)}\` (with --force to refresh), or move them by hand and edit ${WIP_DIR}/${CONFIG_FILE}`;
+/** `from`: the folder the project used (a switch, with --force); `refusal`: why nothing may be written. */
+export interface IFolderSwitch {
+  from: string | null;
+  refusal: string | null;
+}
+
+/**
+ * A project keeps its definitions folder until an init for `defsDir` of the same scope runs with --force: then
+ * `defs_dir` switches and the old folder stays as it is. Local and --global are never switched.
+ */
+export function folderSwitch(
+  project: string,
+  defsDir: string,
+  force: boolean,
+  env: TEnv,
+): IFolderSwitch {
+  if (!existsSync(join(project, WIP_DIR))) return { from: null, refusal: null };
+  const current = readConfig(project)?.defs_dir ?? DEFAULT_DEFS_DIR;
+  if (current === defsDir) return { from: null, refusal: null };
+  const shownCurrent = shownDefsDir(current, env);
+  const shownNew = shownDefsDir(defsDir, env);
+  if (current.startsWith(HOME_PREFIX) !== defsDir.startsWith(HOME_PREFIX)) {
+    return {
+      from: null,
+      refusal: `this project keeps its definitions in ${shownCurrent}/ and this init would write them to ${shownNew}/; wip does not move them between local and --global: run \`${refreshCommandFor(current)}\` to refresh them, or move them by hand and edit ${WIP_DIR}/${CONFIG_FILE}`,
+    };
+  }
+  if (!force) {
+    return {
+      from: null,
+      refusal: `this project keeps its definitions in ${shownCurrent}/ and this init would write them to ${shownNew}/; run with --force to add ${shownNew}/ and use it from now on (${shownCurrent}/ stays as it is and wip stops reading it)`,
+    };
+  }
+  return { from: current, refusal: null };
+}
+
+/** The open items' flows of the project's database, read only; no database means no items. */
+function liveFlows(project: string, env: TEnv): ReturnType<typeof liveItems> {
+  const db = openForRead(rootAt(project, env).db);
+  try {
+    return liveItems(db);
+  } finally {
+    db?.close();
+  }
+}
+
+/** The refusals of a switch whose live items use a flow the new folder lacks: nothing is written then. */
+function liveFlowRefusals(project: string, from: string, to: string, env: TEnv): string[] {
+  const oldRoot = defsPath(project, from, env);
+  const newRoot = defsPath(project, to, env);
+  return uncoveredFlows(liveFlows(project, env), newRoot).map(({ flow, id, more }) => {
+    const inOld = existsSync(join(oldRoot, "skills", `${FLOW_SKILL_PREFIX}${flow}`, "SKILL.md"));
+    const shownOld = shownDefsDir(from, env);
+    const shownNew = shownDefsDir(to, env);
+    const who = `item ${id}${more > 0 ? ` (and ${more} more)` : ""}`;
+    return inOld
+      ? `${who} uses the flow ${flow}, which is in ${shownOld}/ and not in ${shownNew}/; copy skills/${FLOW_SKILL_PREFIX}${flow}/ to ${shownNew}/ by hand and run init again`
+      : `${who} uses the flow ${flow}, which is not in ${shownNew}/ (nor in ${shownOld}/); add skills/${FLOW_SKILL_PREFIX}${flow}/SKILL.md to ${shownNew}/ by hand and run init again`;
+  });
+}
+
+/** The models to write: `--models` first, then (with --yes) the defaults for every agent that has none. */
+function modelAnswers(args: IArgs, current: Record<string, string>): Record<string, string> {
+  let flagged: Record<string, string> = {};
+  const text = args.opts.models;
+  if (text !== undefined) {
+    try {
+      flagged = parseModels(text);
+    } catch (err) {
+      throw usage((err as Error).message);
+    }
+  }
+  const out: Record<string, string> = { ...flagged };
+  if (args.flags.has("yes")) {
+    for (const agent of MODEL_AGENTS) {
+      if (!(agent in out) && current[agent] === undefined) out[agent] = defaultModel(agent);
+    }
+  }
+  return out;
+}
+
+/** The start command to save, or `null` to leave `start` as it is (a saved one stays; none is written). */
+function startAnswer(args: IArgs, project: string): string[] | null {
+  const given = [
+    args.opts.start !== undefined,
+    args.flags.has("start-default"),
+    args.flags.has("no-start"),
+  ];
+  if (given.filter(Boolean).length > 1) {
+    throw usage("--start, --start-default and --no-start are exclusive");
+  }
+  if (args.opts.start !== undefined) {
+    try {
+      return validateStart(splitCommand(args.opts.start));
+    } catch (err) {
+      throw usage(`--start: ${(err as Error).message}`);
+    }
+  }
+  if (args.flags.has("start-default")) return defaultStart();
+  if (args.flags.has("no-start") || !args.flags.has("yes")) return null;
+  return savedStart(project) === null ? defaultStart() : null;
+}
+
+const GITIGNORE_VALUES = ["wip", "defs", "none"];
+
+/** What `--gitignore` asks to ignore; without it `.wip/` only. */
+function gitignoreAnswer(args: IArgs): { wip: boolean; defs: boolean } {
+  const text = args.opts.gitignore;
+  if (text === undefined) return { wip: true, defs: false };
+  const values = text.split(",").map((v) => v.trim());
+  const bad = values.filter((v) => !GITIGNORE_VALUES.includes(v));
+  if (bad.length > 0 || values.length === 0) {
+    throw usage(
+      `--gitignore: ${bad.length > 0 ? `unknown value ${bad.map((v) => `"${v}"`).join(", ")}; ` : ""}use wip, defs (comma separated) or none`,
+    );
+  }
+  if (values.includes("none") && values.length > 1) {
+    throw usage("--gitignore: none is exclusive");
+  }
+  return { wip: values.includes("wip"), defs: values.includes("defs") };
 }
 
 function run(ctx: ICtx, args: IArgs): void {
   const [path, extra] = args.pos;
   if (extra !== undefined) throw usage(INIT_USAGE);
-  const harnessOpt = args.opts.harness;
-  if (harnessOpt !== undefined && harnessOpt.trim() === "") throw usage(INIT_USAGE);
-  const harness = harnessOpt ?? null;
   const project = resolve(ctx.cwd, path ?? ".");
   const force = args.flags.has("force");
-  const defsDir = defsDirFor(harness);
+  const global = args.flags.has("global");
+  const defsDir = (global ? HOME_PREFIX : "") + DEFAULT_DEFS_DIR;
+  const defsRoot = defsPath(project, defsDir, ctx.env);
+  const shown = shownDefsDir(defsDir, ctx.env);
   assertDirectory(project);
 
-  const moved = folderConflict(project, defsDir);
+  const sw = folderSwitch(project, defsDir, force, ctx.env);
   const conflicts = [
-    ...(moved ? [moved] : []),
-    ...foreignFiles(project, defsDir).map(
+    ...(sw.refusal ? [sw.refusal] : []),
+    ...(sw.from === null ? [] : liveFlowRefusals(project, sw.from, defsDir, ctx.env)),
+    ...foreignFiles(defsRoot, shown).map(
       (rel) =>
         `${rel} exists without a \`wip:\` mark (another tool's file); rename or move it and run init again`,
     ),
   ];
   if (conflicts.length > 0) throw rejected(`nothing written: ${conflicts.join("; ")}`);
 
+  const models = modelAnswers(args, currentModels(defsRoot));
+  const start = startAnswer(args, project);
+  const ignore = gitignoreAnswer(args);
+  const defsIgnored = ignore.defs && !global;
+  if (ignore.defs && global) {
+    ctx.result.warnings.push({
+      code: "gitignore_defs_global",
+      message: `--gitignore defs ignored: the definitions are in ${shown}/, outside the project; nothing written for them`,
+    });
+  }
+
   mkdirSync(project, { recursive: true });
   const before = readConfig(project);
-  const done = scaffold(project, { force, stamp: compact(), defsDir });
-  writeConfig(project, { defs_dir: defsDir, harness });
-  let configAction: "created" | "exists" | "updated" = "created";
-  if (before !== null) configAction = before.harness === harness ? "exists" : "updated";
+  const bin = launchBin(ctx.env, process.execPath, ctx.cwd);
+  const done = scaffold(project, {
+    force,
+    stamp: compact(),
+    defsDir: shown,
+    defsRoot,
+    models,
+    ignoreWip: ignore.wip,
+    ignoreDefs: defsIgnored,
+  });
+  writeConfig(project, {
+    defs_dir: defsDir,
+    wip_bin: bin ?? before?.wip_bin ?? null,
+    ...(start === null ? {} : { start }),
+  });
+  const configAction = before === null ? "created" : sw.from === null ? "exists" : "updated";
 
   const lines = ctx.result.lines;
   lines.push(`wip init · ${project}`);
@@ -100,13 +255,47 @@ function run(ctx: ICtx, args: IArgs): void {
     created: `created .gitignore with ${WIP_DIR}/`,
     added: `added ${WIP_DIR}/ to .gitignore`,
     exists: `exists ${WIP_DIR}/ in .gitignore`,
+    skipped: "skipped .gitignore (--gitignore does not list wip)",
   } as const;
   lines.push(gitignoreLine[done.gitignore]);
-  lines.push(`${configAction} ${WIP_DIR}/${CONFIG_FILE} (definitions in ${defsDir}/)`);
+  const defsLine = {
+    created: "created .gitignore with the wip definitions",
+    added: "added the wip definitions to .gitignore (files already tracked by git stay tracked)",
+    exists: "exists the wip definitions in .gitignore",
+  } as const;
+  if (done.gitignoreDefs !== "skipped") lines.push(defsLine[done.gitignoreDefs]);
+  if (bin !== null && bin !== (before?.wip_bin ?? null)) {
+    lines.push(
+      before?.wip_bin
+        ? `wip_bin changed from ${before.wip_bin} to ${bin}`
+        : `wip_bin set to ${bin}`,
+    );
+  }
+  const shared = global ? ", shared by every --global project" : "";
+  lines.push(`${configAction} ${WIP_DIR}/${CONFIG_FILE} (definitions in ${shown}/${shared})`);
+  if (sw.from !== null) {
+    const oldShown = shownDefsDir(sw.from, ctx.env);
+    lines.push(
+      `switched definitions from ${oldShown}/ to ${shown}/; ${oldShown}/ stays as it is and wip no longer reads it`,
+    );
+    const left = leftBehind(defsPath(project, sw.from, ctx.env), defsRoot).map(
+      (key) => `${oldShown}/${key}`,
+    );
+    if (left.length > 0) {
+      const list = left.join(", ");
+      ctx.result.warnings.push({
+        code: "defs_left_behind",
+        message: `custom agents and skills in ${oldShown}/ were not copied to ${shown}/: ${list}; copy them by hand if you need them`,
+      });
+      lines.push(`not copied to ${shown}/: ${list}`);
+    }
+  }
   for (const f of done.files) {
     lines.push(`${f.action} ${f.path}${f.backup ? ` (backup ${f.backup})` : ""}`);
   }
-  const items = seedItems(rootAt(project));
+  for (const [agent, model] of Object.entries(models)) lines.push(`model ${agent}: ${model}`);
+  if (start !== null) lines.push(`start: ${start.join(" ")}`);
+  const items = seedItems(rootAt(project, ctx.env));
   for (const i of items) {
     const verb = i.action === "seeded" ? "seeded item" : "exists item";
     const files = i.files.length > 0 ? ` with ${i.files.join(", ")}` : "";
@@ -114,21 +303,26 @@ function run(ctx: ICtx, args: IArgs): void {
   }
   const lintOk = lint(ctx, project);
 
-  const next = [
-    ...(nativeDefsDir(harness) !== null ? CLAUDE_CODE_NEXT : pointAHarness(defsDir)),
-    FIRST_RUN_LINE,
-  ];
+  const unsetModels = modelsUnset(join(defsRoot, "agents"));
+  const startUnset = savedStart(project) === null;
+  const unset = unsetLine(unsetModels, startUnset);
+  const next = [...CLAUDE_CODE_NEXT, ...(unset === null ? [] : [unset])];
   lines.push("", "Next steps:", ...next);
   ctx.result.message = `wip initialised in ${project}`;
   ctx.result.data = {
     project,
     wip: done.wipDir,
     gitignore: done.gitignore,
+    gitignore_defs: done.gitignoreDefs,
+    wip_bin: bin ?? before?.wip_bin ?? null,
     config: configAction,
     defs_dir: defsDir,
-    harness,
+    switched_from: sw.from,
     files: done.files,
     items,
+    models,
+    start,
+    unset: { models: unsetModels, start: startUnset },
     lint: { ok: lintOk },
     next,
   };
@@ -139,3 +333,55 @@ function run(ctx: ICtx, args: IArgs): void {
 }
 
 export const initCmd: IHandler = { db: "none", run };
+
+const NO_PROMPT = ["--yes", "--json", "--help", "-h"];
+
+/** `wip init` asks questions only in a terminal, and never with --yes, --json or --help. */
+export function isInitPrompt(argv: readonly string[], tty: boolean): boolean {
+  if (!tty || argv[0] !== "init") return false;
+  const rest = argv.slice(1);
+  const dashdash = rest.indexOf("--");
+  const head = dashdash < 0 ? rest : rest.slice(0, dashdash);
+  return !head.some((a) => NO_PROMPT.includes(a));
+}
+
+export interface IInitPrompt {
+  /** The argv to run: the user's plus the answers; `null` when nothing is to be written. */
+  argv: string[] | null;
+  /** 130 on Ctrl+C or end of input, 0 when the summary was declined. */
+  code: number;
+}
+
+/** Asks the open questions, then returns the argv the non-interactive init runs; writes nothing itself. */
+export async function promptInit(
+  argv: readonly string[],
+  cwd: string,
+  env: TEnv,
+  asker: IAsker = terminalAsker(),
+): Promise<IInitPrompt> {
+  const spec = COMMANDS.find((c) => c.name === "init");
+  let args: IArgs;
+  try {
+    args = parseArgs(argv.slice(1), spec?.flags ?? []);
+    allow(args, [...(spec?.options ?? []), ...(spec?.flags ?? [])]);
+  } catch {
+    return { argv: [...argv], code: 0 }; // the command reports the usage error itself
+  }
+  try {
+    const extra = await askInit(asker, { args, cwd, env });
+    if (extra === null) {
+      asker.say("nothing written");
+      return { argv: null, code: 0 };
+    }
+    return { argv: [...argv, ...extra], code: 0 };
+  } catch (err) {
+    if (err instanceof Aborted) {
+      asker.say("");
+      asker.say("aborted: nothing written");
+      return { argv: null, code: 130 };
+    }
+    throw err;
+  } finally {
+    asker.close();
+  }
+}

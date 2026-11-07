@@ -9,6 +9,7 @@ import {
   utimesSync,
   writeFileSync,
 } from "node:fs";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { setClockForTests } from "../../src/clock.ts";
 import { commandHelp, findCommand, type ICommandSpec } from "../../src/commands/help.ts";
@@ -22,6 +23,7 @@ import {
   urlLines,
   webMain,
 } from "../../src/commands/web.ts";
+import { SCHEMA_VERSION } from "../../src/db.ts";
 import { MARKDOWN_LIB, WEB } from "../../src/embedded/web.ts";
 import { rootAt, type TEnv } from "../../src/env.ts";
 import { EXIT } from "../../src/errors.ts";
@@ -56,8 +58,8 @@ import {
   stageColor,
   textOn,
 } from "../../src/web/state.ts";
-import { WIP_BIN } from "../helpers/bin.ts";
-import { minimalFlow, putFlow } from "../helpers/defs.ts";
+import { WIP_CMD } from "../helpers/bin.ts";
+import { fixture, minimalFlow, putFlow } from "../helpers/defs.ts";
 import { at, itemInPlan, itemsProject, ok, T0, tick, useProject } from "../helpers/items.ts";
 import { type IProject, makeProject, scratch } from "../helpers/project.ts";
 
@@ -67,8 +69,8 @@ let web: IWebServer | null = null;
 let other: ReturnType<typeof Bun.serve> | null = null;
 const occupied: { stop: () => void }[] = [];
 
-afterEach(() => {
-  web?.stop();
+afterEach(async () => {
+  await web?.stop();
   web = null;
   other?.stop(true);
   other = null;
@@ -99,8 +101,8 @@ async function freeRange(n: number): Promise<number> {
 // biome-ignore lint/suspicious/noExplicitAny: JSON bodies of the API under test
 type TJson = any;
 
-function serve(p: IProject): IWebServer {
-  web = startWeb({ port: 0, root: rootAt(p.dir), local: true });
+async function serve(p: IProject): Promise<IWebServer> {
+  web = await startWeb({ port: 0, root: rootAt(p.dir), local: true });
   return web;
 }
 
@@ -150,7 +152,7 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
   test("columns by stage, or by phase when the flow declares none; every flow even without items", async () => {
     const p = board();
     putFlow(p.dir, "empty", minimalFlow());
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/kanban");
     expect(body.flows.map((f: TJson) => f.name)).toEqual(["empty", "minimal", "valid"]);
     const valid = body.flows.find((f: TJson) => f.name === "valid");
@@ -186,6 +188,31 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
     expect(a1).toMatchObject({ column: "phase:todo", stage: null, alpha: null, color: "" });
   });
 
+  test("a flow with `color` paints its stages in that tone and the others stay blue", async () => {
+    const p = board();
+    const valid = fixture("flows", "valid");
+    expect(valid).toContain("\nversion: 1\n");
+    putFlow(p.dir, "gold", valid.replace("\nversion: 1\n", '\nversion: 1\ncolor: "#eab308"\n'));
+    await serve(p);
+    const body = await getJson("/api/kanban");
+    const gold = body.flows.find((f: TJson) => f.name === "gold");
+    const blue = body.flows.find((f: TJson) => f.name === "valid");
+    expect(gold.columns.map((c: TJson) => [c.alpha, c.color])).toEqual([
+      [1, stageColor(1, "#EAB308")],
+      [0.63, stageColor(0.63, "#EAB308")],
+      [0.25, stageColor(0.25, "#EAB308")],
+    ]);
+    expect(gold.columns[0].color).toBe("rgba(234, 179, 8, 1)");
+    expect(gold.columns[0]).toMatchObject({ text: "#111111", text_dark: "#111111" });
+    expect(gold.columns[2]).toMatchObject({ text: "#111111", text_dark: "#FFFFFF" });
+    expect(blue.columns.map((c: TJson) => c.color)).toEqual([
+      stageColor(1),
+      stageColor(0.63),
+      stageColor(0.25),
+    ]);
+    expect(blue.columns[0].color).toBe("rgba(37, 99, 235, 1)");
+  });
+
   test("stage opacity steps evenly for any number of stages, from opaque to the last step", () => {
     expect(stageAlpha(0, 1)).toBe(STAGE_ALPHA_FIRST);
     expect([0, 1].map((i) => stageAlpha(i, 2))).toEqual([1, 0.25]);
@@ -214,7 +241,7 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
 
   test("items, «your turn» and signals are what `wip state` and `wip state --attention` compute", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/kanban");
     const state = ok(p, ["state"]).data?.items as TJson[];
     const attention = ok(p, ["state", "--attention"]).data?.items as TJson[];
@@ -240,7 +267,7 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
     const p = board();
     at("2026-10-30T11:00:00Z");
     ok(p, ["agent", "start", "A1", "fast"]);
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/kanban");
     expect(body.open_gates).toEqual([
       {
@@ -260,7 +287,7 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
 
   test("a write shows up in the next request; the same board is the same text", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const first = await (await get("/api/kanban")).text();
     tick(600);
     expect(await (await get("/api/kanban")).text()).toBe(first);
@@ -272,7 +299,7 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
   test("right after `wip init` (no database yet) the board answers with empty flows", async () => {
     const p = ctx.set(makeProject("web-nodb"));
     putFlow(p.dir, "minimal", minimalFlow());
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/kanban");
     expect(body.items).toEqual([]);
     expect(body.flows.map((f: TJson) => f.name)).toEqual(["minimal"]);
@@ -282,7 +309,7 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
   test("a flow file that breaks keeps its last valid version, with the warning", async () => {
     const p = board();
     putFlow(p.dir, "minimal", "# broken\n");
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/kanban");
     expect(body.flows.find((f: TJson) => f.name === "minimal").source).toBe("stored");
     expect(body.warnings.map((w: TJson) => [w.code, w.flow])).toEqual([
@@ -309,7 +336,7 @@ describe("wip web · links (F-FLU-10, F-WEB-12)", () => {
 
   test("cards, history and the item panel carry the links", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const link = { label: "T1", url: "https://tracker.example.com/t/1", source: "id" };
     const kanban = await getJson("/api/kanban");
     expect(kanban.items.find((i: TJson) => i.id === "T1").links).toEqual([link]);
@@ -324,7 +351,7 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
   test("/api/item/<flow>/<ID> is `wip show --json` plus links and artifacts", async () => {
     const p = board();
     at("2026-10-30T12:00:00Z");
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/item/valid/T1");
     const shown = ok(p, ["show", "T1"]);
     expect(body.item).toEqual(shown.item);
@@ -334,13 +361,14 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
       gates: body.gates,
       signals: body.signals,
       totals: body.totals,
+      crons: body.crons,
     }).toEqual(shown.data as TJson);
     expect(body.totals.user_wait_seconds).toBe(7200);
   });
 
   test("an unknown item, another flow or a bad segment is 404", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     for (const path of [
       "/api/item/valid/NOPE1",
       "/api/item/minimal/T1",
@@ -371,7 +399,7 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
     writeFileSync(join(dir, "big.log"), "");
     truncateSync(join(dir, "big.log"), 2 * 1024 * 1024 + 1);
     utimesSync(join(dir, "plan.md"), new Date(T0), new Date(T0));
-    serve(p);
+    await serve(p);
     const body = await getJson("/api/item/valid/T1");
     expect(body.artifacts.map((a: TJson) => a.name)).toEqual([
       "b.txt",
@@ -414,7 +442,7 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
   test("/view/item/<flow>/<ID>/artifact/<name> is the static page, 404 exactly where /api/… is", async () => {
     const p = board();
     writeFileSync(join(p.dir, ".wip", "items", "valid", "T1", "plan.md"), "# Plan\n");
-    serve(p);
+    await serve(p);
     const page = await get("/view/item/valid/T1/artifact/plan.md");
     expect(page.status).toBe(200);
     expect(page.headers.get("content-type")).toBe("text/html; charset=utf-8");
@@ -433,9 +461,9 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
 });
 
 describe("wip web · history (F-WEB-04)", () => {
-  test("open, archived in the terminal phase, and discarded; newest first, filtered and paged", async () => {
+  test("open, archived in a terminal phase, and discarded; newest first, filtered and paged", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const all = await getJson("/api/history?include=active,archived,discarded");
     expect(all.items.map((h: TJson) => [h.id, h.category])).toEqual([
       ["A1", "active"],
@@ -467,9 +495,25 @@ describe("wip web · history (F-WEB-04)", () => {
     }
   });
 
+  test("an item archived in any terminal phase is archived; archived elsewhere is discarded", async () => {
+    const p = board();
+    putFlow(p.dir, "two", fixture("flows", "two-terminals"));
+    ok(p, ["phase", "D1", "todo", "--flow", "two"]);
+    ok(p, ["phase", "D1", "dropped"]);
+    ok(p, ["archive", "D1"]);
+    ok(p, ["phase", "D2", "todo", "--flow", "two"]);
+    ok(p, ["archive", "D2"]);
+    await serve(p);
+    const two = await getJson("/api/history?flow=two&include=archived,discarded");
+    expect(two.items.map((h: TJson) => [h.id, h.category])).toEqual([
+      ["D1", "archived"],
+      ["D2", "discarded"],
+    ]);
+  });
+
   test("only an active item in a stage carries its colour", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const all = await getJson("/api/history?include=active,archived,discarded");
     const paint = (id: string): TJson[] => {
       const h = all.items.find((i: TJson) => i.id === id);
@@ -485,7 +529,7 @@ describe("wip web · history (F-WEB-04)", () => {
 describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
   test("Host check, GET only, and the page CSP on every response", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const port = web?.port;
     expect((await get("/api/kanban", { headers: { Host: "evil.example" } })).status).toBe(403);
     expect((await get("/", { headers: { Host: `evil.example:${port}` } })).status).toBe(403);
@@ -541,9 +585,9 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
       "10.0.0.5:80",
     ]);
     const p = board();
-    web = startWeb({ port: 0, root: rootAt(p.dir), local: false, interfaces: {} });
+    web = await startWeb({ port: 0, root: rootAt(p.dir), local: false, interfaces: {} });
     expect(web.lanServer).toBeNull();
-    expect(web.server.hostname).toBe("127.0.0.1");
+    expect((web.server.address() as AddressInfo).address).toBe("127.0.0.1");
     expect((await getJson("/health")).lan).toBeNull();
   });
 
@@ -552,7 +596,7 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
     const db = openReadOnly(p.dbPath);
     expect(() => db?.exec("DELETE FROM items")).toThrow();
     db?.close();
-    serve(p);
+    await serve(p);
     expect((await get("/api/kanban")).status).toBe(200);
     const raw = new Database(p.dbPath);
     raw.exec("PRAGMA user_version = 99");
@@ -564,10 +608,138 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
   });
 });
 
+describe("wip web · polling footer", () => {
+  const POLLING_FLOW = [
+    "```wip-flow",
+    "phases:",
+    "  - name: intake",
+    "    next: [waiting]",
+    "    waiting_default: user",
+    "  - name: waiting",
+    "    kind: wait",
+    "    waiting_default: external",
+    "    next: [done]",
+    "  - name: done",
+    "    kind: terminal",
+    "polling:",
+    "  - name: waiting",
+    "    phases: [waiting]",
+    "    agent: fast",
+    "    cadence: 1h",
+    "  - name: discover",
+    "    agent: fast",
+    "    cadence: 30m",
+    "```",
+    "",
+  ].join("\n");
+
+  test("/api/kanban has an empty polling list when no flow declares polling", async () => {
+    const p = board();
+    await serve(p);
+    expect((await getJson("/api/kanban")).polling).toEqual({ polls: [] });
+  });
+
+  test("a due and an overdue row, without the seen keys nor the server clock", async () => {
+    const p = ctx.set(itemsProject("web-polling"));
+    putFlow(p.dir, "review", POLLING_FLOW);
+    ok(p, ["phase", "q1", "intake", "--flow", "review"]);
+    ok(p, ["phase", "q1", "waiting", "--next", "wait"]);
+    ok(p, ["poll", "record", "review", "discover"]);
+    ok(p, ["poll", "seen", "review", "waiting", "#1"]);
+    await serve(p);
+    tick(3601);
+    let body = await getJson("/api/kanban");
+    expect(Object.keys(body.polling)).toEqual(["polls"]);
+    const rows = body.polling.polls as TJson[];
+    expect(rows.map((r) => [r.poll, r.status])).toEqual([
+      ["waiting", "due"],
+      ["discover", "overdue"],
+    ]);
+    expect(rows.every((r) => !("seen" in r))).toBe(true);
+    tick(5401);
+    body = await getJson("/api/kanban");
+    expect((body.polling.polls as TJson[]).map((r) => [r.poll, r.status])).toEqual([
+      ["waiting", "overdue"],
+      ["discover", "overdue"],
+    ]);
+    const first = await (await get("/api/kanban")).text();
+    expect(await (await get("/api/kanban")).text()).toBe(first);
+  });
+
+  test("crons and the next flow-poll passes go to the board, and a card gets cron_at", async () => {
+    const p = ctx.set(itemsProject("web-crons"));
+    putFlow(p.dir, "review", POLLING_FLOW);
+    ok(p, ["phase", "T1", "intake", "--flow", "valid"]);
+    ok(p, ["poll", "record", "review", "discover"]);
+    ok(p, ["cron", "add", "call X", "--at", "+2h", "--item", "T1"]);
+    ok(p, ["cron", "add", "sooner", "--at", "+1h", "--item", "T1"]);
+    ok(p, ["cron", "add", "far", "--at", "+30d"]);
+    await serve(p);
+    const body = await getJson("/api/kanban");
+    const crons = body.crons as TJson[];
+    expect(crons.map((c) => [c.source, c.id ?? c.poll])).toEqual([
+      ["flow", "discover"],
+      ["cron", "c2"],
+      ["cron", "c1"],
+    ]);
+    expect(crons.every((c) => !("pass" in c))).toBe(true);
+    const t1 = (body.items as TJson[]).find((i) => i.id === "T1") as TJson;
+    expect(t1.cron_at).toBe(crons[1]?.at);
+    expect(
+      (body.items as TJson[]).filter((i) => i.id !== "T1").every((i) => i.cron_at === null),
+    ).toBe(true);
+  });
+
+  test("the page has the footer line for it", () => {
+    expect(WEB["index.html"]).toContain('id="env-scheduled"');
+    expect(WEB["app.js"]).toContain("renderScheduled");
+    expect(WEB["app.js"]).toContain("cronBadge");
+    expect(WEB["index.html"]).toContain('id="env-polling"');
+    expect(WEB["app.js"]).toContain("renderPolling");
+    expect(WEB["app.css"]).toContain("--warn");
+  });
+
+  test("a database at schema 1 is migrated when wip web starts", async () => {
+    const p = ctx.set(itemsProject("web-v1"));
+    ok(p, ["phase", "T1", "intake", "--flow", "valid"]);
+    const raw = new Database(p.dbPath);
+    raw.exec(
+      "DROP TABLE crons; DROP TABLE poll_run_items; DROP TABLE poll_runs; DROP TABLE poll_seen;",
+    );
+    raw.exec("ALTER TABLE flows DROP COLUMN disabled");
+    raw.exec("PRAGMA user_version = 1");
+    raw.close();
+    await serve(p);
+    const body = await getJson("/api/kanban");
+    expect(body.items.map((i: TJson) => i.id)).toEqual(["T1"]);
+    const after = new Database(p.dbPath);
+    expect((after.query("PRAGMA user_version").get() as TJson).user_version).toBe(SCHEMA_VERSION);
+    after.close();
+  });
+});
+
+describe("wip web · a disabled flow", () => {
+  test("the board and the history leave it out until it is enabled", async () => {
+    const p = board();
+    await serve(p);
+    const full = await getJson("/api/kanban");
+    expect(full.items.map((i: TJson) => i.id)).toContain("T1");
+    ok(p, ["flow", "disable", "valid"]);
+    const body = await getJson("/api/kanban");
+    expect(body.items.map((i: TJson) => i.id)).toEqual(["A1"]);
+    expect(JSON.stringify(body)).not.toContain("valid");
+    const history = await getJson("/api/history");
+    expect(history.items.map((i: TJson) => i.flow)).not.toContain("valid");
+    ok(p, ["flow", "enable", "valid"]);
+    expect((await getJson("/api/kanban")).items.map((i: TJson) => i.id)).toContain("T1");
+    expect((await getJson("/api/history")).items.map((i: TJson) => i.flow)).toContain("valid");
+  });
+});
+
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
   test("the page files and @garndev/markdown are served as embedded, with their types", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const index = await get("/");
     expect(index.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(await index.text()).toBe(WEB["index.html"] as string);
@@ -793,7 +965,7 @@ describe("wip web · command (F-WEB-01)", () => {
       occupy(base);
       const elsewhere = scratch("web-retry-other");
       mkdirSync(join(elsewhere, ".wip"));
-      web = startWeb({ port: base + 1, root: rootAt(elsewhere), local: true });
+      web = await startWeb({ port: base + 1, root: rootAt(elsewhere), local: true });
       const { c, port, stop } = await listening(p, ["--local"], { WIP_WEB_PORT: String(base) });
       expect(port).toBe(base + 2);
       expect(c.lines).toContain(`  Local: http://localhost:${base + 2}/`);
@@ -847,7 +1019,7 @@ describe("wip web · command (F-WEB-01)", () => {
 
   test("already running for this project: says so and exits 0; for another project: exit 3", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const port = String(web?.port);
     const same = capture();
     expect(await webMain(["--port", port, "--open"], { ...same.io, cwd: p.dir, env: {} })).toBe(
@@ -1042,7 +1214,7 @@ describe("wip web · command (F-WEB-01)", () => {
       );
       const elsewhere = scratch("web-stop-other");
       mkdirSync(join(elsewhere, ".wip"));
-      web = startWeb({ port: 0, root: rootAt(elsewhere), local: true });
+      web = await startWeb({ port: 0, root: rootAt(elsewhere), local: true });
       mkdirSync(webServersDir(root), { recursive: true });
       writeFileSync(
         webServerPath(root, web.port),
@@ -1139,7 +1311,7 @@ describe("wip web status", () => {
     const base = await freeRange(1);
     const elsewhere = scratch("web-status-other");
     mkdirSync(join(elsewhere, ".wip"));
-    web = startWeb({ port: base, root: rootAt(elsewhere), local: true });
+    web = await startWeb({ port: base, root: rootAt(elsewhere), local: true });
     const started: Promise<number>[] = [];
     const ports: number[] = [];
     for (let i = 0; i < 2; i++) {
@@ -1215,7 +1387,7 @@ describe("wip web status", () => {
 
   test("a live legacy .wip/web.pid server of this project is listed", async () => {
     const p = board();
-    serve(p);
+    await serve(p);
     const port = web?.port as number;
     writeFileSync(
       legacyWebPidPath(rootAt(p.dir)),
@@ -1253,14 +1425,15 @@ describe("wip web status", () => {
   });
 });
 
-describe("wip web · entry point (binary with WIP_BIN, else bun src/cli.ts)", () => {
+describe("wip web · entry point (WIP_TEST_BIN when set, else bun src/main.ts)", () => {
   test("serves the embedded files and stops on SIGTERM with exit 0", async () => {
     const p = board();
     setClockForTests(null);
     const port = await freePort();
-    const cmd = WIP_BIN
-      ? [WIP_BIN, "web", "--port", String(port), "--local"]
-      : [process.execPath, join(REPO, "src", "cli.ts"), "web", "--port", String(port), "--local"];
+    const cmd = [
+      ...(WIP_CMD ?? [process.execPath, join(REPO, "src", "main.ts")]),
+      ...["web", "--port", String(port), "--local"],
+    ];
     const proc = Bun.spawn(cmd, {
       cwd: p.dir,
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },
@@ -1298,7 +1471,7 @@ describe("wip web · entry point (binary with WIP_BIN, else bun src/cli.ts)", ()
     const p = board();
     setClockForTests(null);
     const port = await freePort();
-    const wip = WIP_BIN ? [WIP_BIN] : [process.execPath, join(REPO, "src", "cli.ts")];
+    const wip = WIP_CMD ?? [process.execPath, join(REPO, "src", "main.ts")];
     const env = { PATH: process.env.PATH ?? "/usr/bin:/bin" };
     const proc = Bun.spawn([...wip, "web", "--port", String(port), "--local"], {
       cwd: p.dir,

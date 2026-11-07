@@ -26,11 +26,6 @@ A generic "snooze": `wip hold <ID> --until <ISO|+Nh>` takes an item out of "Your
 Opens another round (QA, review) on the same item: an iteration counter, a `round<n>.` prefix on artifacts and a way back to an earlier phase without `--force`.
 Today wip only goes back with `next` or `--force` and does not know how many iterations an item has gone through. A per-item iteration counter with its own event is useful in any `execute` → `check` loop.
 
-## from_any
-
-A flow declares phases that can be reached from any other (for example `plan`), with no `--force` and no recorded decision.
-Today they have to be listed in every `next` or forced. It is one more key in the `wip-flow` block and simplifies the flows the coordinator creates.
-
 ## wip backup
 
 Keeps rotated copies of the database. Today nothing protects `.wip/` from a corrupted or deleted database.
@@ -39,7 +34,7 @@ Keeps rotated copies of the database. Today nothing protects `.wip/` from a corr
 ## wip doctor
 
 A single command that checks runtime, database, flows and `tmp/`.
-Today that is split between `check` and `flow lint`. `doctor` would report whether the binary, the schema version, the `.wip/` root, the definitions, the harness and `wip web` are healthy, with an exit code for scripts and support.
+Today that is split between `check` and `flow lint`. `doctor` would report whether the binary, the schema version, the `.wip/` root, the definitions folder and `wip web` are healthy, with an exit code for scripts and support.
 
 ## wip export
 
@@ -71,11 +66,6 @@ Today a gate only stores the question. A generic version adds an optional `gate_
 `wip lock acquire|release|ls` reserves a shared resource (a QA environment, a port, a test slot) with an owner, exits with code 5 if it is taken, and supports `--force --reason`.
 It becomes necessary as soon as two parallel items compete for something: named locks with owner and expiry, visible in `state` and in the web.
 
-## Polling and cadences
-
-`wip poll due|record|seen` and a `polling` key in the flow say which agent checks which phase and how often, with `OVERDUE` at 1.5x the cadence and a web footer showing the last and next pass.
-Today nothing runs by itself: the user asks. A generic version declares cadences in the flow and exposes a `wip poll due` that any scheduler (cron, CI, the runtime's own) can query, without a built-in cron.
-
 ## Rules from external state
 
 A field with an external state (for example a pull request: approved, changes requested, merged) that a poller or the user updates, plus rules in the flow that propose a phase or a wait depending on its value, with a history of states.
@@ -100,20 +90,15 @@ It also lets the coordinator answer "how is it going?" without interrupting the 
 What is approved at a gate or published is written as `v<N>.<name>` and the gate approves an exact version.
 Today `plan.md` is overwritten and the gate does not say which version was approved. A generic version is a `v<N>` convention in the subagent protocol, the exact path stored in the gate, and a diff between versions in the web.
 
-## wip start
-
-Opens the coordinator session with the right runtime, model and session name.
-Today the user starts their runtime by hand. A generic version is a start command configurable per harness in `.wip/config.json`, with variables such as `{session}` and `{project}`.
-
 ## Kanban in the terminal
 
 `wip state --line` (or `wip kanban --json`) prints a one-line kanban meant for shell status lines, tmux or any TUI, without depending on a specific runtime.
 Today there is only the web.
 
-## Runtime adapters
+## Claude Code hooks
 
-Optional adapters per harness that install hooks where the runtime allows it: register every launched subagent automatically (`agent start`), stop the coordinator from asking without an open gate, and review the messages at the end of each turn. Also `wip agents sync`, a Codex adapter and a per-runtime `tier` → model mapping.
-Today wip only creates the definitions for Claude Code, and the core must never depend on these adapters.
+Optional hooks that install into `.claude/settings.json` where Claude Code allows it: register every launched subagent automatically (`agent start`), stop the coordinator from asking without an open gate, and review the messages at the end of each turn.
+Today wip only creates the definitions for Claude Code, and the core must never depend on these hooks.
 
 ## Authorizations for irreversible operations
 
@@ -149,7 +134,29 @@ Today wip only uses the nearest `.wip/` or `WIP_HOME`.
 `wip web` listens on the LAN without authentication (or only locally with `--local`); authentication and multi-user use are out of scope for now.
 It needs a token or password for LAN mode, and possibly several projects in one web instance.
 
-## CI, publishing and license
+## Distribution after the first release
 
-The CI (tests on Linux, macOS and Windows, the five binaries, a smoke test per platform) only runs by hand; the packages are `"private": true`, the license is `UNLICENSED`, Windows junctions are still to be tested and the `linux-x64-baseline` target is undecided.
-Enable the CI on push and pull request, remove the comment about the 120 MB limit, choose a license and publish to npm.
+The npm package runs on Node and is the only thing CI builds and publishes (see `docs/releasing.md`); the standalone
+binaries are built locally with `bun scripts/build.ts --targets …`. Pending:
+
+- **Binaries in the release.** `scripts/build.ts --targets` already compiles, signs ad hoc on macOS and archives the
+  five binaries with `SHA256SUMS`, and its unit tests and `test/e2e/pack.test.ts` cover it. To ship them again,
+  `release.yml` needs: a `binaries` job (ubuntu builds `linux-x64,linux-arm64,windows-x64`, macos builds
+  `darwin-arm64,darwin-x64` and checks `codesign -v`; both upload `dist/release/*.tar.gz` and `*.zip`), a `smoke-bin`
+  job per platform (unpack, then `--version`, `init`, `check` and `web` `/health` with neither Node nor Bun on
+  `PATH`), `smoke-bin` in the `needs` of `publish`, and `github-release` downloading the archives, writing
+  `SHA256SUMS` and passing them to `gh release create`. Before that: `ubuntu-24.04-arm` is free only for public
+  repositories, `unzip` on the Windows runner is unconfirmed (`7z x` works), and the README Install section would
+  again point to the Release.
+- **`@garndev/wip-bin`**, an opt-in npm package with the binary, for users who want npm without Node's startup cost.
+  It brings back a launcher and five platform packages that must publish in order; only if someone asks.
+- **Notarized macOS binaries**, once they are in the release, so a browser download opens without the quarantine
+  step (needs an Apple Developer ID).
+- **An install script** (`curl … | sh`), once the binaries are in the release, that picks the archive, checks
+  `SHA256SUMS` and installs it.
+- **Homebrew** formula or tap for the binary.
+- **Raise the Node floor** to 24 in the first minor after Node 22's end of life (2027-04-30): `node:sqlite` is a
+  release candidate there, so the bin no longer needs to hide its ExperimentalWarning.
+- **`linux-x64-baseline`** binary for x64 CPUs without AVX2 (the npm package already runs there).
+- **Windows**: `wip_bin` is not recorded behind npm's `.cmd` shim and Windows junctions are untested; it stays
+  experimental.

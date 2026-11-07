@@ -1,9 +1,10 @@
 import { type IArgs, need } from "../args.ts";
-import { parseIso } from "../clock.ts";
+import { now, parseIso } from "../clock.ts";
 import type { ICtx, IHandler } from "../context.ts";
+import { cronJob, type ICronJob, itemCrons, openSession } from "../cron.ts";
 import type { TDatabase } from "../db.ts";
 import { notFound, usage } from "../errors.ts";
-import { type IFlowSet, loadFlows } from "../flow/registry.ts";
+import { disabledMessage, type IFlowSet, loadFlows } from "../flow/registry.ts";
 import {
   getItem,
   type IEventRow,
@@ -23,6 +24,8 @@ export interface IItemView {
   gates: IGateRow[];
   signals: ISignals;
   totals: ITotals;
+  /** Open crons tied to the item, earliest first. */
+  crons: ICronJob[];
 }
 
 export interface IShowOptions {
@@ -54,8 +57,13 @@ export function itemView(
       .query("SELECT * FROM agent_runs WHERE item_id = ? ORDER BY id")
       .all(id) as IRunRow[],
     gates: db.query("SELECT * FROM gates WHERE item_id = ? ORDER BY id").all(id) as IGateRow[],
-    signals: itemSignals(db, item, flows.entries.get(item.flow)?.flow ?? null),
+    signals: itemSignals(
+      db,
+      item,
+      flows.entries.get(item.flow)?.flow ?? flows.disabled.get(item.flow) ?? null,
+    ),
     totals: itemTotals(db, id),
+    crons: itemCrons(db, id).map((c) => cronJob(c, now(), openSession(db))),
   };
 }
 
@@ -72,6 +80,11 @@ function textLines(view: IItemView): string[] {
   lines.push(
     `totals: ${t.runs} runs · agents ${t.agent_seconds}s · waiting on the user ${t.user_wait_seconds}s`,
   );
+  for (const c of view.crons) {
+    lines.push(
+      `Cron: ${c.id} · ${c.at_local} · ${c.text ?? `poll ${c.flow}/${c.poll}`}${c.every ? ` · every ${c.every}` : ""}`,
+    );
+  }
   if (view.agent_runs.length > 0) {
     lines.push("", "## Agents");
     for (const r of view.agent_runs) {
@@ -118,6 +131,14 @@ function run(ctx: ICtx, args: IArgs): void {
     since,
   });
   ctx.result.warnings.push(...flows.warnings.filter((w) => w.flow === view.item.flow));
+  const flowName = String(view.item.flow);
+  if (flows.disabled.has(flowName)) {
+    ctx.result.warnings.push({
+      code: "flow_disabled",
+      message: disabledMessage(flowName),
+      flow: flowName,
+    });
+  }
   ctx.result.item = view.item;
   ctx.result.events = view.events;
   ctx.result.data = {
@@ -125,6 +146,7 @@ function run(ctx: ICtx, args: IArgs): void {
     gates: view.gates,
     signals: view.signals,
     totals: view.totals,
+    crons: view.crons,
   };
   ctx.result.lines.push(...textLines(view));
 }

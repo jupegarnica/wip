@@ -8,7 +8,7 @@ import { wipJsonIn, wipOkIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
 
 // A simulated coordinator drives the default `tasks` flow with CLI commands only, as the
-// `wip-coordinate` skill tells a real one to. With WIP_BIN it runs the installed binary.
+// `wip-coordinate` skill tells a real one to. With WIP_TEST_BIN it runs the installed binary.
 
 const dirs: string[] = [];
 
@@ -179,10 +179,23 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
   });
 });
 
+describe("from_any in the tasks flow", () => {
+  test("plan is reachable from check without --force", () => {
+    const dir = project("from-any");
+    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
+    step(dir, ["phase", "T4", "intake", "--flow", "tasks"]);
+    step(dir, ["phase", "T4", "plan"]);
+    step(dir, ["phase", "T4", "execute"]);
+    step(dir, ["phase", "T4", "check"]);
+    step(dir, ["phase", "T4", "plan"]);
+    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "plan" });
+  });
+});
+
 describe("the guided onboarding (F-NEW-08)", () => {
   let web: IWebServer | null = null;
-  afterEach(() => {
-    web?.stop();
+  afterEach(async () => {
+    await web?.stop();
     web = null;
   });
 
@@ -209,7 +222,7 @@ describe("the guided onboarding (F-NEW-08)", () => {
       ],
     ]);
     const guide = join(artifactDir(dir, "onboarding"), "guide.md");
-    web = startWeb({ port: 0, root: rootAt(dir), local: true });
+    web = await startWeb({ port: 0, root: rootAt(dir), local: true });
 
     step(dir, ["session", "start", "--id", "s1"]);
     step(dir, ["log", "onboarding", "let's start", "--kind", "user"]);

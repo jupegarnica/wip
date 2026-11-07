@@ -33,7 +33,7 @@ describe("wip wait (F-EST-12)", () => {
     }
   });
 
-  test("user without --next or gate breaks I3, none outside the terminal phase breaks I4", () => {
+  test("user without --next or gate breaks I3, none outside a terminal phase breaks I4", () => {
     const p = ctx.set(itemsProject("wait-invariants"));
     itemInPlan(p);
     const user = wipJson(p, ["wait", "T1", "user"]);

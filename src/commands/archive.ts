@@ -13,6 +13,7 @@ import {
   writeFlow,
 } from "../items.ts";
 import { noExtra } from "./phase.ts";
+import { pruneItem } from "./prune.ts";
 
 function run(ctx: ICtx, args: IArgs): void {
   const id = need(args.pos[0], "the item ID");
@@ -72,7 +73,9 @@ function run(ctx: ICtx, args: IArgs): void {
   );
   assertItem(db, id, flow);
   ctx.result.item = publicItem(getItem(db, id));
-  ctx.result.lines.push(`${id} · archived in ${item.phase}`);
+  // Last statement: prune never throws and never changes the exit code.
+  const pruned = args.flags.has("no-prune") ? "" : pruneItem(ctx, getItem(db, id));
+  ctx.result.lines.push(`${id} · archived in ${item.phase}${pruned}`);
 }
 
 export const archiveCmd: IHandler = { db: "write", run };

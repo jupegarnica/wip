@@ -12,7 +12,8 @@
       "!**/*.tgz",
       "!**/.wip",
       "!test/fixtures",
-      "!templates"
+      "!templates",
+      "!.claude"
     ]
   },
   "formatter": {
@@ -39,6 +40,35 @@
         "rules": {
           "style": {
             "noDescendingSpecificity": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/**"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "bun": "src/ runs on Node too: use node:* modules (see src/sqlite.ts, src/web/server.ts).",
+                  "bun:sqlite": "src/ runs on Node too: use src/sqlite.ts.",
+                  "bun:test": "src/ runs on Node too: tests live in test/.",
+                  "bun:ffi": "src/ runs on Node too.",
+                  "bun:jsc": "src/ runs on Node too."
+                }
+              }
+            },
+            "noRestrictedGlobals": {
+              "level": "error",
+              "options": {
+                "deniedGlobals": {
+                  "Bun": "src/ runs on Node too: use node:* modules."
+                }
+              }
+            }
           }
         }
       }

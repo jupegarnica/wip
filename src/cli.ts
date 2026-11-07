@@ -1,10 +1,12 @@
 import { writeSync } from "node:fs";
 import pkg from "../package.json" with { type: "json" };
 import { allow, type IArgs, parseArgs } from "./args.ts";
+import { BUILD_INFO, formatBuildInfo } from "./build-info.ts";
 import { agentCmd } from "./commands/agent.ts";
 import { archiveCmd } from "./commands/archive.ts";
 import { checkCmd } from "./commands/check.ts";
-import { flowCmd } from "./commands/flow.ts";
+import { CRON_HANDLERS, cronCmd } from "./commands/cron.ts";
+import { FLOW_HANDLERS, flowCmd } from "./commands/flow.ts";
 import { gateCmd } from "./commands/gate.ts";
 import {
   COMMANDS,
@@ -14,12 +16,15 @@ import {
   helpCmd,
   type ICommandSpec,
 } from "./commands/help.ts";
-import { initCmd } from "./commands/init.ts";
+import { initCmd, isInitPrompt, promptInit } from "./commands/init.ts";
 import { logCmd } from "./commands/log.ts";
 import { phaseCmd } from "./commands/phase.ts";
+import { POLL_HANDLERS, pollCmd } from "./commands/poll.ts";
+import { pruneRead, pruneWrite } from "./commands/prune.ts";
 import { sessionCmd } from "./commands/session.ts";
 import { setCmd } from "./commands/set.ts";
 import { showCmd } from "./commands/show.ts";
+import { canLaunchBare, startCmd, startLaunch } from "./commands/start.ts";
 import { stateCmd } from "./commands/state.ts";
 import { waitCmd } from "./commands/wait.ts";
 import { webMain } from "./commands/web.ts";
@@ -33,8 +38,8 @@ export const VERSION: string = pkg.version;
 const versionCmd: IHandler = {
   db: "none",
   run: (ctx) => {
-    ctx.result.lines.push(VERSION);
-    ctx.result.data = { version: VERSION };
+    ctx.result.lines.push(formatBuildInfo(BUILD_INFO));
+    ctx.result.data = { ...BUILD_INFO };
   },
 };
 
@@ -42,15 +47,19 @@ export const HANDLERS: Readonly<Record<string, IHandler>> = {
   agent: agentCmd,
   archive: archiveCmd,
   check: checkCmd,
+  cron: cronCmd,
   flow: flowCmd,
   gate: gateCmd,
   help: helpCmd,
   init: initCmd,
   log: logCmd,
   phase: phaseCmd,
+  poll: pollCmd,
+  prune: pruneWrite,
   session: sessionCmd,
   set: setCmd,
   show: showCmd,
+  start: startCmd,
   state: stateCmd,
   version: versionCmd,
   wait: waitCmd,
@@ -68,6 +77,28 @@ export function isWebServe(argv: readonly string[]): boolean {
   const dashdash = rest.indexOf("--");
   const head = dashdash < 0 ? rest : rest.slice(0, dashdash);
   return first === "web" && !head.includes("--help") && !head.includes("-h");
+}
+
+const START_MODE_FLAGS = ["--set", "--unset", "--show", "--dry-run"];
+
+/**
+ * `wip start` (not its help nor the modes that do not launch), and bare `wip` when it is safe to launch: a terminal
+ * on stdin and stdout, no session started by wip (WIP_START), a project, and a usable start command. Otherwise bare
+ * `wip` is the help, as before. Like `wip web`, the launch runs outside run(), which is synchronous.
+ */
+export function isStartLaunch(
+  argv: readonly string[],
+  env: TEnv,
+  tty: boolean,
+  cwd: string,
+): boolean {
+  if (argv.length === 0) return tty && env.WIP_START === undefined && canLaunchBare(cwd, env);
+  const [first, ...rest] = argv;
+  if (first !== "start") return false;
+  const dashdash = rest.indexOf("--");
+  const head = dashdash < 0 ? rest : rest.slice(0, dashdash);
+  if (head.includes("--help") || head.includes("-h")) return false;
+  return !head.some((a) => START_MODE_FLAGS.includes(a));
 }
 
 export interface IRunOutput {
@@ -108,7 +139,18 @@ export function run(argv: readonly string[], options: IRunOptions = {}): IRunOut
     }
     const args = parseArgs(rest, spec.flags);
     allow(args, [...spec.options, ...spec.flags]);
-    const handler = options.extra?.find((e) => e.spec.name === name)?.handler ?? HANDLERS[name];
+    const base = options.extra?.find((e) => e.spec.name === name)?.handler ?? HANDLERS[name];
+    const bySub =
+      name === "poll"
+        ? POLL_HANDLERS
+        : name === "flow"
+          ? FLOW_HANDLERS
+          : name === "cron"
+            ? CRON_HANDLERS
+            : null;
+    const picked = bySub ? (bySub[args.pos[0] ?? ""] ?? base) : base;
+    // `wip prune --dry-run` only reads: it must not create the database.
+    const handler = name === "prune" && args.flags.has("dry-run") ? pruneRead : picked;
     if (!handler) throw usage(`\`wip ${name}\` is not available in this build yet`);
     execute(handler, args, result, options);
   } catch (err) {
@@ -192,11 +234,26 @@ function writeAll(fd: number, text: string): void {
   for (let offset = 0; offset < buffer.length; ) offset += writeSync(fd, buffer, offset);
 }
 
-if (import.meta.main) {
-  const argv = process.argv.slice(2);
-  if (isWebServe(argv)) process.exit(await webMain(argv.slice(1)));
-  const out = run(argv);
+/**
+ * The whole CLI for one process: writes to stdout and stderr and resolves to the exit code. The caller exits with it
+ * (`src/main.ts` under Bun and in the binary, `bin/wip.mjs` in the npm package).
+ */
+export async function main(argv: readonly string[]): Promise<number> {
+  if (isWebServe(argv)) return webMain(argv.slice(1));
+  const cwd = process.cwd();
+  const tty = Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  if (isStartLaunch(argv, process.env, tty, cwd)) {
+    const rest = argv[0] === "start" ? argv.slice(1) : [];
+    return startLaunch(rest, cwd, process.env, tty);
+  }
+  let toRun = argv;
+  if (isInitPrompt(argv, tty)) {
+    const asked = await promptInit(argv, cwd, process.env);
+    if (asked.argv === null) return asked.code;
+    toRun = asked.argv;
+  }
+  const out = run(toRun);
   if (out.stdout) writeAll(1, out.stdout);
   if (out.stderr) writeAll(2, out.stderr);
-  process.exit(out.code);
+  return out.code;
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EXIT } from "../../src/errors.ts";
+import { fixture, putFlow } from "../helpers/defs.ts";
 import { itemInPlan, itemsProject, ok, useProject, wipJson } from "../helpers/items.ts";
 import { count, type IProject } from "../helpers/project.ts";
 
@@ -76,5 +77,17 @@ describe("invariants on write (F-INV-01…05)", () => {
     const show = ok(p, ["show", "T1"]);
     expect(show.data?.totals).toMatchObject({ runs: 3, gates: 2 });
     expect(show.item).toMatchObject({ status: "archived", phase: "done", waiting_on: "none" });
+  });
+});
+
+describe("I4 with several terminal phases", () => {
+  test("waiting_on none is accepted in each terminal phase of the flow", () => {
+    const p = ctx.set(itemsProject("inv-two-terminals"));
+    putFlow(p.dir, "two", fixture("flows", "two-terminals"));
+    ok(p, ["phase", "T1", "todo", "--flow", "two"]);
+    ok(p, ["phase", "T2", "todo", "--flow", "two"]);
+    expect(ok(p, ["phase", "T1", "done"]).item).toMatchObject({ waiting_on: "none" });
+    expect(ok(p, ["phase", "T2", "dropped"]).item).toMatchObject({ waiting_on: "none" });
+    expect(wipJson(p, ["check"]).code).toBe(EXIT.OK);
   });
 });

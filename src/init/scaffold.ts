@@ -3,12 +3,14 @@ import { dirname, join } from "node:path";
 import { hasGenericMark, hasWipMark, modelLine, withModelLine } from "../agents.ts";
 import { WIP_DIR } from "../config.ts";
 import { COORDINATOR_AGENT, GENERIC_AGENTS, TEMPLATES } from "../embedded/templates.ts";
+import { modelLineFor } from "./models.ts";
 
 export type TFileAction = "created" | "exists" | "replaced";
 export type TGitignoreAction = "created" | "added" | "exists";
+export type TGitignoreResult = TGitignoreAction | "skipped";
 
 export interface IInitFile {
-  /** Relative to the project, forward slashes. */
+  /** As shown: relative to the project, or `~/…`; forward slashes. */
   path: string;
   action: TFileAction;
   backup: string | null;
@@ -16,7 +18,10 @@ export interface IInitFile {
 
 export interface IScaffold {
   wipDir: "created" | "exists";
-  gitignore: TGitignoreAction;
+  /** The action on `.wip/`; `skipped` when `--gitignore` leaves it out. */
+  gitignore: TGitignoreResult;
+  /** The action on the definitions' entries; `skipped` when `defs` was not asked. */
+  gitignoreDefs: TGitignoreResult;
   files: IInitFile[];
 }
 
@@ -24,38 +29,83 @@ export interface IScaffoldOptions {
   force: boolean;
   /** Suffix of the backup files: `compact()` of the run. */
   stamp: string;
-  /** Relative to the project, forward slashes: where the templates go. */
+  /** As shown: relative to the project, or `~/…`; forward slashes: where the templates go. */
   defsDir: string;
+  /** Absolute path of that folder on disk. */
+  defsRoot: string;
+  /** Agent name to model: written as the `model:` line of that agent, also without `force`. */
+  models?: Readonly<Record<string, string>>;
+  /** Whether `.wip/` goes into `.gitignore` (default true). */
+  ignoreWip?: boolean;
+  /** Also write the definitions' own paths into `.gitignore` (local scope only; the default is not to). */
+  ignoreDefs?: boolean;
 }
 
 const GITIGNORE_ENTRY = `${WIP_DIR}/`;
-const IGNORED_FORMS = new Set([WIP_DIR, `${WIP_DIR}/`, `/${WIP_DIR}`, `/${WIP_DIR}/`]);
 const BACKUPS_DIR = `${WIP_DIR}/backups/defs`;
 
 const genericKeys = new Set<string>(GENERIC_AGENTS.map((name) => `agents/${name}.md`));
 
 /** Files at a template's path without a `wip:` mark: another tool's, never written over, not even with `--force`. */
-export function foreignFiles(project: string, defsDir: string): string[] {
+export function foreignFiles(defsRoot: string, defsDir: string): string[] {
   return Object.keys(TEMPLATES)
     .sort()
-    .map((key) => `${defsDir}/${key}`)
-    .filter((rel) => {
-      const file = join(project, rel);
+    .filter((key) => {
+      const file = join(defsRoot, key);
       return existsSync(file) && !hasWipMark(readFileSync(file, "utf8"));
-    });
+    })
+    .map((key) => `${defsDir}/${key}`);
 }
 
-function ensureGitignore(project: string): TGitignoreAction {
-  const file = join(project, ".gitignore");
-  if (!existsSync(file)) {
-    writeFileSync(file, `${GITIGNORE_ENTRY}\n`);
-    return "created";
+const DEFS_HEADER = "# wip definitions";
+
+/** The `.gitignore` entries of the templates under `defsDir` (relative, no `~/`): agent files and one folder per skill. */
+export function defsIgnoreEntries(defsDir: string): string[] {
+  const out = new Set<string>();
+  for (const key of Object.keys(TEMPLATES).sort()) {
+    const m = /^(skills\/[^/]+)\//.exec(key);
+    out.add(m ? `${defsDir}/${m[1]}/` : `${defsDir}/${key}`);
   }
-  const text = readFileSync(file, "utf8");
-  if (text.split(/\r?\n/).some((line) => IGNORED_FORMS.has(line.trim()))) return "exists";
-  const separator = text === "" || text.endsWith("\n") ? "" : "\n";
-  writeFileSync(file, `${text}${separator}${GITIGNORE_ENTRY}\n`);
-  return "added";
+  return [...out];
+}
+
+/** Whether `.gitignore` of the project already ignores `entry` (the forms of `.wip` count as equal). */
+export function isIgnored(project: string, entry: string): boolean {
+  const file = join(project, ".gitignore");
+  if (!existsSync(file)) return false;
+  return hasEntry(readFileSync(file, "utf8"), entry);
+}
+
+function equivalents(entry: string): Set<string> {
+  const bare = entry.replace(/^\//, "").replace(/\/$/, "");
+  return new Set([bare, `${bare}/`, `/${bare}`, `/${bare}/`]);
+}
+
+function hasEntry(text: string, entry: string): boolean {
+  const forms = equivalents(entry);
+  return text.split(/\r?\n/).some((line) => forms.has(line.trim()));
+}
+
+/**
+ * Appends the entries not there yet (one per line, after `header` when given), creating the file when missing.
+ * Idempotent; the line ending already in the file is kept.
+ */
+function ensureGitignore(
+  project: string,
+  entries: readonly string[],
+  header?: string,
+): TGitignoreAction {
+  const file = join(project, ".gitignore");
+  const exists = existsSync(file);
+  const text = exists ? readFileSync(file, "utf8") : "";
+  const missing = entries.filter((e) => !hasEntry(text, e));
+  if (exists && missing.length === 0) return "exists";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  const separator = text === "" || text.endsWith("\n") ? "" : eol;
+  const head = header !== undefined && !text.split(/\r?\n/).some((l) => l.trim() === header);
+  const block = [...(head ? [header] : []), ...missing].map((l) => `${l}${eol}`).join("");
+  writeFileSync(file, `${text}${separator}${block}`);
+  return exists ? "added" : "created";
 }
 
 function write(file: string, text: string): void {
@@ -76,6 +126,12 @@ function desired(key: string, template: string, current: string): string {
   return line === null ? template : withModelLine(template, line);
 }
 
+function withChosenModel(key: string, text: string, options: IScaffoldOptions): string {
+  const m = /^agents\/(.+)\.md$/.exec(key);
+  const value = m ? options.models?.[m[1] as string] : undefined;
+  return value === undefined ? text : withModelLine(text, modelLineFor(value));
+}
+
 function placeTemplate(
   project: string,
   key: string,
@@ -83,14 +139,15 @@ function placeTemplate(
   options: IScaffoldOptions,
 ): IInitFile {
   const rel = `${options.defsDir}/${key}`;
-  const file = join(project, rel);
+  const file = join(options.defsRoot, key);
   if (!existsSync(file)) {
-    write(file, template);
+    write(file, withChosenModel(key, template, options));
     return { path: rel, action: "created", backup: null };
   }
   const current = readFileSync(file, "utf8");
-  const text = desired(key, template, current);
-  if (!options.force || text === current) return { path: rel, action: "exists", backup: null };
+  const base = options.force ? desired(key, template, current) : current;
+  const text = withChosenModel(key, base, options);
+  if (text === current) return { path: rel, action: "exists", backup: null };
   const backup = `${BACKUPS_DIR}/${key}.${options.stamp}`;
   write(join(project, backup), current);
   write(file, text);
@@ -102,9 +159,13 @@ export function scaffold(project: string, options: IScaffoldOptions): IScaffold 
   const wip = join(project, WIP_DIR);
   const wipDir = existsSync(wip) ? "exists" : "created";
   mkdirSync(wip, { recursive: true });
-  const gitignore = ensureGitignore(project);
+  const gitignore =
+    options.ignoreWip === false ? "skipped" : ensureGitignore(project, [GITIGNORE_ENTRY]);
   const files = Object.keys(TEMPLATES)
     .sort()
     .map((key) => placeTemplate(project, key, TEMPLATES[key] as string, options));
-  return { wipDir, gitignore, files };
+  const gitignoreDefs = options.ignoreDefs
+    ? ensureGitignore(project, defsIgnoreEntries(options.defsDir), DEFS_HEADER)
+    : "skipped";
+  return { wipDir, gitignore, gitignoreDefs, files };
 }

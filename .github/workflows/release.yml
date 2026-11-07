@@ -1,0 +1,182 @@
+name: Release
+
+# A tag v<version> publishes @garndev/wip to npm (after a reviewer approves the npm-publish environment) and makes the
+# GitHub Release with the CHANGELOG notes. Run by hand (workflow_dispatch) it is a dry run by default: everything is
+# built and tested, `npm publish --dry-run` runs, and nothing is published. See docs/releasing.md.
+#
+# The compiled binaries are not built here for now: `bun scripts/build.ts --targets …` still builds and archives them
+# locally. Bringing them back to the release is described in docs/future-improvements.md ("Binaries in the release").
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build and test only; publish nothing"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Actions are pinned by commit SHA; the comment names the tag it was taken from.
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      dist_tag: ${{ steps.v.outputs.dist_tag }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+      dry_run: ${{ steps.v.outputs.dry_run }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - id: v
+        env:
+          EVENT: ${{ github.event_name }}
+          DRY_INPUT: ${{ inputs.dry_run }}
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          if [ "$EVENT" = "push" ]; then
+            dry_run=false
+            if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+              echo "tag $GITHUB_REF_NAME does not match package.json version $version"; exit 1
+            fi
+          else
+            dry_run=${DRY_INPUT:-true}
+            if [ "$dry_run" != "true" ]; then echo "a real release starts from a tag push"; exit 1; fi
+          fi
+          case "$version" in
+            *-*) dist_tag=next; prerelease=true ;;
+            *) dist_tag=latest; prerelease=false ;;
+          esac
+          # The heading is exactly `## <version>` or `## <version> (<date>)`: 0.1.0 does not match 0.1.0-rc.1 or
+          # 0.1.10. A section still marked "unreleased" stops a real release; a dry run only warns.
+          heading=$(awk -v v="## $version" '$0 == v || index($0, v " ") == 1 {print; exit}' CHANGELOG.md)
+          if [ -z "$heading" ]; then echo "CHANGELOG.md has no '## $version' section"; exit 1; fi
+          if printf '%s' "$heading" | grep -qi unreleased; then
+            if [ "$dry_run" != "true" ]; then echo "CHANGELOG.md: '$heading' is still unreleased; date it first"; exit 1; fi
+            echo "::warning::CHANGELOG.md: '$heading' is still unreleased; date it before tagging"
+          fi
+          {
+            echo "version=$version"
+            echo "dist_tag=$dist_tag"
+            echo "prerelease=$prerelease"
+            echo "dry_run=$dry_run"
+          } >> "$GITHUB_OUTPUT"
+          echo "release $version → $dist_tag (dry run: $dry_run)"
+
+  # bun test on 3 OSes, the npm package packed once and the e2e suite against it on Node 22, 24 and 26.
+  test:
+    needs: version
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: [version, test]
+    runs-on: ubuntu-latest
+    # A reviewer approves every real publish; a dry run uses an environment without reviewers.
+    environment: ${{ needs.version.outputs.dry_run == 'true' && 'npm-publish-dry-run' || 'npm-publish' }}
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+      # The tarball the test workflow packed and ran the e2e suite against.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: npm-package
+          path: package
+      - name: npm publish
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          DIST_TAG: ${{ needs.version.outputs.dist_tag }}
+          DRY_RUN: ${{ needs.version.outputs.dry_run }}
+        run: |
+          npm install -g npm@11
+          tarball="package/garndev-wip-$VERSION.tgz"
+          test -f "$tarball"
+          flags=(--access public --tag "$DIST_TAG" --provenance)
+          if [ "$DRY_RUN" = "true" ]; then flags+=(--dry-run); fi
+          npm publish "$tarball" "${flags[@]}"
+
+  github-release:
+    needs: [version, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Release notes from CHANGELOG.md
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # The section under `## <version>` or `## <version> (…)`, as the version job matched it.
+          awk -v v="## $VERSION" '($0 == v || index($0, v " ") == 1) && !on {on=1; next} /^## / && on {exit} on' CHANGELOG.md > notes.md
+          test -s notes.md
+          cat notes.md
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          DRY_RUN: ${{ needs.version.outputs.dry_run }}
+        run: |
+          flags=(--title "wip $VERSION" --notes-file notes.md --verify-tag)
+          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "dry run: gh release create v$VERSION ${flags[*]}"
+            exit 0
+          fi
+          gh release create "v$VERSION" "${flags[@]}"
+
+  verify:
+    needs: [version, github-release]
+    if: needs.version.outputs.dry_run != 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, node: "22" }
+          - { os: ubuntu-latest, node: "24" }
+          - { os: ubuntu-latest, node: "26" }
+          - { os: macos-latest, node: "24" }
+          - { os: windows-latest, node: "24" }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ matrix.node }}
+      - name: Install from the registry, as a user does
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          export npm_config_prefix="$RUNNER_TEMP/prefix" npm_config_cache="$RUNNER_TEMP/cache"
+          for i in 1 2 3 4 5; do npm install -g "@garndev/wip@$VERSION" && break; sleep 30; done
+          if [ "$RUNNER_OS" = "Windows" ]; then echo "WIP=$RUNNER_TEMP/prefix/wip.cmd" >> "$GITHUB_ENV"; else echo "WIP=$RUNNER_TEMP/prefix/bin/wip" >> "$GITHUB_ENV"; fi
+      - name: version, signatures, init, check, state and web, with no warning
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          err="$RUNNER_TEMP/err.txt"
+          "$WIP" --version 2> "$err" | grep -q "^$VERSION "
+          mkdir -p "$RUNNER_TEMP/sig" && cd "$RUNNER_TEMP/sig" && npm init -y > /dev/null
+          npm install "@garndev/wip@$VERSION" > /dev/null && npm audit signatures
+          mkdir -p "$RUNNER_TEMP/t" && cd "$RUNNER_TEMP/t" && git init -q
+          "$WIP" init --yes > /dev/null 2>> "$err"
+          "$WIP" check 2>> "$err"
+          "$WIP" state --json > /dev/null 2>> "$err"
+          "$WIP" web --port 33999 --local > web.out 2>> "$err" &
+          for i in $(seq 50); do curl -sf http://localhost:33999/health > health.json && break; sleep 0.2; done
+          grep -q '"app":"wip-web"' health.json
+          "$WIP" web stop
+          if grep -q ExperimentalWarning "$err"; then cat "$err"; exit 1; fi

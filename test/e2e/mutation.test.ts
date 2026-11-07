@@ -3,11 +3,11 @@ import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "no
 import { join } from "node:path";
 import { probe } from "../../src/commands/web.ts";
 import { EXIT } from "../../src/errors.ts";
-import { WIP_BIN, wipJsonIn, wipOkIn } from "../helpers/bin.ts";
+import { WIP_CMD, wipJsonIn, wipOkIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
 
 // The coordinator creates and edits a flow the way `wip-new-flow` says: backup, write, `wip flow lint`,
-// restore on failure. With WIP_BIN every command runs the installed binary.
+// restore on failure. With WIP_TEST_BIN every command runs the installed binary.
 
 const REPO = join(import.meta.dir, "..", "..");
 const dirs: string[] = [];
@@ -63,7 +63,7 @@ function flowProject(name: string): IFlowProject {
   const dir = scratch(`mutation-${name}`);
   dirs.push(dir);
   expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
-  const skills = join(dir, ".agents", "skills");
+  const skills = join(dir, ".claude", "skills");
   mkdirSync(join(skills, "wip-flow-review"));
   const review = join(skills, "wip-flow-review", "SKILL.md");
   const template = readFileSync(join(skills, "wip-flow-tasks", "SKILL.md"), "utf8")
@@ -151,13 +151,12 @@ describe("a new flow created by copying the tasks flow skill (§1.7)", () => {
   test("a new agent becomes a phase's `agent:` and runs in it", () => {
     const p = flowProject("agent");
     writeFileSync(
-      join(p.dir, ".agents", "agents", "reviewer.md"),
+      join(p.dir, ".claude", "agents", "reviewer.md"),
       [
         "---",
         "name: reviewer",
         "description: Reviews a change against the request and lists what is missing.",
-        "role: subagent",
-        "capabilities: [read, shell]",
+        "tools: Read, Bash, Grep, Glob",
         "model: inherit",
         "---",
         "",
@@ -229,9 +228,7 @@ describe("wip web over both flows (§1.8)", () => {
 
     const port = await freePort();
     const args = ["web", "--port", String(port), "--local"];
-    const cmd = WIP_BIN
-      ? [WIP_BIN, ...args]
-      : [process.execPath, join(REPO, "src", "cli.ts"), ...args];
+    const cmd = [...(WIP_CMD ?? [process.execPath, join(REPO, "src", "main.ts")]), ...args];
     const proc = Bun.spawn(cmd, {
       cwd: p.dir,
       env: { PATH: process.env.PATH ?? "/usr/bin:/bin" },

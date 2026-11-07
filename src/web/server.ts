@@ -1,4 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import type { AddressInfo } from "node:net";
 import { type NetworkInterfaceInfo, networkInterfaces } from "node:os";
 import pkg from "../../package.json" with { type: "json" };
 import { itemView } from "../commands/show.ts";
@@ -11,7 +13,7 @@ import { findItem } from "../items.ts";
 import { ARTIFACT_MAX_BYTES, artifactFile, itemDir, listArtifacts } from "./artifacts.ts";
 import { historyData, parseHistoryQuery } from "./history.ts";
 import type { TWebLog } from "./log.ts";
-import { boardData, itemLinks, openReadOnly } from "./state.ts";
+import { boardData, itemLinks, migrateIfBehind, openReadOnly } from "./state.ts";
 
 // A read-only kanban on 127.0.0.1 and, unless `local`, on the machine's private LAN IPv4 too. Stateless: each /api
 // request opens the database read-only, reads and closes it, so a concurrent `wip phase` is never blocked.
@@ -35,13 +37,14 @@ export interface IWebOptions {
 }
 
 export interface IWebServer {
-  server: ReturnType<typeof Bun.serve>;
-  lanServer: ReturnType<typeof Bun.serve> | null;
+  server: Server;
+  lanServer: Server | null;
   port: number;
   url: string;
   lan: string | null;
   lanUrl: string | null;
-  stop: () => void;
+  /** Stops listening and drops open connections; resolves once both servers are closed. */
+  stop: () => Promise<void>;
 }
 
 export interface IHealth {
@@ -164,8 +167,9 @@ function itemRef(rawFlow: string | undefined, rawId: string | undefined): IItemR
   return { flow, id };
 }
 
-export function startWeb(options: IWebOptions): IWebServer {
+export async function startWeb(options: IWebOptions): Promise<IWebServer> {
   const { root } = options;
+  migrateIfBehind(root.db); // a database one build behind is migrated here; one ahead still fails below
   openReadOnly(root.db)?.close(); // fail fast on a schema this build does not read
 
   function read<T>(fn: (db: TDatabase | null, flows: IFlowSet) => T): T {
@@ -312,15 +316,15 @@ export function startWeb(options: IWebOptions): IWebServer {
     return res;
   }
 
-  const server = Bun.serve({ hostname: "127.0.0.1", port: options.port, fetch: logged });
-  port = server.port as number;
+  const server = await listen("127.0.0.1", options.port, logged);
+  port = (server.address() as AddressInfo).port;
   hosts = allowedHosts(port, ips);
-  let lanServer: ReturnType<typeof Bun.serve> | null = null;
+  let lanServer: Server | null = null;
   if (lan) {
     try {
-      lanServer = Bun.serve({ hostname: lan, port, fetch: logged });
+      lanServer = await listen(lan, port, logged);
     } catch (err) {
-      server.stop(true);
+      await close(server);
       throw err;
     }
   }
@@ -331,9 +335,49 @@ export function startWeb(options: IWebOptions): IWebServer {
     url: `http://localhost:${port}/`,
     lan,
     lanUrl: lan ? `http://${lan}:${port}/` : null,
-    stop: () => {
-      server.stop(true);
-      lanServer?.stop(true);
+    stop: async () => {
+      await Promise.all([close(server), lanServer ? close(lanServer) : undefined]);
     },
   };
+}
+
+type TFetch = (req: Request) => Response;
+
+/** Binds `hostname:port` (0 picks a free port); a port in use rejects with `EADDRINUSE`. */
+function listen(hostname: string, port: number, fetch: TFetch): Promise<Server> {
+  const server = createServer((req, res) => reply(req, res, fetch));
+  return new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(port, hostname, () => {
+      server.off("error", reject);
+      resolve(server);
+    });
+  });
+}
+
+function close(server: Server): Promise<void> {
+  return new Promise((resolve) => {
+    server.close(() => resolve());
+    server.closeAllConnections();
+  });
+}
+
+/** The bridge from `node:http` to the fetch-style handler: GET only and string bodies, so the body is never read. */
+function reply(req: IncomingMessage, res: ServerResponse, fetch: TFetch): void {
+  let response: Response;
+  try {
+    const headers = new Headers();
+    for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
+      headers.append(req.rawHeaders[i] as string, req.rawHeaders[i + 1] as string);
+    }
+    const url = new URL(req.url ?? "/", `http://${req.headers.host || "localhost"}`);
+    response = fetch(new Request(url.href, { method: req.method ?? "GET", headers }));
+  } catch {
+    response = respond("bad request", 400, TEXT);
+  }
+  res.writeHead(response.status, Object.fromEntries(response.headers));
+  response.text().then(
+    (body) => res.end(body),
+    () => res.end(),
+  );
 }

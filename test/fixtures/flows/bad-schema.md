@@ -1,6 +1,6 @@
 ```wip-flow
 version: 2
-polling: []
+schedule: []
 fields:
   title: string
   phase: string

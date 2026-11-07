@@ -1,11 +1,14 @@
-import { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
+import { now } from "../clock.ts";
 import { type IStateItem, listState } from "../commands/state.ts";
-import { BUSY_TIMEOUT_MS, SCHEMA_VERSION, type TDatabase, userVersion } from "../db.ts";
+import { cronJobs, DEFAULT_HORIZON, type ICronJob, itemCrons } from "../cron.ts";
+import { BUSY_TIMEOUT_MS, openDb, SCHEMA_VERSION, type TDatabase, userVersion } from "../db.ts";
 import { dbError } from "../errors.ts";
-import type { IFlow } from "../flow/parse.ts";
+import { type IFlow, parseCadence } from "../flow/parse.ts";
 import type { IFlowSet, TFlowSource } from "../flow/registry.ts";
 import { phaseOf } from "../items.ts";
+import { type IPollRow, pollRows } from "../poll.ts";
+import { Database } from "../sqlite.ts";
 
 export interface IItemLink {
   label: string;
@@ -27,12 +30,12 @@ export interface IStagePaint {
 
 export const NO_PAINT: IStagePaint = { alpha: null, color: "", text: "", text_dark: "" };
 
-export function stagePaint(alpha: number): IStagePaint {
+export function stagePaint(alpha: number, tone: string = STAGE_TONE): IStagePaint {
   return {
     alpha,
-    color: stageColor(alpha),
-    text: textOn(composite(STAGE_TONE, alpha, SURFACE_LIGHT)),
-    text_dark: textOn(composite(STAGE_TONE, alpha, SURFACE_DARK)),
+    color: stageColor(alpha, tone),
+    text: textOn(composite(tone, alpha, SURFACE_LIGHT)),
+    text_dark: textOn(composite(tone, alpha, SURFACE_DARK)),
   };
 }
 
@@ -59,6 +62,8 @@ export interface IBoardItem extends IStateItem, IStagePaint {
   column: string;
   stage: string | null;
   links: IItemLink[];
+  /** `at` of the item's earliest open cron (the card's clock badge), or null. */
+  cron_at: string | null;
 }
 
 export interface IYourTurn {
@@ -89,7 +94,16 @@ export interface IBoardRun {
   started_at: string;
 }
 
+/** A poll of the board's footer: `wip poll due`'s row without the seen keys. The server's clock is not in it, so an idle board's text stays equal between requests. */
+export type IBoardPoll = Omit<IPollRow, "seen">;
+
+/** A job of the «Scheduled» footer: `wip cron list`'s job without its poll row. */
+export type IBoardCron = Omit<ICronJob, "pass">;
+
 export interface IBoard {
+  polling: { polls: IBoardPoll[] };
+  /** Open crons and the next pass of each flow poll within the default horizon, sorted by time. */
+  crons: IBoardCron[];
   flows: IBoardFlow[];
   items: IBoardItem[];
   your_turn: IYourTurn[];
@@ -98,7 +112,7 @@ export interface IBoard {
   warnings: { code: string; flow: unknown; message: string }[];
 }
 
-/** The one hue of the board: every stage is this tone, more transparent the later it comes in the flow. */
+/** Default tone of a flow without `color`; each stage is more transparent the later it comes in the flow. */
 export const STAGE_TONE = "#2563EB";
 export const STAGE_ALPHA_FIRST = 1;
 export const STAGE_ALPHA_LAST = 0.25;
@@ -154,7 +168,7 @@ export function textOn(hex: string): string {
 /** The database read-only, or `null` while it does not exist; a schema this build does not read is an error. */
 export function openReadOnly(path: string): TDatabase | null {
   if (!existsSync(path)) return null;
-  const db = new Database(path, { readonly: true, strict: true });
+  const db = new Database(path, { readOnly: true });
   try {
     db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
     const version = userVersion(db);
@@ -168,6 +182,20 @@ export function openReadOnly(path: string): TDatabase | null {
     db.close();
     throw err;
   }
+}
+
+/** Starting the server is the one place the web writes: a database behind this build is migrated like any command would. */
+export function migrateIfBehind(path: string): void {
+  if (!existsSync(path)) return;
+  const probe = new Database(path, { readOnly: true });
+  let behind: boolean;
+  try {
+    probe.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
+    behind = userVersion(probe) < SCHEMA_VERSION;
+  } finally {
+    probe.close();
+  }
+  if (behind) openDb(path).close();
 }
 
 function linkValues(id: string, fields: Record<string, unknown>): [string, string][] {
@@ -225,8 +253,9 @@ export function flowColumns(flow: IFlow | null, extraPhases: readonly string[] =
     if (!columns.some((c) => c.phases.includes(name))) add(`phase:${name}`, name, null, name);
   }
   const staged = columns.filter((c) => c.stage !== null);
+  const tone = flow?.color ?? STAGE_TONE;
   staged.forEach((c, i) => {
-    Object.assign(c, stagePaint(stageAlpha(i, staged.length)));
+    Object.assign(c, stagePaint(stageAlpha(i, staged.length), tone));
   });
   return columns;
 }
@@ -258,6 +287,7 @@ export function boardData(db: TDatabase | null, flows: IFlowSet): IBoard {
       stage: (flow && phaseOf(flow, s.phase)?.stage) ?? null,
       ...paintOf(column),
       links: itemLinks(flow, s.id, s.fields),
+      cron_at: itemCrons(db, s.id)[0]?.at ?? null,
     };
   });
   const linksOf = (id: string): IItemLink[] => items.find((i) => i.id === id)?.links ?? [];
@@ -285,7 +315,13 @@ export function boardData(db: TDatabase | null, flows: IFlowSet): IBoard {
   const running = items
     .flatMap((i) => i.agents.map((a) => ({ item_id: i.id, flow: i.flow, ...a })))
     .sort((a, b) => a.started_at.localeCompare(b.started_at) || a.item_id.localeCompare(b.item_id));
+  const at = now();
+  const polls = pollRows(db, flows, at).map(({ seen: _seen, ...row }) => row);
+  const horizonS = parseCadence(DEFAULT_HORIZON) as number;
+  const crons = cronJobs(db, flows, at, horizonS).data.jobs.map(({ pass: _pass, ...job }) => job);
   return {
+    polling: { polls },
+    crons,
     flows: boardFlows,
     items,
     your_turn: yourTurn,

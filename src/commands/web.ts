@@ -1,5 +1,8 @@
+import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { connect } from "node:net";
+import { setTimeout as sleep } from "node:timers/promises";
 import { allow, type IArgs, parseArgs } from "../args.ts";
 import { envelope, newResult } from "../context.ts";
 import { findRoot, type IRoot, type TEnv } from "../env.ts";
@@ -67,8 +70,10 @@ export async function openBrowser(
   url: string,
   command: readonly string[] = browserCommand(url),
 ): Promise<void> {
-  const proc = Bun.spawn([...command], { stdout: "ignore", stderr: "ignore" });
-  const code = await proc.exited;
+  const [file, ...rest] = command as [string, ...string[]];
+  const child = spawn(file, rest, { stdio: "ignore" });
+  // `once` rejects when the child emits `error` (a command that does not exist).
+  const [code] = (await once(child, "exit")) as [number | null];
   if (code !== 0) throw new Error(`${command[0]} exited with ${code}`);
 }
 
@@ -306,7 +311,7 @@ async function stop(args: IArgs, options: IWebMainOptions, io: IWebIo): Promise<
     (options.kill ?? process.kill)(s.pid, "SIGTERM");
     const deadline = Date.now() + STOP_WAIT_MS;
     while ((await deps.probe(s.port)).kind !== "none" && Date.now() < deadline) {
-      await Bun.sleep(STOP_POLL_MS);
+      await sleep(STOP_POLL_MS);
     }
     if ((await deps.probe(s.port)).kind !== "none") {
       stuck = true;
@@ -420,7 +425,7 @@ async function serve(
     if (args.flags.has("open")) await openUrl(io, localUrl(port), log);
     return EXIT.OK;
   };
-  const start = (port: number): IWebServer =>
+  const start = (port: number): Promise<IWebServer> =>
     startWeb({ port, root, local, interfaces: options.interfaces, log });
   let web: IWebServer;
   if (explicit) {
@@ -433,7 +438,7 @@ async function serve(
     }
     try {
       if (found.kind === "other" || (await portInUse(base))) throw inUse(base);
-      web = start(base);
+      web = await start(base);
     } catch (err) {
       const failure = err instanceof WipError || !isAddrInUse(err) ? err : inUse(base);
       log("error", failure instanceof Error ? failure.message : String(failure));
@@ -464,7 +469,7 @@ async function serve(
   options.onListen?.(web);
   if (args.flags.has("open")) void openUrl(io, web.url, log);
   await io.stopped();
-  web.stop();
+  await web.stop();
   process.off("exit", exited);
   clearWebServer(root, web.port, process.pid);
   log("info", "stop");
@@ -476,14 +481,14 @@ const MAX_PORT = 65535;
 /** From `base`, the first port nothing accepts on and that binds; each one skipped is a line in the log. */
 async function startOnFirstFree(
   base: number,
-  start: (port: number) => IWebServer,
+  start: (port: number) => Promise<IWebServer>,
   log: TWebLog,
 ): Promise<IWebServer> {
   const last = Math.min(base + PORT_TRIES - 1, MAX_PORT);
   for (let port = base; port <= last; port++) {
     if (!(await portInUse(port))) {
       try {
-        return start(port);
+        return await start(port);
       } catch (err) {
         if (!isAddrInUse(err)) throw err;
       }
@@ -535,7 +540,7 @@ async function showLog(args: IArgs, options: IWebMainOptions, io: IWebIo): Promi
   });
   let offset = statSync(path).size;
   while (!stopped) {
-    await Promise.race([stop, Bun.sleep(FOLLOW_POLL_MS)]);
+    await Promise.race([stop, sleep(FOLLOW_POLL_MS)]);
     if (stopped || !existsSync(path)) continue;
     const bytes = readFileSync(path);
     if (bytes.length < offset) offset = 0;

@@ -3,8 +3,18 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
-import { flowFile, putAgent } from "../helpers/defs.ts";
-import { itemInPlan, itemsProject, ok, useProject, wipJson } from "../helpers/items.ts";
+import { flowFile, putAgent, putFlow } from "../helpers/defs.ts";
+import {
+  agentText,
+  at,
+  itemInPlan,
+  itemsProject,
+  ok,
+  T0,
+  tick,
+  useProject,
+  wipJson,
+} from "../helpers/items.ts";
 import type { IProject } from "../helpers/project.ts";
 import { makeProject } from "../helpers/project.ts";
 
@@ -38,7 +48,7 @@ describe("wip check (F-INV-08)", () => {
     ["I2f", "waiting_on outside its format", "UPDATE items SET waiting_on = 'bob'"],
     ["I2", "waiting on an agent with no running run", "UPDATE items SET waiting_on = 'agent:fast'"],
     ["I3", "waiting on the user with no gate nor next", "UPDATE items SET next = NULL"],
-    ["I4", "waiting on none before the terminal phase", "UPDATE items SET waiting_on = 'none'"],
+    ["I4", "waiting on none outside a terminal phase", "UPDATE items SET waiting_on = 'none'"],
   ];
   for (const [code, what, statement] of cases) {
     test(`${code}: ${what} is a finding with exit 1 (F-INV-01…05)`, () => {
@@ -76,7 +86,11 @@ describe("wip check (F-INV-08)", () => {
     writeFileSync(flowFile(p.dir, "valid"), "no block\n");
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.OK);
-    expect(body.warnings.map((w) => w.code)).toEqual(["flow_invalid", "models_unset"]);
+    expect(body.warnings.map((w) => w.code)).toEqual([
+      "flow_invalid",
+      "models_unset",
+      "start_unset",
+    ]);
     expect(p.wip(["check"]).stderr).toContain("warning: flow valid does not pass");
   });
 
@@ -86,7 +100,11 @@ describe("wip check (F-INV-08)", () => {
     rmSync(flowFile(p.dir, "valid"));
     const { code, body } = wipJson(p, ["check"]);
     expect(code).toBe(EXIT.OK);
-    expect(body.warnings.map((w) => w.code)).toEqual(["flow_missing", "models_unset"]);
+    expect(body.warnings.map((w) => w.code)).toEqual([
+      "flow_missing",
+      "models_unset",
+      "start_unset",
+    ]);
   });
 
   test("an item whose flow has no valid version is an I1 finding", () => {
@@ -188,7 +206,7 @@ describe("wip check: generic agents (F-NEW-07)", () => {
       ["agent_invalid", "fast"],
     ]);
     expect(p.wip(["check"]).stdout).toContain(
-      "agent_invalid · .agents/agents/fast.md · invalid frontmatter",
+      "agent_invalid · .claude/agents/fast.md · invalid frontmatter",
     );
   });
 
@@ -198,7 +216,12 @@ describe("wip check: generic agents (F-NEW-07)", () => {
       join(p.dir, ".wip", "config.json"),
       '{"defs_dir": ".claude", "harness": "claude-code"}\n',
     );
-    putAgent(p.dir, "fast", "---\nname: fast\ndescription: [unclosed\nwip: generic\n---\n");
+    putAgent(
+      p.dir,
+      "fast",
+      "---\nname: fast\ndescription: [unclosed\nwip: generic\n---\n",
+      ".agents",
+    );
     putAgent(p.dir, "wise", generic("wise"), ".claude");
     putAgent(p.dir, "wip", coordinator("wip"), ".claude");
     putAgent(
@@ -222,5 +245,73 @@ describe("wip check: generic agents (F-NEW-07)", () => {
     const out = p.wip(["check"]);
     expect(out.code).toBe(EXIT.REJECTED);
     expect(out.stderr).toContain(".wip/config.json");
+  });
+});
+
+describe("poll_overdue (polling)", () => {
+  const flow = [
+    "```wip-flow",
+    "phases:",
+    "  - name: intake",
+    "    next: [waiting]",
+    "    waiting_default: user",
+    "  - name: waiting",
+    "    kind: wait",
+    "    waiting_default: external",
+    "    next: [done]",
+    "  - name: done",
+    "    kind: terminal",
+    "polling:",
+    "  - name: waiting",
+    "    phases: [waiting]",
+    "    agent: fast",
+    "    cadence: 1h",
+    "```",
+    "",
+  ].join("\n");
+
+  test("an overdue poll is a warning with exit 0, and only without an ID", () => {
+    const p = ctx.set(makeProject("check-poll"));
+    putFlow(p.dir, "review", flow);
+    putAgent(p.dir, "fast", agentText("fast"));
+    at(T0);
+    ok(p, ["phase", "q1", "intake", "--flow", "review"]);
+    ok(p, ["phase", "q1", "waiting", "--next", "x"]);
+    expect(wipJson(p, ["check"]).body.warnings.map((w) => w.code)).not.toContain("poll_overdue");
+    tick(5401);
+    const out = wipJson(p, ["check"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.warnings.find((w) => w.code === "poll_overdue")).toMatchObject({
+      flow: "review",
+      poll: "waiting",
+      last_run: null,
+      overdue_at: "2026-10-30T11:30:00Z",
+    });
+    expect(wipJson(p, ["check", "q1"]).body.warnings.map((w) => w.code)).not.toContain(
+      "poll_overdue",
+    );
+  });
+});
+
+describe("cron_due and cron_item_closed (wip cron)", () => {
+  test("a cron more than 2 minutes past warns cron_due; one tied to an archived item warns cron_item_closed", () => {
+    const p = ctx.set(itemsProject("check-cron"));
+    itemInPlan(p, "T1");
+    ok(p, ["cron", "add", "call X", "--at", "+1h", "--item", "T1"]);
+    ok(p, ["cron", "add", "later", "--at", "+3h"]);
+    const codes = () => wipJson(p, ["check"]).body.warnings.map((w) => w.code);
+    expect(codes()).not.toContain("cron_due");
+    tick(3600 + 120);
+    expect(codes()).not.toContain("cron_due");
+    tick(3600 + 121);
+    const out = wipJson(p, ["check"]);
+    expect(out.code).toBe(EXIT.OK);
+    const due = out.body.warnings.filter((w) => w.code === "cron_due");
+    expect(due.map((w) => w.id)).toEqual(["c1"]);
+    expect(due[0]?.message).toContain("call X");
+    ok(p, ["archive", "T1", "--force", "--reason", "test", "--no-prune"]);
+    const closed = wipJson(p, ["check"]).body.warnings.find((w) => w.code === "cron_item_closed");
+    expect(closed).toMatchObject({ id: "c1", item: "T1" });
+    expect(wipJson(p, ["check", "T2"]).body.warnings.map((w) => w.code)).not.toContain("cron_due");
   });
 });

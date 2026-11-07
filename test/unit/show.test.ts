@@ -83,3 +83,34 @@ describe("wip show (F-EST-14)", () => {
     expect(out).toContain("## Log");
   });
 });
+
+describe("wip show · crons", () => {
+  test("data.crons has the item's open crons and the text a Cron line", () => {
+    const p = ctx.set(itemsProject("show-cron"));
+    itemInPlan(p);
+    ok(p, [
+      "cron",
+      "add",
+      "ping the reviewer",
+      "--at",
+      "2026-10-31T09:00:00Z",
+      "--item",
+      "T1",
+      "--every",
+      "1d",
+    ]);
+    ok(p, ["cron", "add", "done one", "--at", "+1h", "--item", "T1"]);
+    ok(p, ["cron", "done", "c2"]);
+    ok(p, ["cron", "add", "other", "--at", "+1h"]);
+    const { code, body } = wipJson(p, ["show", "T1"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SHOW, body)).toEqual([]);
+    expect(rows(body, "crons").map((c) => [c.id, c.at, c.every])).toEqual([
+      ["c1", "2026-10-31T09:00:00Z", "1d"],
+    ]);
+    const local = rows(body, "crons")[0]?.at_local;
+    expect(p.wip(["show", "T1"]).stdout).toContain(
+      `Cron: c1 · ${local} · ping the reviewer · every 1d`,
+    );
+  });
+});

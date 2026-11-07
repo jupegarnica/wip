@@ -1,11 +1,13 @@
 ---
+name: wip-flow-tasks-guide
 wip: guide
 ---
 
 # Get to know wip
 
 This guide describes the defaults `wip init` writes. Your project may have changed its flows and agents since: the
-source is always the definitions folder, `<defs>/` (`defs_dir` in `.wip/config.json`, `.agents/` by default).
+source is always the definitions folder, `<defs>/` (`defs_dir` in `.wip/config.json`, `.claude/` by default; a `defs_dir` that starts with `~/` is in the user's home
+folder (`wip init --global`), shared by every project initialised that way).
 
 ## What wip is
 
@@ -44,7 +46,7 @@ Write as you would to a colleague; there are no commands to learn:
 The default flow, `tasks`, carries any task with a clear outcome:
 
 - **preparation**
-  - `intake`: the coordinator writes `request.md` with you and sets the title.
+  - `intake`: the coordinator saves your words and sets the title; the first subagent writes `request.md`.
   - `research`: a subagent gathers context and options; skipped when the request is clear.
   - `plan`: a subagent writes `plan.md` with what is delivered and how it is checked; you approve it.
 - **execution**
@@ -68,7 +70,7 @@ Four generic agents share one contract and differ in level and cost, from cheape
 - `wise`: high ambiguity or risk, or after `thinker` failed on the same thing.
 
 Each phase names its default agent. The coordinator picks a cheaper one when the work is mechanical and escalates one
-level when a run fails for difficulty. On the first start it asks which model each one uses; ask it to change one at
+level when a run fails for difficulty. `wip init` asks which model each one uses; ask the coordinator to change one at
 any time.
 
 ## Gates
@@ -86,15 +88,16 @@ Only an explicit answer of yours approves. Open gates also show on the kanban, a
 
 | Icon | Type | Means |
 |---|---|---|
-| 🟦 | INFO | progress, a launch, an answer; every turn ends with `What next?` |
+| 🟦 | INFO | progress, a launch, an answer |
 | 🟩 | DONE | a phase or a piece of work finished, with its time and runs |
 | 🟨 | WARNING | an incident or a risk that does not block |
+| 🟪 | NEXT | the last line of every turn: what you can do next |
 | 🟧 | gate | a decision of yours, as the last text of the turn |
 | 🟥 | ACTION | something only you can do, or something blocks progress |
 
 ## The kanban
 
-`wip web` serves a read-only kanban of this project. The coordinator brings it up at the start of each session and
+`"$WIP_BIN" web` serves a read-only kanban of this project. The coordinator brings it up at the start of each session and
 gives you its address (`Local:`, by default `http://localhost:33333/` or the next free port).
 
 - **Boards:** one per flow, with a column per stage (Grouped) or per phase (Expanded).
@@ -115,22 +118,22 @@ instead.
 
 You never need them, but they are there:
 
-- `wip state`: open items; `--attention` lists what waits on you, `--archived` the closed ones.
-- `wip show <ID>`: one item with its runs, gates and timeline.
-- `wip check`: the invariants of the state.
-- `wip flow lint`: validates the flows.
-- `wip help` and `wip <command> --help`: the reference.
-- `wip web` (`--open`, `--local`, `--port <N>`), `wip web status`, `wip web log -n 20` and `wip web stop`.
+- `"$WIP_BIN" state`: open items; `--attention` lists what waits on you, `--archived` the closed ones.
+- `"$WIP_BIN" show <ID>`: one item with its runs, gates and timeline.
+- `"$WIP_BIN" check`: the invariants of the state.
+- `"$WIP_BIN" flow lint`: validates the flows.
+- `"$WIP_BIN" help` and `"$WIP_BIN" <command> --help`: the reference.
+- `"$WIP_BIN" web` (`--open`, `--local`, `--port <N>`), `"$WIP_BIN" web status`, `"$WIP_BIN" web log -n 20` and `"$WIP_BIN" web stop`.
 
 ## Your own flows and agents
 
 Ask the coordinator: «create a flow for code reviews», «add an agent that writes release notes». It uses the skills
-`wip-new-flow` and `wip-new-agent`: a proposal you approve, a backup, the file under `<defs>/`, and `wip flow lint`.
+`wip-new-flow` and `wip-new-agent`: a proposal you approve, a backup, the file under `<defs>/`, and `"$WIP_BIN" flow lint`.
 `<defs>/skills/wip-new-flow/example.md` is a complete flow to start from.
 
 ## Sessions and restarts
 
-Each session of the coordinator starts with `wip session start`. Subagents of a previous session do not survive a
+Each session of the coordinator starts with `"$WIP_BIN" session start`. Subagents of a previous session do not survive a
 restart: their runs become `orphaned` and their items wait on you with a `next` that says what to relaunch. Nothing
 is relaunched until you ask.
 

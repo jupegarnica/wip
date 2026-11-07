@@ -45,7 +45,7 @@ describe("flow lint rules (F-FLU-12)", () => {
   test("schema: unknown keys and invalid values", () => {
     expect(lint("bad-schema").length).toBeGreaterThanOrEqual(7);
     expect(lint("bad-schema")).toContain(
-      "unknown key 'polling' (version, id_pattern, fields, links, phases, seed)",
+      "unknown key 'schedule' (version, color, id_pattern, fields, links, phases, seed, polling)",
     );
   });
 
@@ -54,11 +54,88 @@ describe("flow lint rules (F-FLU-12)", () => {
   });
 
   test("no terminal phase", () => {
-    expect(lint("no-terminal")).toEqual(["no terminal phase: exactly one phase has kind terminal"]);
+    expect(lint("no-terminal")).toEqual([
+      "no terminal phase: at least one phase has kind terminal",
+    ]);
   });
 
-  test("two terminal phases", () => {
-    expect(lint("two-terminals")).toEqual(["2 terminal phases (done, dropped): exactly one"]);
+  test("two terminal phases are valid, each non-terminal phase reaching one of them", () => {
+    expect(lint("two-terminals")).toEqual([]);
+  });
+
+  test("a next cycle with no way to a terminal phase", () => {
+    expect(lint("no-exit")).toEqual(["phases loop, spin: never reach a terminal phase"]);
+    const one = [
+      "```wip-flow",
+      "phases:",
+      "  - name: todo",
+      "    next: [done, trap]",
+      "  - name: trap",
+      "    next: [sink]",
+      "  - name: sink",
+      "  - name: done",
+      "    kind: terminal",
+      "```",
+    ].join("\n");
+    expect(lint("x", one)).toEqual([
+      "phase sink: no next, the item could never leave it",
+      "phase trap: never reaches a terminal phase",
+    ]);
+  });
+
+  test("the same cycle with a from_any phase that reaches a terminal is clean", () => {
+    const text = [
+      "```wip-flow",
+      "phases:",
+      "  - name: todo",
+      "    next: [done, loop]",
+      "  - name: loop",
+      "    next: [spin]",
+      "  - name: spin",
+      "    next: [loop]",
+      "  - name: hub",
+      "    from_any: true",
+      "    next: [done]",
+      "  - name: done",
+      "    kind: terminal",
+      "```",
+    ].join("\n");
+    expect(lint("x", text)).toEqual([]);
+  });
+
+  test("a from_any terminal phase is clean: every phase reaches it", () => {
+    const text = [
+      "```wip-flow",
+      "phases:",
+      "  - name: todo",
+      "    next: [loop]",
+      "  - name: loop",
+      "    next: [todo]",
+      "  - name: done",
+      "    kind: terminal",
+      "    from_any: true",
+      "```",
+    ].join("\n");
+    expect(lint("x", text)).toEqual([]);
+  });
+
+  test("a phase with no next, or unreachable, is not repeated as never reaching a terminal", () => {
+    const text = [
+      "```wip-flow",
+      "phases:",
+      "  - name: todo",
+      "    next: [a, done]",
+      "  - name: a",
+      "  - name: x",
+      "    next: [done]",
+      "  - name: done",
+      "    kind: terminal",
+      "```",
+    ].join("\n");
+    expect(lint("x", text)).toEqual([
+      "phase a: no next, the item could never leave it",
+      "unreachable from todo: x (no next leads there)",
+    ]);
   });
 
   test("next to a phase that does not exist", () => {
@@ -91,10 +168,34 @@ describe("flow lint rules (F-FLU-12)", () => {
       "```",
     ].join("\n");
     expect(lint("x", text)).toEqual([
-      "phase todo: waiting_default none is only for the terminal phase",
+      "phase todo: waiting_default none is only for a terminal phase",
       "phase done: a terminal phase has no next",
       "phase done: a terminal phase waits on none",
     ]);
+  });
+
+  test("from_any makes a phase reachable and may sit on the terminal or repeat next", () => {
+    const flow = (extra: string, doneKeys = "") =>
+      [
+        "```wip-flow",
+        "phases:",
+        "  - name: todo",
+        "    next: [done]",
+        "  - name: plan",
+        "    from_any: true",
+        "    next: [review]",
+        "  - name: review",
+        `    next: [${extra}]`,
+        "  - name: done",
+        "    kind: terminal",
+        ...(doneKeys ? [`    ${doneKeys}`] : []),
+        "```",
+        "",
+      ].join("\n");
+    // plan has no incoming next; review is reachable only from the next of a from_any phase
+    expect(lint("x", flow("done"))).toEqual([]);
+    expect(lint("x", flow("done", "from_any: true"))).toEqual([]);
+    expect(lint("x", flow("plan, done"))).toEqual([]);
   });
 
   test("a non-terminal phase without next", () => {
@@ -202,7 +303,7 @@ describe("seed of a flow (F-NEW-08)", () => {
     };
     const skillDir = (): string => {
       dir ||= scratch("flow-lint");
-      const skills = join(dir, ".agents", "skills", "wip-flow-x");
+      const skills = join(dir, ".claude", "skills", "wip-flow-x");
       mkdirSync(skills, { recursive: true });
       writeFileSync(join(skills, "guide.md"), "# guide\n");
       return skills;
@@ -214,7 +315,7 @@ describe("seed of a flow (F-NEW-08)", () => {
 
     test("a missing file names the flow's skill folder", () => {
       expect(lintIn(skillDir(), "  - {id: a, phase: todo, files: [guide.md, missing.md]}")).toEqual(
-        ["seed a: file 'missing.md' is missing from .agents/skills/wip-flow-x/"],
+        ["seed a: file 'missing.md' is missing from .claude/skills/wip-flow-x/"],
       );
     });
 
@@ -240,7 +341,7 @@ describe("seed of a flow (F-NEW-08)", () => {
       writeFileSync(outside, "secret\n");
       symlinkSync(outside, join(skills, "link.md"));
       expect(lintIn(skills, "  - {id: a, phase: todo, files: [link.md]}")).toEqual([
-        "seed a: file 'link.md' is missing from .agents/skills/wip-flow-x/",
+        "seed a: file 'link.md' is missing from .claude/skills/wip-flow-x/",
       ]);
     });
 
@@ -253,7 +354,7 @@ describe("seed of a flow (F-NEW-08)", () => {
 describe("agent: of a phase (D6)", () => {
   test("an agent with no file", () => {
     expect(lint("x", minimalFlow("agent: ghost"))).toEqual([
-      "phase todo: agent ghost: no agent file .agents/agents/ghost.md",
+      "phase todo: agent ghost: no agent file .claude/agents/ghost.md",
     ]);
   });
 
@@ -308,7 +409,7 @@ describe("wip flow lint (command)", () => {
     p = makeProject("cmd-empty");
     const out = p.wip(["flow", "lint"]);
     expect(out.code).toBe(EXIT.OK);
-    expect(out.stdout).toBe("no flows in .agents/skills/wip-flow-*/SKILL.md\n");
+    expect(out.stdout).toBe("no flows in .claude/skills/wip-flow-*/SKILL.md\n");
   });
 
   test("without an argument it lints every flow and is exit 1 if one fails", () => {
@@ -321,11 +422,11 @@ describe("wip flow lint (command)", () => {
       stdout: "OK minimal\nOK valid\n",
       stderr: "",
     });
-    putFlow(p.dir, "broken", fixture("flows", "two-terminals"));
+    putFlow(p.dir, "broken", fixture("flows", "no-terminal"));
     const out = p.wip(["flow", "lint"]);
     expect(out.code).toBe(EXIT.FINDINGS);
     expect(out.stdout).toBe(
-      "broken · 2 terminal phases (done, dropped): exactly one\nOK minimal\nOK valid\n",
+      "broken · no terminal phase: at least one phase has kind terminal\nOK minimal\nOK valid\n",
     );
     expect(out.stderr).toContain("flow broken does not pass");
   });
@@ -359,7 +460,7 @@ describe("wip flow lint (command)", () => {
       ["minimal", true, "file"],
     ]);
     expect(flows[0]?.problems).toEqual(["phase todo: next 'review' is not a phase"]);
-    expect(flows[1]?.path).toBe(".agents/skills/wip-flow-minimal/SKILL.md");
+    expect(flows[1]?.path).toBe(".claude/skills/wip-flow-minimal/SKILL.md");
     expect(flows[1]?.hash).toMatch(/^[0-9a-f]{16}$/);
     expect((env.warnings as { code: string }[]).map((w) => w.code)).toEqual(["flow_invalid"]);
   });
@@ -380,7 +481,7 @@ describe("wip flow lint (command)", () => {
     expect(out.stdout).toBe("minimal · item T1 is in phase review, which the flow no longer has\n");
   });
 
-  test("it reads agents from the project's .agents/agents/", () => {
+  test("it reads agents from the project's .claude/agents/", () => {
     p = makeProject("cmd-agents");
     putFlow(p.dir, "x", minimalFlow("agent: thinker"));
     expect(p.wip(["flow", "lint"]).code).toBe(EXIT.FINDINGS);
@@ -412,9 +513,9 @@ describe("wip flow lint (command)", () => {
       join(p.dir, ".wip", "config.json"),
       '{"defs_dir": ".claude", "harness": "claude-code"}\n',
     );
-    putFlow(p.dir, "ignored", minimalFlow());
+    putFlow(p.dir, "ignored", minimalFlow(), ".agents");
     putFlow(p.dir, "x", minimalFlow("agent: thinker"), ".claude");
-    putAgent(p.dir, "thinker");
+    putAgent(p.dir, "thinker", undefined, ".agents");
     const out = p.wip(["flow", "lint", "--json"]);
     const flows = JSON.parse(out.stdout).data.flows as {
       name: string;
@@ -432,5 +533,49 @@ describe("wip flow lint (command)", () => {
     expect(p.wip(["flow", "lint", "ignored"]).stderr).toContain(
       ".claude/skills/wip-flow-ignored/SKILL.md",
     );
+  });
+});
+
+describe("polling rules", () => {
+  const flow = (polling: string) =>
+    `${minimalFlow().replace("```\n", "")}polling:\n${polling}\n\`\`\`\n`;
+  const entry = (extra = "", name = "waiting") =>
+    `  - name: ${name}\n    agent: fast\n    cadence: 1h${extra ? `\n    ${extra}` : ""}`;
+
+  function withFast(text: string, agent = "fast", body = agentBody("fast")) {
+    dir = scratch("flow-lint");
+    if (agent) putAgent(dir, agent, body);
+    return lint("x", text);
+  }
+  const agentBody = (name: string) =>
+    `---\nname: ${name}\ndescription: test agent ${name}\nrole: subagent\n---\n\nBody.\n`;
+
+  test("a valid flow with polling passes", () => {
+    expect(withFast(flow(`${entry("phases: [todo, done]")}\n${entry("", "discover")}`))).toEqual(
+      [],
+    );
+  });
+
+  test("an unknown phase, repeated names and a phase repeated in one entry", () => {
+    expect(withFast(flow(entry("phases: [nope]")))).toEqual([
+      "polling waiting: phase 'nope' is not a phase",
+    ]);
+    expect(withFast(flow(`${entry()}\n${entry()}`))).toEqual(["polling names repeat: waiting"]);
+    expect(withFast(flow(entry("phases: [todo, todo]")))).toEqual([
+      "polling waiting: phases repeat: todo",
+    ]);
+  });
+
+  test("the agent must exist and have a description", () => {
+    expect(withFast(flow(entry()), "")).toEqual([
+      "polling waiting: agent fast: no agent file .claude/agents/fast.md",
+    ]);
+    const problems = withFast(
+      flow(entry()),
+      "fast",
+      "---\nname: fast\nrole: subagent\n---\n\nBody.\n",
+    );
+    expect(problems.length).toBeGreaterThan(0);
+    expect(problems.every((x) => x.startsWith("polling waiting: agent fast: "))).toBe(true);
   });
 });

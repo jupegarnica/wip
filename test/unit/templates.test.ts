@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { parseFrontmatter, readAgent } from "../../src/agents.ts";
+import { hasWipMark, parseFrontmatter, readAgent } from "../../src/agents.ts";
 import { COMMANDS } from "../../src/commands/help.ts";
 import {
   COORDINATOR_AGENT,
@@ -13,9 +13,37 @@ import {
 import { EXIT } from "../../src/errors.ts";
 import { lintFlow } from "../../src/flow/lint.ts";
 import { extractBlocks, extractSections, parseFlow } from "../../src/flow/parse.ts";
+import { foreignFiles, scaffold } from "../../src/init/scaffold.ts";
 import { type IProject, makeProject } from "../helpers/project.ts";
 
-const CAPABILITIES = ["read", "write", "shell", "spawn", "ask-user"];
+/** The 19 official subagent keys of Claude Code, in the order of its documentation. */
+const OFFICIAL_KEYS = [
+  "name",
+  "description",
+  "tools",
+  "disallowedTools",
+  "model",
+  "permissionMode",
+  "maxTurns",
+  "autoCompactWindow",
+  "skills",
+  "mcpServers",
+  "hooks",
+  "memory",
+  "background",
+  "omitClaudeMd",
+  "effort",
+  "isolation",
+  "color",
+  "initialPrompt",
+  "experimental",
+];
+const GENERIC_TOOLS: Record<string, string> = {
+  efficient: "Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch",
+  fast: "Read, Write, Edit, Bash, Grep, Glob",
+  thinker: "Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, WebSearch",
+  wise: "Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, WebSearch",
+};
 const RUNTIME_SECTION = "## Runtime interface";
 const PROTOCOL_SKILL = "wip-subagent-protocol";
 
@@ -42,15 +70,20 @@ function frontmatter(key: string): Record<string, unknown> {
   return fm;
 }
 
-/** A project whose `.agents/` holds every template, as `wip init` will write it. */
+/** A project whose `.claude/` holds every template, as `wip init` will write it. */
 function initProject(): IProject {
   p = makeProject("templates");
   for (const [key, text] of Object.entries(TEMPLATES)) {
-    const file = join(p.dir, ".agents", key);
+    const file = join(p.dir, ".claude", key);
     mkdirSync(dirname(file), { recursive: true });
     writeFileSync(file, text);
   }
   return p;
+}
+
+/** The text after the frontmatter. */
+function bodyOf(text: string): string {
+  return text.slice(text.indexOf("\n---\n", 4) + 5);
 }
 
 function section(text: string, heading: string): string {
@@ -70,7 +103,7 @@ function outsideRuntimeSection(): [string, string][] {
 }
 
 describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
-  test("every agent has a valid frontmatter: name equal to its file, description, role and capabilities", () => {
+  test("every agent has a valid frontmatter: name equal to its file and a description", () => {
     const agents = entries("agents/");
     expect(agents.map(([key]) => key).sort()).toEqual(
       ["efficient", "fast", "thinker", "wip", "wise"].map((n) => `agents/${n}.md`),
@@ -80,29 +113,39 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       expect(fm.name).toBe(key.slice("agents/".length, -".md".length));
       expect(typeof fm.description).toBe("string");
       expect(String(fm.description).length).toBeGreaterThan(40);
-      expect(["coordinator", "subagent"]).toContain(fm.role as string);
-      expect(Array.isArray(fm.capabilities)).toBe(true);
-      for (const cap of fm.capabilities as unknown[]) expect(CAPABILITIES).toContain(cap as string);
+      expect(fm).not.toHaveProperty("role");
+      expect(fm).not.toHaveProperty("capabilities");
     }
   });
 
-  test("the coordinator is `wip`: every capability, wip: coordinator, an initialPrompt and no model", () => {
+  test("the coordinator is `wip`: no tools line, writing tools denied, wip: coordinator, an initialPrompt and no model", () => {
     const fm = frontmatter("agents/wip.md");
     expect(fm.name).toBe(COORDINATOR_AGENT);
-    expect(fm.role).toBe("coordinator");
-    expect(fm.capabilities).toEqual(CAPABILITIES);
-    expect(fm).not.toHaveProperty("model");
+    expect(fm.tools).toBeUndefined();
+    expect(fm.disallowedTools).toBe("Write, Edit, NotebookEdit");
+    expect(fm.model).toBeUndefined();
     expect(fm.wip).toBe("coordinator");
     expect(String(fm.initialPrompt)).toContain("run the start of every session");
   });
 
+  test("the coordinator runs only wip by Bash, writes no file, and no template allows running without subagents", () => {
+    const body = bodyOf(template("agents/wip.md"));
+    expect(body).toContain('By Bash you run only `"$WIP_BIN" …` commands');
+    expect(body).toContain("goes to a `fast` subagent");
+    expect(body).not.toContain("Without subagents");
+    expect(body).not.toContain("do it yourself");
+    for (const [key, text] of Object.entries(TEMPLATES)) {
+      expect({ key, found: /without subagents/i.test(text) }).toEqual({ key, found: false });
+    }
+  });
+
   test("the coordinator definition is short and points to the wip-coordinate skill", () => {
     const text = template("agents/wip.md");
-    expect(text.trimEnd().split("\n").length).toBeLessThanOrEqual(90);
+    expect(bodyOf(text).trimEnd().split("\n").length).toBeLessThanOrEqual(90);
     expect(text).toContain("wip-coordinate");
-    expect(text).toContain("wip session start");
-    expect(text).toContain("wip state --attention");
-    expect(text).toContain("wip check");
+    expect(text).toContain('"$WIP_BIN" session start');
+    expect(text).toContain('"$WIP_BIN" state --attention');
+    expect(text).toContain('"$WIP_BIN" check');
     expect(text).toContain("models_unset");
     expect(text).toContain("Never relaunch on your own");
   });
@@ -110,14 +153,13 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
   test("the start protocol runs on the first message, whatever it says, and a request waits for it", () => {
     const start = section(template("agents/wip.md"), "## Start of every session");
     expect(start).toContain("sends this file's `initialPrompt` as the first message");
-    expect(start).toContain("opens no\nturn until the user writes");
-    expect(start).toContain("The first message of the session, whatever it says");
+    expect(start).toContain("The first message\nof the session, whatever it says");
     expect(start).toContain("If the first message carried a request, handle it after that message");
     const skill = template("skills/wip-coordinate/SKILL.md");
     expect(skill).toContain("the first message of the session, whatever it says");
     expect(skill).toContain("`<defs>/agents/wip.md` as your role");
     const runtime = section(skill, RUNTIME_SECTION);
-    expect(runtime).toContain("`claude --agent wip` after");
+    expect(runtime).toContain("`wip start` (or bare `wip`) in the project, after");
     expect(runtime).toContain("`initialPrompt` is the session's first message");
     expect(runtime).not.toContain('"start"');
   });
@@ -126,15 +168,14 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     const coordinator = template("agents/wip.md");
     const start = section(coordinator, "## Start of every session");
     for (const clause of [
-      "Delegate to `fast`, in the background if the runtime can, this task: run `wip web status`. Exit 0",
+      'Delegate to `fast`, in the background, this task: run `"$WIP_BIN" web status`. Exit 0',
       "start nothing and return its first `Local:` URL and port",
-      "Exit 1: start\n   `wip web --open`, detached so it outlives the agent",
-      "`nohup wip web --open >/dev/null 2>&1 &`",
+      'Exit 1: start\n   `"$WIP_BIN" web --open`, detached so it outlives the agent',
+      '`nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`',
       "it takes the first free port from 33333, records itself in `.wip/web/`",
       "until it exits 0, for 30 s at most",
       "The answer is one line: `<URL> · port <N>`",
-      "run `wip web log -n 20` and return its error",
-      "Without\n   subagents, do it yourself",
+      'run `"$WIP_BIN" web log -n 20` and return its error',
       "do not wait for it: give its line when it arrives, a 🟨 only for its error",
     ]) {
       expect({ clause, found: start.includes(clause) }).toEqual({ clause, found: true });
@@ -144,9 +185,14 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
     expect(start).not.toContain("return that line");
     const kanban = section(coordinator, "## The kanban");
-    expect(kanban).toContain("run `wip web status` and `wip web log -n 50`");
-    expect(kanban).toContain("a\n🟨 with the line");
-    expect(kanban).toContain("Never start it again, nor `wip web stop`, unless the user asks");
+    expect(kanban).toContain("The watcher of step 4");
+    expect(start).toContain("**4b, watcher.**");
+    expect(start).toContain(
+      "finishes only when `web status` exits non-zero or a new `error` line appears",
+    );
+    expect(kanban).toContain(
+      'Never start it again, nor `"$WIP_BIN" web stop`, unless the user asks',
+    );
   });
 
   test("the coordinator knows wip web's features, the artifact page and how to build a link", () => {
@@ -155,7 +201,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       "«Your turn», open gates, the history (`?view=history`)",
       "panel of an item (`?item=<flow>/<ID>`) with its runs, gates and artifacts",
       "`view/item/<flow>/<ID>/artifact/<name>`",
-      "**Links:** run `wip web status`; on exit 0 append these to its first `Local:`",
+      '**Links:** run `"$WIP_BIN" web status`; on exit 0 append these to its first `Local:`',
       "URL (the `LAN:` one only if the user asks), never another host or port",
       "otherwise give the artifact's file path",
     ]) {
@@ -163,25 +209,77 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
   });
 
-  test("the four generic agents carry wip: generic, read/write/shell and no model", () => {
+  test("the four generic agents carry wip: generic, an explicit tools list without spawn, questions or notebooks, and no model", () => {
     for (const name of GENERIC_AGENTS) {
       const fm = frontmatter(`agents/${name}.md`);
       expect(fm.wip).toBe("generic");
-      expect(fm.role).toBe("subagent");
-      expect(fm.capabilities).toEqual(["read", "write", "shell"]);
-      expect(fm).not.toHaveProperty("model");
+      expect(fm.tools).toBe(GENERIC_TOOLS[name]);
+      for (const denied of ["Agent", "AskUserQuestion", "NotebookEdit"]) {
+        expect(String(fm.tools).split(", ")).not.toContain(denied);
+      }
+      expect(Object.keys(fm)).not.toContain("model");
+      expect(fm.skills).toEqual([PROTOCOL_SKILL]);
     }
+  });
+
+  test("no agent template writes a key without a value; the valued ones are present", () => {
+    for (const [key, text] of entries("agents/")) {
+      const block = text.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+      const lines = block.split("\n");
+      lines.forEach((line, i) => {
+        const m = line.match(/^(\w+):\s*(.*)$/);
+        if (m === null) return;
+        const value = m[2] ?? "";
+        const hasList = (lines[i + 1] ?? "").startsWith("  - ");
+        expect({ key, name: m[1], empty: value === "" && !hasList }).toEqual({
+          key,
+          name: m[1],
+          empty: false,
+        });
+        expect({ key, name: m[1], value }).not.toEqual({ key, name: m[1], value: "[]" });
+        expect({ key, name: m[1], value }).not.toEqual({ key, name: m[1], value: "{}" });
+      });
+      const fm = frontmatter(key);
+      for (const name of Object.keys(fm)) {
+        expect([...OFFICIAL_KEYS, "wip"]).toContain(name);
+      }
+      expect(fm.name).toBe(key.replace(/^agents\/|\.md$/g, ""));
+      expect(typeof fm.description).toBe("string");
+      expect(["generic", "coordinator"]).toContain(fm.wip as string);
+    }
+    for (const name of GENERIC_AGENTS) {
+      const fm = frontmatter(`agents/${name}.md`);
+      expect(fm.tools).toBe(GENERIC_TOOLS[name]);
+      expect(fm.skills).toEqual([PROTOCOL_SKILL]);
+    }
+    const coordinator = frontmatter("agents/wip.md");
+    expect(coordinator.omitClaudeMd).toBe(true);
+    expect(typeof coordinator.initialPrompt).toBe("string");
+  });
+
+  test("the wip-new-agent skill documents the 19 keys and its example writes only valued keys", () => {
+    const skill = template("skills/wip-new-agent/SKILL.md");
+    const rows = [...skill.matchAll(/^\| `(\w+)` \|/gm)].map((m) => m[1] ?? "");
+    expect(rows).toEqual(OFFICIAL_KEYS);
+    const block = skill.match(/```markdown\n---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+    for (const line of block.split("\n")) {
+      const m = line.match(/^(\w+):\s*(.*)$/);
+      if (m !== null && m[1] !== "skills")
+        expect({ line, empty: m[2] === "" }).toEqual({ line, empty: false });
+    }
+    expect(block).toContain("  - wip-subagent-protocol");
+    expect(skill).toContain("a key without a value is not written");
   });
 
   test("the CLI reads them as generics without model: the onboarding lists all four", () => {
     const project = initProject();
     for (const name of GENERIC_AGENTS) {
-      const def = readAgent(join(project.dir, ".agents", "agents", `${name}.md`));
+      const def = readAgent(join(project.dir, ".claude", "agents", `${name}.md`));
       expect(def.problems).toEqual([]);
       expect(def.generic).toBe(true);
       expect(def.model).toBeNull();
     }
-    const coordinator = readAgent(join(project.dir, ".agents", "agents", "wip.md"));
+    const coordinator = readAgent(join(project.dir, ".claude", "agents", "wip.md"));
     expect(coordinator.problems).toEqual([]);
     expect(coordinator.generic).toBe(false);
     expect(coordinator.coordinator).toBe(true);
@@ -217,7 +315,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       expect(frontmatter(`agents/${name}.md`).skills).toEqual([PROTOCOL_SKILL]);
       expect(text).not.toContain(".agents/");
     }
-    expect(frontmatter("agents/wip.md")).not.toHaveProperty("skills");
+    expect(frontmatter("agents/wip.md").skills).toBeUndefined();
   });
 });
 
@@ -291,14 +389,74 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "2. Change (say what)",
       "3. Stop this item",
       "🟧 <ID> · <phase> → <next phase or action>",
-      "What next?",
+      "🟪 NEXT ·",
       RUNTIME_SECTION,
-      "**Without subagents**",
       "Edit each definition in the language it is already written in.",
     ]) {
       expect(skill).toContain(clause);
     }
     for (const icon of ["🟦", "🟩", "🟨", "🟧", "🟥"]) expect(skill).toContain(icon);
+  });
+
+  test("wip-coordinate lets the coordinator run only wip by Bash and sends definition changes to a run without item", () => {
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    expect(skill).toContain("## Writing and Bash");
+    expect(skill).toContain('By Bash you run only `"$WIP_BIN" …`');
+    expect(skill).toContain("`init --models`");
+    const changing = section(skill, "## Changing the definitions");
+    expect(changing).toContain("**The run without item.**");
+    expect(changing).toContain("`ID: none`");
+    expect(changing).toContain(".wip/defs-runs/<stamp>/");
+    expect(changing).not.toContain("No item is needed");
+  });
+
+  test("wip-coordinate carries the polling protocol, and the coordinator points to it", () => {
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    const polling = section(skill, "## Polling");
+    expect(polling).toContain("«The read» («Cron»)");
+    expect(polling).toContain('`"$WIP_BIN" poll record <flow> <poll>');
+    expect(polling).toContain('`"$WIP_BIN" poll seen <flow> <poll> <key>`');
+    expect(polling).toContain("`last_seen`");
+    expect(polling).toContain('no `"$WIP_BIN" agent start`');
+    expect(polling).toContain("Skip a poll whose pass is still running");
+    expect(polling).toContain("«overdue: no session was open»");
+    // `poll due` stays for scripts and CI: no step of the pass runs it
+    expect(polling).not.toMatch(/^\d\. .*poll due --json/m);
+    // the Polling section never starts a run for a pass
+    expect(polling).not.toMatch(/`"\$WIP_BIN" agent start <ID>/);
+    expect(section(skill, RUNTIME_SECTION)).toContain(
+      "| 6 | `schedule(prompt, at)`, `scheduled()`, `unschedule(id)` | «Cron» | `CronCreate`, `CronList`, `CronDelete` |",
+    );
+    const wip = template("agents/wip.md");
+    expect(wip).toContain("«The read» of «Cron» in `wip-coordinate`");
+    expect(wip).not.toContain("poll due");
+    expect(bodyOf(wip).trimEnd().split("\n").length).toBeLessThanOrEqual(90);
+  });
+
+  test("wip-coordinate carries «Cron»: one reader, five moments, one-shot jobs", () => {
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    const cron = section(skill, "## Cron");
+    expect(cron).toContain('`"$WIP_BIN" cron list --json` is the only reader');
+    expect(cron).toContain("`[wip-job");
+    for (const moment of ["R1", "R2", "R3", "R4", "R5"]) expect(cron).toContain(`| ${moment} |`);
+    expect(cron).toContain("never the user's words");
+    expect(cron).toContain("a reminder, not an alarm");
+    const runtime = section(skill, RUNTIME_SECTION);
+    expect(runtime).toContain("`CronCreate` with `recurring: false`");
+    expect(runtime).toContain("`CronList`");
+    expect(runtime).toContain("`CronDelete`");
+    expect(runtime).not.toContain("/loop");
+    const protocol = template(`skills/${PROTOCOL_SKILL}/SKILL.md`);
+    for (const cmd of [
+      "cron add",
+      "cron done",
+      "cron cancel",
+      "cron snooze",
+      "poll record",
+      "poll seen",
+    ]) {
+      expect(protocol).toContain(`\`${cmd}\``);
+    }
   });
 
   test("the escalation order is the generics' order, cheapest first", () => {
@@ -307,47 +465,55 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     expect(GENERIC_AGENTS).toEqual(["fast", "efficient", "thinker", "wise"]);
   });
 
-  test("wip-coordinate carries the model onboarding: when, question, backup, one-line diff, validation (F-NEW-07)", () => {
-    const onboarding = section(template("skills/wip-coordinate/SKILL.md"), "## Model onboarding");
+  test("wip-coordinate carries the model change: unset fallback, backup, one-line diff, validation", () => {
+    const section_ = section(template("skills/wip-coordinate/SKILL.md"), "## Changing a model");
     for (const clause of [
       "`models_unset`",
-      "before launching any subagent",
+      "`wip init`",
+      "do not block the session",
       "`inherit`",
-      "«Later»",
-      "`agent=model`",
       "`.wip/backups/defs/agents/<name>.md.<timestamp>`",
       "right after\n   `description:`",
       "exactly that line",
-      "`wip flow lint` exits 0",
+      '`"$WIP_BIN" flow lint` exits 0',
       "restore the backup",
-      "without subagents, recommend `inherit` for the four",
+      '`"$WIP_BIN" init --models <agent>=<model>,…`',
     ]) {
-      expect({ clause, found: onboarding.includes(clause) }).toEqual({ clause, found: true });
+      expect({ clause, found: section_.includes(clause) }).toEqual({ clause, found: true });
     }
+    expect(template("skills/wip-coordinate/SKILL.md")).not.toContain("## Model onboarding");
     const runtime = section(template("skills/wip-coordinate/SKILL.md"), RUNTIME_SECTION);
     expect(runtime).toContain("reads `model:`");
     expect(runtime).toContain("`/agents`");
   });
 
-  test("the onboarding asks the coordinator's model too and says it applies on restart", () => {
+  test("the model change covers the coordinator's model too and says it applies on restart", () => {
     const skill = template("skills/wip-coordinate/SKILL.md");
-    const onboarding = section(skill, "## Model onboarding");
+    const change = section(skill, "## Changing a model");
     for (const clause of [
       "the coordinator (`wip: coordinator`)",
-      "the coordinator included",
-      "for the coordinator, it is the",
-      "The coordinator's model applies when the session restarts",
+      "or of the coordinator",
+      "for the coordinator,\n   the model Claude Code is started with",
       "to restart the session to apply it",
     ]) {
-      expect({ clause, found: onboarding.includes(clause) }).toEqual({ clause, found: true });
+      expect({ clause, found: change.includes(clause) }).toEqual({ clause, found: true });
     }
     const runtime = section(skill, RUNTIME_SECTION);
     expect(runtime).toContain(
-      "`claude --agent wip` reads the coordinator's `model:` when it starts",
+      "`wip start` runs `claude --agent wip --name wip-{stamp}` by default",
     );
     expect(runtime).toContain(
       "with `inherit`, the coordinator runs on the model `claude` is started with",
     );
+  });
+
+  test("the coordinator no longer asks the model or start questions at startup", () => {
+    const wip = template("agents/wip.md");
+    expect(wip).toContain("do not ask the model questions yourself");
+    expect(wip).not.toContain("Model onboarding");
+    const start = section(template("skills/wip-coordinate/SKILL.md"), "## Start command");
+    expect(start).toContain("only when the user asks to change how wip starts Claude Code");
+    expect(start).not.toContain("at the next startup");
   });
 
   test("wip-new-agent reserves wip's names and never marks a project agent as generic", () => {
@@ -364,9 +530,9 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     for (const clause of [
       ".wip/backups/defs/skills/wip-flow-<flow>/SKILL.md.<timestamp>",
       "`<defs>/skills/wip-flow-<flow>/SKILL.md`",
-      "wip flow lint <flow>",
+      '"$WIP_BIN" flow lint <flow>',
       "restore the backup",
-      "wip state --flow <flow>",
+      '"$WIP_BIN" state --flow <flow>',
       "--force --reason",
       "start from a copy of `example.md`",
       "`<defs>/skills/wip-flow-tasks/SKILL.md`",
@@ -382,7 +548,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const result = lintFlow({
       name: "example",
       text: `\`\`\`wip-flow\n${block}\`\`\`\n`,
-      agentsDir: join(project.dir, ".agents", "agents"),
+      agentsDir: join(project.dir, ".claude", "agents"),
       liveItems: [],
     });
     expect(result.problems).toEqual([]);
@@ -393,7 +559,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const result = lintFlow({
       name: "review",
       text: template("skills/wip-new-flow/example.md"),
-      agentsDir: join(project.dir, ".agents", "agents"),
+      agentsDir: join(project.dir, ".claude", "agents"),
       skill: true,
       liveItems: [],
     });
@@ -412,7 +578,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     expect(out.stderr).toBe("");
     expect(out.code).toBe(EXIT.OK);
     expect(out.stdout).toContain("OK tasks");
-    expect(template(FLOW_KEY)).toContain("`wip phase <ID> intake --flow tasks`");
+    expect(template(FLOW_KEY)).toContain('`"$WIP_BIN" phase <ID> intake --flow tasks`');
     expect(String(frontmatter(FLOW_KEY).description)).toContain("for the coordinator");
   });
 
@@ -427,16 +593,17 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       ph.agent ?? null,
       ph.writes,
       ph.next,
+      ph.fromAny,
     ]);
     expect(shape).toEqual([
-      ["preparation", "intake", "none", null, "artifacts", ["research", "plan", "done"]],
-      ["preparation", "research", "auto", "thinker", "artifacts", ["plan"]],
-      ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"]],
-      ["execution", "execute", "auto", "efficient", "project", ["check"]],
-      ["execution", "check", "auto", "efficient", "artifacts", ["execute", "review"]],
-      ["review", "review", "ask", null, "artifacts", ["plan", "execute", "deliver", "done"]],
-      ["review", "deliver", "ask", "efficient", "artifacts", ["done"]],
-      ["review", "done", "none", null, "artifacts", []],
+      ["preparation", "intake", "none", null, "artifacts", ["research", "done"], false],
+      ["preparation", "research", "auto", "thinker", "artifacts", ["plan"], false],
+      ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"], true],
+      ["execution", "execute", "auto", "efficient", "project", ["check"], false],
+      ["execution", "check", "auto", "efficient", "artifacts", ["execute", "review"], false],
+      ["review", "review", "ask", null, "artifacts", ["execute", "deliver", "done"], false],
+      ["review", "deliver", "ask", "efficient", "artifacts", ["done"], false],
+      ["review", "done", "none", null, "artifacts", [], false],
     ]);
     expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual([
       "user",
@@ -461,7 +628,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     ]);
   });
 
-  test("the coordinator mentions onboarding in one What next? line, then guides it to a gate, done and archive", () => {
+  test("the coordinator mentions onboarding in one NEXT line, then guides it to a gate, done and archive", () => {
     expect(template("agents/wip.md")).toContain(
       "while\n`onboarding` is open, follow «Onboarding» in `wip-coordinate`",
     );
@@ -469,16 +636,16 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     const steps = [
       "with the artifact\n`guide.md`",
       "with no subagent",
-      "the first suggestion of its `🟦 INFO · What next? · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.",
+      "the first suggestion of its `🟪 NEXT · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.",
       "**Step 1 · the guide.**",
       "«The kanban» in\n   `<defs>/agents/wip.md`",
-      '`wip wait onboarding user --next "read the guide and find this task on the kanban"`',
+      '`"$WIP_BIN" wait onboarding user --next "read the guide and find this task on the kanban"`',
       "**Step 2 · questions.**",
       "from `guide.md` and `<defs>/`, never from memory",
-      '`wip wait onboarding user --next "close the onboarding at its gate"`',
+      '`"$WIP_BIN" wait onboarding user --next "close the onboarding at its gate"`',
       "**Step 3 · the gate.**",
-      '`wip gate open onboarding intake --question "Close the onboarding?" --detail <guide.md path>`',
-      "`wip phase onboarding done`, `wip archive onboarding`",
+      '`"$WIP_BIN" gate open onboarding intake --question "Close the onboarding?" --detail <guide.md path>`',
+      '`"$WIP_BIN" phase onboarding done`, `"$WIP_BIN" archive onboarding`',
       "«try a task: ask for your first one»",
       "**Proactive:**",
     ];
@@ -488,7 +655,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       expect({ step, found: found > at }).toEqual({ step, found: true });
       at = found;
     }
-    expect(own).not.toContain("wip agent start");
+    expect(own).not.toMatch(/(?<![$"])wip agent start/);
     expect(own).not.toContain("launch");
   });
 
@@ -535,7 +702,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
 
   test("its stages pass the lint; a stage split in two does not", () => {
     const project = initProject();
-    const agentsDir = join(project.dir, ".agents", "agents");
+    const agentsDir = join(project.dir, ".claude", "agents");
     const lint = (text: string): string[] =>
       lintFlow({ name: DEFAULT_FLOW, text, agentsDir, skill: true, liveItems: [] }).problems;
     expect(lint(template(FLOW_KEY))).toEqual([]);
@@ -571,15 +738,10 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
   });
 });
 
-describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () => {
+describe("the templates target Claude Code and use the real CLI (D9, F-NEW-06)", () => {
   const FORBIDDEN_EVERYWHERE = [/\bHarbiz\b/i, /\bJira\b/i, /\btier\b/i, /\bSlack\b/i];
+  // Claude and its model aliases may appear anywhere; the tool and API names stay in the runtime section.
   const RUNTIME_ONLY = [
-    /\bhaiku\b/i,
-    /\bsonnet\b/i,
-    /\bopus\b/i,
-    /\bClaude\b/i,
-    /claude-code/,
-    /\.claude\b/,
     /AskUserQuestion/,
     /SendMessage/,
     /TaskStop/,
@@ -588,7 +750,7 @@ describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () =>
     /run_in_background/,
   ];
   const ABSOLUTE_PATH =
-    /(^|[\s`"'(])(\/(Users|home|tmp|var|private|etc|opt|root)\/|~\/|[A-Za-z]:\\)/m;
+    /(^|[\s`"'(])(\/(Users|home|tmp|var|private|etc|opt|root)\/|~\/(?![…`])|[A-Za-z]:\\)/m;
 
   test("no template names a company, a tracker, a model tier or an absolute path", () => {
     for (const [key, text] of Object.entries(TEMPLATES)) {
@@ -611,9 +773,10 @@ describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () =>
   test("every wip command they quote exists, with its subcommand and options", () => {
     const quoted: string[] = [];
     for (const text of Object.values(TEMPLATES)) {
-      for (const m of text.matchAll(/`(wip [^`\n]+)`/g)) quoted.push(m[1] as string);
+      for (const m of text.matchAll(/`((?:wip|"\$WIP_BIN") [^`\n]+)`/g))
+        quoted.push(m[1] as string);
       for (const fence of text.matchAll(/^```[a-z-]*\n([\s\S]*?)^```$/gm)) {
-        for (const m of (fence[1] ?? "").matchAll(/^\s*(wip [^\n]+)$/gm))
+        for (const m of (fence[1] ?? "").matchAll(/^\s*((?:wip|"\$WIP_BIN") [^\n]+)$/gm))
           quoted.push(m[1] as string);
       }
     }
@@ -641,5 +804,59 @@ describe("the templates are agnostic and use the real CLI (D9, F-NEW-06)", () =>
       }
     }
     expect(problems).toEqual([]);
+  });
+});
+
+describe("the definitions folder in the user's home", () => {
+  test("no template says <defs>/ is always versioned, and each that defines <defs> names ~/", () => {
+    for (const [key, text] of Object.entries(TEMPLATES)) {
+      expect(text).not.toContain("is versioned with the project:");
+      if (key === "skills/wip-new-flow/SKILL.md") expect(text).toContain("A `~/…` folder is not");
+    }
+    for (const key of [
+      "agents/wip.md",
+      "skills/wip-coordinate/SKILL.md",
+      "skills/wip-subagent-protocol/SKILL.md",
+      "skills/wip-new-flow/SKILL.md",
+      "skills/wip-new-agent/SKILL.md",
+      "skills/wip-flow-tasks/guide.md",
+    ]) {
+      const text = TEMPLATES[key] ?? "";
+      expect(text).toContain("`~/");
+      expect(text).toContain("--global");
+    }
+  });
+});
+
+describe("the wip: mark of what init writes (guard)", () => {
+  test("every file init writes carries a wip: mark init reads as its own", () => {
+    const marks = Object.entries(TEMPLATES).map(([key, text]) => ({
+      key,
+      marked: hasWipMark(text),
+    }));
+    for (const mark of marks) expect(mark).toEqual({ key: mark.key, marked: true });
+  });
+
+  test("every .md under templates/ is a TEMPLATES key, so a new template cannot skip the check", () => {
+    const dir = join(import.meta.dir, "../../templates");
+    const md = readdirSync(dir, { recursive: true })
+      .map((entry) => String(entry).replaceAll("\\", "/"))
+      .filter((rel) => rel.endsWith(".md"))
+      .sort();
+    expect(md.length).toBeGreaterThan(0);
+    for (const rel of md) expect(Object.keys(TEMPLATES)).toContain(rel);
+  });
+
+  test("what init writes is never a foreign file", () => {
+    p = makeProject("templates-foreign");
+    const defsRoot = join(p.dir, ".claude");
+    scaffold(p.dir, {
+      force: false,
+      stamp: "guard",
+      defsDir: ".claude",
+      defsRoot,
+      models: { fast: "haiku", thinker: "sonnet" },
+    });
+    expect(foreignFiles(defsRoot, ".claude")).toEqual([]);
   });
 });

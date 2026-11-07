@@ -63,6 +63,18 @@ function userDecision(db: TDatabase, id: string): { id: number } | null {
     .get(id, since) as { id: number } | null;
 }
 
+/** Phases an item can move to from `from`: its `next`, then the `from_any` phases (none out of a terminal). */
+export function allowedTargets(flow: IFlow, from: string): string[] {
+  const phase = phaseOf(flow, from);
+  const out = [...(phase?.next ?? [])];
+  if (phase && phase.kind !== "terminal") {
+    for (const p of flow.phases) {
+      if (p.fromAny === true && p.name !== from && !out.includes(p.name)) out.push(p.name);
+    }
+  }
+  return out;
+}
+
 function flowForNewItem(ctx: ICtx, wanted: string | undefined): IFlow {
   const set = loadFlows(ctx.root, ctx.db, { write: true });
   let name = wanted;
@@ -117,7 +129,7 @@ function run(ctx: ICtx, args: IArgs): void {
   }
 
   if (existing && !samePhase) {
-    const allowed = phaseOf(flow, existing.phase)?.next ?? [];
+    const allowed = allowedTargets(flow, existing.phase);
     if (!allowed.includes(target)) {
       if (!reason) {
         throw rejected(

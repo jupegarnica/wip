@@ -11,7 +11,7 @@ decision. An item starts when the user asks for something; it ends when the user
 outside the project, once it is delivered. Three stages:
 
 - **preparation**
-  - `intake`: the coordinator writes `request.md` with the user and sets the title.
+  - `intake`: state only; the first subagent writes `request.md`.
   - `research`: a subagent gathers context, sources and options. Skipped when the request is already clear.
   - `plan`: a subagent writes `plan.md`, which always fixes WHAT is delivered and HOW it is checked; the user
     approves it.
@@ -34,7 +34,7 @@ phases:
   - name: intake
     stage: preparation
     gate: none
-    next: [research, plan, done]
+    next: [research, done]
     waiting_default: user
   - name: research
     stage: preparation
@@ -45,6 +45,7 @@ phases:
   - name: plan
     stage: preparation
     gate: ask
+    from_any: true
     next: [execute]
     agent: thinker
     writes: artifacts
@@ -63,7 +64,7 @@ phases:
   - name: review
     stage: review
     gate: ask
-    next: [plan, execute, deliver, done]
+    next: [execute, deliver, done]
     waiting_default: user
   - name: deliver
     stage: review
@@ -106,27 +107,30 @@ write outside the project is allowed by the gate's `APPROVED`, never by `writes`
 
 ### intake
 
-The coordinator does this phase itself, with no subagent. Create the item with
-`wip phase <ID> intake --flow tasks`, then `wip set <ID> title=<short title>`. Write `request.md` in the item's
-artifact directory with `## What` (the outcome the user wants, in their words) and `## Context` (links, files,
-constraints). Ask the user only what blocks preparing the work. When the request names what to deliver and leaves
-nothing to find out first, move to `plan`; otherwise move to `research`. A request that needs no work, or that the
-user drops, goes straight to `done` after `wip log <ID> "<their words>" --kind user`.
+The coordinator does this phase itself, with no subagent and no file. Create the item with
+`"$WIP_BIN" phase <ID> intake --flow tasks`, save the user's words with `"$WIP_BIN" log <ID> "<their words>" --kind user`
+and set the title with `"$WIP_BIN" set <ID> title=<short title>`. Ask the user only what blocks preparing the work.
+When the request names what to deliver and leaves nothing to find out first, move to `plan`; otherwise move to
+`research`. The first subagent of the item (`research` or `plan`) receives the user's words literally in `Inputs:` and
+its `Task:` includes «write `request.md` with the user's literal words, without summarising»: `## What` (the outcome
+the user wants, in their words) and `## Context` (links, files, constraints). A request that needs no work, or that the
+user drops, goes straight to `done` after the `log`.
 
 ### research
 
-Inputs: `request.md`. The subagent gathers what the plan needs — the relevant code or documents, sources, constraints
+Inputs: the user's words, literally (`request.md` does not exist yet). The subagent writes `request.md` first, as `intake` says, then gathers what the plan needs — the relevant code or documents, sources, constraints
 and the options with their trade-offs — and writes `investigation.md`: findings with their source (path, link,
 command), the options compared, open questions. Gate `auto`: when it returns `done`, move to `plan` without asking;
 questions only the user can answer open a gate.
 
 ### plan
 
-Inputs: `request.md` and `investigation.md` when it exists. The subagent writes `v1.plan.md` (`v<N+1>.plan.md` on
+Inputs: `request.md` and `investigation.md` when it exists; when `intake` moved straight here, the user's words
+literally and the subagent writes `request.md` first. The subagent writes `v1.plan.md` (`v<N+1>.plan.md` on
 each change) with: the deliverable (code, a report, a document, a decision) and where it lands, the done criteria
 and how each one is checked (tests or commands for a change, each question answered with its source for an
 investigation, the points a document must cover), the steps, what it writes and where, risks and open questions.
-Gate `ask`: the user approves the exact version (`wip gate close <ID> --answer "approved v<N>.plan.md"`). On
+Gate `ask`: the user approves the exact version (`"$WIP_BIN" gate close <ID> --answer "approved v<N>.plan.md"`). On
 «Change», relaunch the same phase with the latest plan and the user's feedback.
 
 ### execute
@@ -143,13 +147,15 @@ Inputs: the approved `plan.md` and `execute-report.md`. The subagent checks the 
 on its own — runs the tests and commands of a change, confirms each question of an investigation has an answer and
 a source, checks a document covers what the plan lists — and writes `check.md`: each criterion with pass or fail and
 its evidence, and the list of changed files. All green → `review` without asking. Red → back to `execute` with
-`check.md` as input; red twice for the same reason, or a criterion the plan got wrong, opens a gate.
+`check.md` as input; red twice for the same reason, or a criterion the plan got wrong, opens a gate. `plan` is reachable from any phase
+(`from_any`), so a criterion the plan got wrong goes back to `plan` and its gate.
 
 ### review
 
 The coordinator does this phase itself, with no subagent. Gate `ask` with the result: what was delivered, `check.md`
-and where to look. «Approve» moves to `done`, or to `deliver` when the plan writes something outside the project;
-«Change» goes back to `execute` (a fix) or `plan` (the approach was wrong) with the user's feedback.
+and where to look (`--detail` points to the subagent's artifact). «Approve» moves to `done`, or to `deliver` when the plan writes something outside the project;
+«Change» goes back to `execute` (a fix) or `plan` (the approach was wrong; `plan` is reachable from any phase) with
+the user's feedback.
 
 ### deliver
 
@@ -161,4 +167,4 @@ text; then relaunch with `APPROVED` and that version, and the subagent publishes
 ### done
 
 Terminal. The coordinator moves the item here after the user approves `review` or once `deliver` is published, then
-archives it with `wip archive <ID>` when nothing is left open.
+archives it with `"$WIP_BIN" archive <ID>` when nothing is left open.

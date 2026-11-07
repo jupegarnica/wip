@@ -1,8 +1,9 @@
-import { Database } from "bun:sqlite";
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { compact } from "./clock.ts";
 import { MIGRATIONS } from "./embedded/migrations.ts";
 import { dbError, WipError } from "./errors.ts";
+import { Database, isBusyError, sleepSync } from "./sqlite.ts";
 
 export const SCHEMA_VERSION = MIGRATIONS.length;
 export const MIN_SQLITE_VERSION = "3.37.0";
@@ -48,11 +49,6 @@ function assertSqlite(options: IOpenOptions): void {
   }
 }
 
-function isBusy(err: unknown): boolean {
-  const code = (err as { code?: unknown }).code;
-  return typeof code === "string" && code.startsWith("SQLITE_BUSY");
-}
-
 function journalMode(db: Database): string {
   return (db.query("PRAGMA journal_mode").get() as { journal_mode: string }).journal_mode;
 }
@@ -66,14 +62,14 @@ function enableWal(db: Database): void {
       if (journalMode(db) === "wal") return;
       db.exec("PRAGMA journal_mode = WAL");
     } catch (err) {
-      if (!isBusy(err)) throw err;
+      if (!isBusyError(err)) throw err;
     }
     if (Date.now() >= deadline) {
       throw dbError(
         `cannot switch the database to WAL within ${BUSY_TIMEOUT_MS} ms: it stays locked`,
       );
     }
-    Bun.sleepSync(WAL_RETRY_MS);
+    sleepSync(WAL_RETRY_MS);
   }
 }
 
@@ -107,14 +103,42 @@ export function migrate(db: Database): number {
   return userVersion(db);
 }
 
+/**
+ * Before a migration, a copy of the database as it is (`VACUUM INTO`) goes to `.wip/backups/db/`, named after its
+ * schema, the time and the process, so a rollback to the older wip can restore it. A new database is not copied.
+ * Returns the copy's path, or null when nothing was migrated.
+ */
+export function backupBeforeMigrate(db: Database, path: string): string | null {
+  const current = userVersion(db);
+  if (current === 0 || current >= SCHEMA_VERSION) return null;
+  const dir = join(dirname(path), "backups", "db");
+  const target = join(dir, `wip.sqlite.v${current}.${compact()}.${process.pid}`);
+  try {
+    mkdirSync(dir, { recursive: true });
+    db.exec(`VACUUM INTO '${target.replaceAll("'", "''")}'`);
+  } catch (err) {
+    // VACUUM INTO leaves a partial target on failure; it must never pass for a backup.
+    try {
+      rmSync(target, { force: true });
+    } catch {}
+    const { code, message } = err as { code?: unknown; message: string };
+    const suffix = typeof code === "string" ? ` (${code})` : "";
+    throw dbError(
+      `cannot back up the database before migrating it to ${target}: ${message}${suffix}; free disk space or remove ${dir}`,
+    );
+  }
+  return target;
+}
+
 /** Opens the database at `path`, creating and migrating it when needed. */
 export function openDb(path: string, options: IOpenOptions = {}): Database {
   assertSqlite(options);
   let db: Database | null = null;
   try {
     mkdirSync(dirname(path), { recursive: true });
-    db = new Database(path, { create: true, strict: true });
+    db = new Database(path);
     configure(db);
+    backupBeforeMigrate(db, path);
     migrate(db);
     return db;
   } catch (err) {

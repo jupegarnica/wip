@@ -1,11 +1,12 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
 import { scratch } from "../helpers/project.ts";
 
-// Opt-in: `WIP_PACK_DIR=<dir>` builds the host tarballs there (unless they already exist) and installs them
-// with npm into prefixes inside it. It never touches the global npm prefix and needs no registry.
+// Opt-in: `WIP_PACK_DIR=<dir>` builds there (unless already built) the npm package tarball and the host binary, installs
+// the tarball with npm into a prefix inside it and runs both. It never touches the global npm prefix and needs no
+// registry: the package has no dependencies.
 
 const PACK_DIR = process.env.WIP_PACK_DIR ?? null;
 const REPO = join(import.meta.dir, "..", "..");
@@ -17,52 +18,27 @@ const HOST = `${WINDOWS ? "windows" : process.platform}-${process.arch}`;
 const NPM = WINDOWS ? "npm.cmd" : "npm";
 const NO_NODE_PATH = WINDOWS ? "C:\\Windows\\System32" : "/usr/bin:/bin";
 
-const mainTgz = (dir: string): string => join(dir, `garndev-wip-${VERSION}.tgz`);
-const hostTgz = (dir: string): string => join(dir, `garndev-wip-${HOST}-${VERSION}.tgz`);
+const VERSION_LINE = new RegExp(
+  `^${VERSION.replaceAll(".", "\\.")} \\(.+, built \\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ\\)\n$`,
+);
+const tarball = (dir: string): string => join(dir, `garndev-wip-${VERSION}.tgz`);
+const hostBinary = (dir: string): string => join(dir, "bin", HOST, WINDOWS ? "wip.exe" : "wip");
 
 /** `<prefix>/bin/wip` on Unix; npm puts the shim at the prefix root on Windows. */
 const installedWip = (prefix: string): string =>
   WINDOWS ? join(prefix, "wip.cmd") : join(prefix, "bin", "wip");
-
-const installedModules = (prefix: string): string =>
-  WINDOWS ? join(prefix, "node_modules") : join(prefix, "lib", "node_modules");
-
-const hostBinary = (prefix: string): string =>
-  join(installedModules(prefix), "@garndev", `wip-${HOST}`, "bin", WINDOWS ? "wip.exe" : "wip");
 
 function exec(cmd: string[], cwd: string, env: Record<string, string> = {}) {
   const proc = Bun.spawnSync(cmd, { cwd, env: { ...process.env, ...env } });
   return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
 }
 
-function npmInstall(dir: string, prefix: string, tarballs: string[], flags: string[] = []): void {
-  rmSync(prefix, { recursive: true, force: true });
-  const out = exec(
-    [
-      NPM,
-      "install",
-      "-g",
-      "--prefix",
-      prefix,
-      "--offline",
-      "--no-audit",
-      "--no-fund",
-      ...flags,
-      ...tarballs,
-    ],
-    dir,
-  );
-  if (out.code !== 0) throw new Error(`npm install failed (${out.code}): ${out.stderr}`);
-}
-
-describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_PACK_DIR)", () => {
+describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK_DIR)", () => {
   const dir = PACK_DIR ?? "";
-  const full = join(dir, "npm-prefix");
-  const omit = join(dir, "npm-prefix-omit");
-  const mainOnly = join(dir, "npm-prefix-main");
+  const prefix = join(dir, "npm-prefix");
 
   beforeAll(() => {
-    if (!existsSync(mainTgz(dir)) || !existsSync(hostTgz(dir))) {
+    if (!existsSync(tarball(dir)) || !existsSync(hostBinary(dir))) {
       const build = exec(
         [
           process.execPath,
@@ -77,49 +53,79 @@ describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_
       );
       if (build.code !== 0) throw new Error(`build failed: ${build.stderr}`);
     }
-    npmInstall(dir, full, [mainTgz(dir), hostTgz(dir)]);
-    npmInstall(dir, omit, [mainTgz(dir), hostTgz(dir)], ["--omit=optional"]);
-    npmInstall(dir, mainOnly, [mainTgz(dir)]);
+    rmSync(prefix, { recursive: true, force: true });
+    // cwd is `dir`: pass `./name.tgz`, the form the README gives. npm reads `dir/name.tgz` (no leading ./) as the
+    // GitHub repository `dir/name.tgz`.
+    const install = exec(
+      [
+        NPM,
+        "install",
+        "-g",
+        "--prefix",
+        prefix,
+        "--offline",
+        "--no-audit",
+        "--no-fund",
+        `./${basename(tarball(dir))}`,
+      ],
+      dir,
+    );
+    if (install.code !== 0)
+      throw new Error(`npm install failed (${install.code}): ${install.stderr}`);
   }, 180000);
 
-  test("the build left the main and the host tarballs", () => {
-    expect(existsSync(mainTgz(dir))).toBe(true);
-    expect(existsSync(hostTgz(dir))).toBe(true);
+  test("the tarball holds only the bin, the bundle, README, LICENSE and package.json", () => {
+    const listing = exec(["tar", "-tzf", tarball(dir)], dir)
+      .stdout.trim()
+      .split("\n")
+      .sort();
+    expect(listing).toEqual([
+      "package/LICENSE",
+      "package/README.md",
+      "package/bin/wip.mjs",
+      "package/dist/wip.mjs",
+      "package/package.json",
+    ]);
   });
 
-  test("without --omit=optional and with no registry, the installed wip answers through the launcher", () => {
-    const wip = installedWip(full);
-    expect(exec([wip, "--version"], dir)).toMatchObject({ code: EXIT.OK, stdout: `${VERSION}\n` });
+  test("the installed wip runs on Node: version, help, init, check and state, with no SQLite warning", () => {
+    const wip = installedWip(prefix);
+    const version = exec([wip, "--version"], dir);
+    expect(version.code).toBe(EXIT.OK);
+    expect(version.stdout).toMatch(VERSION_LINE);
+    expect(version.stderr).toBe("");
     const help = exec([wip, "help"], dir);
     expect(help.code).toBe(EXIT.OK);
-    expect(help.stdout).toContain("init");
     expect(help.stdout).toContain("web");
-    expect(existsSync(hostBinary(full))).toBe(true);
+    const project = scratch("pack-node");
+    try {
+      exec(["git", "init", "-q"], project);
+      const init = exec([wip, "init", "--yes"], project);
+      expect(init.code).toBe(EXIT.OK);
+      expect(init.stderr).not.toContain("ExperimentalWarning");
+      expect(exec([wip, "check"], project).code).toBe(EXIT.OK);
+      const state = exec([wip, "state", "--json"], project);
+      expect(state.code).toBe(EXIT.OK);
+      expect((JSON.parse(state.stdout) as { ok: boolean }).ok).toBe(true);
+      expect(state.stderr).toBe("");
+    } finally {
+      rmSync(realpathSync(project), { recursive: true, force: true });
+    }
   });
 
-  test("with --omit=optional the platform tarball installed alongside still resolves", () => {
-    expect(exec([installedWip(omit), "--version"], dir)).toMatchObject({
-      code: EXIT.OK,
-      stdout: `${VERSION}\n`,
-    });
-  });
-
-  test("without the platform package the launcher exits 2 and names --omit=optional", () => {
-    const out = exec([installedWip(mainOnly), "--version"], dir);
-    expect(out.code).toBe(EXIT.USAGE);
-    expect(out.stderr).toContain(`@garndev/wip-${HOST}`);
-    expect(out.stderr).toContain("--omit=optional");
-  });
-
-  test("the platform binary runs on its own with neither Node nor Bun in PATH", () => {
-    const binary = hostBinary(full);
+  test("the binary runs on its own with neither Node nor Bun in PATH", () => {
+    const binary = hostBinary(dir);
     const project = scratch("pack-no-node");
     try {
       const env = { PATH: NO_NODE_PATH };
-      expect(exec([binary, "--version"], project, env)).toMatchObject({
-        code: EXIT.OK,
-        stdout: `${VERSION}\n`,
-      });
+      const version = exec([binary, "--version"], project, env);
+      expect(version.code).toBe(EXIT.OK);
+      expect(version.stdout).toMatch(VERSION_LINE);
+      const info = JSON.parse(exec([binary, "version", "--json"], project, env).stdout) as {
+        data: { source: boolean; built_at: unknown };
+      };
+      expect(info.data.source).toBe(false);
+      expect(typeof info.data.built_at).toBe("string");
       expect(exec([binary, "init"], project, env).code).toBe(EXIT.OK);
       expect(exec([binary, "flow", "lint"], project, env).code).toBe(EXIT.OK);
       const check = exec([binary, "check", "--json"], project, env);
@@ -135,5 +141,12 @@ describe.skipIf(PACK_DIR === null)("tarballs installed with npm (§1.1, set WIP_
     } finally {
       rmSync(realpathSync(project), { recursive: true, force: true });
     }
+  });
+
+  test("the release archive and SHA256SUMS of the host binary", () => {
+    const ext = WINDOWS ? "zip" : "tar.gz";
+    const archive = join(dir, "release", `wip-${VERSION}-${HOST}.${ext}`);
+    expect(existsSync(archive)).toBe(true);
+    expect(readFileSync(join(dir, "release", "SHA256SUMS"), "utf8")).toContain(basename(archive));
   });
 });

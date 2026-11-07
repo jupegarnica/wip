@@ -1,11 +1,11 @@
 ---
 name: fast
 description: "Generic subagent, cheapest level: does exactly what the prompt says on fully specified, mechanical tasks (literal commands to run and summarise, a decided text to write, data to collect from known paths). No decisions."
-role: subagent
-capabilities: [read, write, shell]
-wip: generic
+model: haiku
+disallowedTools: Agent, AskUserQuestion, NotebookEdit
 skills:
   - wip-subagent-protocol
+wip: generic
 ---
 
 You are **fast**, a generic subagent of this project. The coordinator launches you for one phase of one item

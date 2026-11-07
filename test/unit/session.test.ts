@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { EXIT } from "../../src/errors.ts";
+import { fixture, putFlow } from "../helpers/defs.ts";
 import { itemInPlan, itemsProject, ok, rows, useProject } from "../helpers/items.ts";
 
 const ctx = useProject();
@@ -44,6 +45,23 @@ describe("wip session start (F-SES-01, F-RUN-06)", () => {
     expect(rows(show, "agent_runs")[0]).toMatchObject({
       status: "orphaned",
       session_id: "s1",
+    });
+    expect(ok(p, ["check"]).data).toEqual({ findings: [] });
+  });
+
+  test("an orphaned item in a second terminal phase waits on none, not on the user", () => {
+    const p = ctx.set(itemsProject("session-second-terminal"));
+    putFlow(p.dir, "two", fixture("flows", "two-terminals"));
+    ok(p, ["phase", "T1", "todo", "--flow", "two"]);
+    ok(p, ["session", "start", "--id", "s1"]);
+    ok(p, ["agent", "start", "T1", "thinker", "--handle", "h1"]);
+    ok(p, ["phase", "T1", "dropped", "--wait", "agent:thinker"]);
+    const body = ok(p, ["session", "start", "--id", "s2"]);
+    expect(rows(body, "orphaned")).toHaveLength(1);
+    expect(ok(p, ["show", "T1"]).item).toMatchObject({
+      phase: "dropped",
+      waiting_on: "none",
+      next: null,
     });
     expect(ok(p, ["check"]).data).toEqual({ findings: [] });
   });

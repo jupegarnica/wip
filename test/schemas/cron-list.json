@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wip cron list --json",
+  "type": "object",
+  "required": ["ok", "item", "events", "warnings", "message", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "ok": { "type": "boolean" },
+    "item": { "type": "null" },
+    "events": { "type": "array", "items": { "type": "object" } },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+      }
+    },
+    "message": { "type": ["string", "null"] },
+    "data": {
+      "type": "object",
+      "required": ["now", "session", "horizon_end", "beyond", "rearm", "jobs"],
+      "additionalProperties": false,
+      "properties": {
+        "now": { "type": "string" },
+        "session": { "type": ["string", "null"] },
+        "horizon_end": { "type": "string" },
+        "beyond": { "type": "integer" },
+        "rearm": {
+          "type": ["object", "null"],
+          "required": ["key", "at", "at_local", "cron"],
+          "additionalProperties": false,
+          "properties": {
+            "key": { "enum": ["rearm"] },
+            "at": { "type": "string" },
+            "at_local": { "type": "string" },
+            "cron": { "type": "string" }
+          }
+        },
+        "jobs": { "type": "array", "items": { "$ref": "#/definitions/job" } }
+      }
+    }
+  },
+  "definitions": {
+    "job": {
+      "type": "object",
+      "required": [
+        "key",
+        "kind",
+        "source",
+        "id",
+        "status",
+        "at",
+        "at_local",
+        "cron",
+        "due",
+        "missed",
+        "every",
+        "text",
+        "item",
+        "flow",
+        "poll",
+        "agent",
+        "pass"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string" },
+        "kind": { "enum": ["reminder", "poll"] },
+        "source": { "enum": ["cron", "flow"] },
+        "id": { "type": ["string", "null"] },
+        "status": { "enum": ["open", "done", "cancelled"] },
+        "at": { "type": "string" },
+        "at_local": { "type": "string" },
+        "cron": { "type": "string" },
+        "due": { "type": "boolean" },
+        "missed": { "type": "boolean" },
+        "every": { "type": ["string", "null"] },
+        "text": { "type": ["string", "null"] },
+        "item": { "type": ["string", "null"] },
+        "flow": { "type": ["string", "null"] },
+        "poll": { "type": ["string", "null"] },
+        "agent": { "type": ["string", "null"] },
+        "pass": { "type": ["object", "null"] }
+      }
+    }
+  }
+}

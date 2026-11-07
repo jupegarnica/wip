@@ -105,7 +105,7 @@ describe("agent referenced by a flow", () => {
   test("a missing file is a problem", () => {
     dir = scratch("agents");
     expect(lintAgentRef(agentsDir(dir), "ghost")).toEqual([
-      "no agent file .agents/agents/ghost.md",
+      "no agent file .claude/agents/ghost.md",
     ]);
   });
 

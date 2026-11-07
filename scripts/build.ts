@@ -1,13 +1,16 @@
+import { createHash } from "node:crypto";
 import {
   chmodSync,
   copyFileSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 
 interface ITarget {
   os: "darwin" | "linux" | "windows";
@@ -15,9 +18,11 @@ interface ITarget {
 }
 
 interface IBuildOptions {
+  /** Binaries to compile besides the Node package; none by default. */
   targets: ITarget[];
   out: string;
   pack: boolean;
+  binName: string;
 }
 
 const ALL_TARGETS: readonly ITarget[] = [
@@ -28,14 +33,26 @@ const ALL_TARGETS: readonly ITarget[] = [
   { os: "windows", arch: "x64" },
 ];
 
+export const DEFAULT_BIN_NAME = "wip";
+/** The files `npm publish` ships from `<out>/npm/wip/`; the build fails when the package holds anything else. */
+export const PACKAGE_FILES = [
+  "LICENSE",
+  "README.md",
+  "bin/wip.mjs",
+  "dist/wip.mjs",
+  "package.json",
+];
+
 const MB = 1024 * 1024;
 
 const ROOT = resolve(import.meta.dir, "..");
-const ENTRY = join(ROOT, "src", "cli.ts");
-const MAIN_TEMPLATE = join(ROOT, "npm", "wip");
+/** Exports `main`: the entry of the Node bundle, which `bin/wip.mjs` imports. */
+const LIBRARY_ENTRY = join(ROOT, "src", "cli.ts");
+/** Runs `main`: the entry of the compiled binary. */
+const BINARY_ENTRY = join(ROOT, "src", "main.ts");
+const PACKAGE_TEMPLATE = join(ROOT, "npm", "wip");
 
 const targetKey = (target: ITarget): string => `${target.os}-${target.arch}`;
-const npmOs = (target: ITarget): string => (target.os === "windows" ? "win32" : target.os);
 const binaryName = (target: ITarget): string => (target.os === "windows" ? "wip.exe" : "wip");
 
 function hostTarget(): ITarget {
@@ -60,7 +77,12 @@ function parseTargets(value: string): ITarget[] {
 }
 
 function parseArgs(argv: readonly string[]): IBuildOptions {
-  const options: IBuildOptions = { targets: [hostTarget()], out: join(ROOT, "dist"), pack: false };
+  const options: IBuildOptions = {
+    targets: [],
+    out: join(ROOT, "dist"),
+    pack: false,
+    binName: DEFAULT_BIN_NAME,
+  };
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     const value = argv[i + 1];
@@ -72,9 +94,12 @@ function parseArgs(argv: readonly string[]): IBuildOptions {
     } else if (arg === "--out" && value) {
       options.out = resolve(value);
       i++;
+    } else if (arg === "--bin-name" && value && /^[a-z][a-z0-9-]*$/.test(value)) {
+      options.binName = value;
+      i++;
     } else {
       throw new Error(
-        `usage: bun scripts/build.ts [--targets all|host|<os>-<arch>,...] [--out <dir>] [--pack]`,
+        "usage: bun scripts/build.ts [--targets all|host|<os>-<arch>,...] [--out <dir>] [--bin-name <name>] [--pack]",
       );
     }
   }
@@ -103,75 +128,172 @@ interface IPackageJson {
   [key: string]: unknown;
 }
 
-function buildPlatform(target: ITarget, out: string, root: IPackageJson): number {
-  const key = targetKey(target);
-  const dir = join(out, "npm", `wip-${key}`);
-  const binary = join(dir, "bin", binaryName(target));
-  rmSync(dir, { recursive: true, force: true });
-  mkdirSync(join(dir, "bin"), { recursive: true });
+export interface IGitInfo {
+  branch: string | null;
+  commit: string | null;
+  dirty: boolean | null;
+}
 
+export type TGitRunner = (root: string, args: string[]) => string | null;
+
+/** Runs git in `root`; null when git is missing or exits non-zero. */
+export const runGit: TGitRunner = (root, args) => {
+  try {
+    const result = Bun.spawnSync(["git", "-C", root, ...args], { stdout: "pipe", stderr: "pipe" });
+    return result.exitCode === 0 ? result.stdout.toString().trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+const sameDir = (a: string, b: string): boolean => {
+  try {
+    return realpathSync(a) === realpathSync(b);
+  } catch {
+    return false;
+  }
+};
+
+/** Branch, short commit and dirty flag of the repo whose top level is `root`; null fields when git is unusable. */
+export function gitInfo(root: string, git: TGitRunner = runGit): IGitInfo {
+  const none: IGitInfo = { branch: null, commit: null, dirty: null };
+  const top = git(root, ["rev-parse", "--show-toplevel"]);
+  if (top === null || !sameDir(top, root)) return none;
+  const commit = git(root, ["rev-parse", "--short", "HEAD"]) || null;
+  const abbrev = git(root, ["rev-parse", "--abbrev-ref", "HEAD"]);
+  const branch = commit === null || abbrev === null || abbrev === "HEAD" ? null : abbrev || null;
+  const status = git(root, ["status", "--porcelain"]);
+  return { branch, commit, dirty: status === null ? null : status.length > 0 };
+}
+
+/** `SOURCE_DATE_EPOCH` (integer seconds) when valid, else `now`; ISO 8601 UTC without milliseconds. */
+export function buildDate(env: Record<string, string | undefined>, now: Date): string {
+  const raw = env.SOURCE_DATE_EPOCH;
+  const epoch = raw !== undefined && /^\d+$/.test(raw) ? Number(raw) * 1000 : Number.NaN;
+  const date = Number.isFinite(epoch) ? new Date(epoch) : now;
+  return `${date.toISOString().slice(0, 19)}Z`;
+}
+
+/** The value of `--define WIP_BUILD_INFO=…`: the info as a JSON string literal holding a JSON object. */
+export function buildInfoDefine(info: IGitInfo & { built_at: string }): string {
+  return JSON.stringify(JSON.stringify(info));
+}
+
+/** Compiles the standalone binary for `target` into `<out>/bin/<os>-<arch>/`; returns its path. */
+function buildBinary(target: ITarget, out: string, define: string): string {
+  const dir = join(out, "bin", targetKey(target));
+  const binary = join(dir, binaryName(target));
+  rmSync(dir, { recursive: true, force: true });
+  mkdirSync(dir, { recursive: true });
   exec([
     process.execPath,
     "build",
     "--compile",
     "--minify",
-    `--target=bun-${key}`,
-    ENTRY,
+    `--target=bun-${targetKey(target)}`,
+    "--define",
+    `WIP_BUILD_INFO=${define}`,
+    BINARY_ENTRY,
     "--outfile",
     binary,
   ]);
   chmodSync(binary, 0o755);
-
   if (target.os === "darwin" && process.platform === "darwin") {
     exec(["codesign", "--force", "--sign", "-", binary]);
   }
-
-  writeJson(join(dir, "package.json"), {
-    name: `@garndev/wip-${key}`,
-    version: root.version,
-    private: true,
-    description: `The ${key} binary of @garndev/wip`,
-    license: root.license,
-    repository: root.repository,
-    os: [npmOs(target)],
-    cpu: [target.arch],
-    files: ["bin"],
-  });
-
-  return statSync(binary).size;
+  return binary;
 }
 
-function buildMain(out: string, root: IPackageJson): void {
+/** `wip-<version>-<os>-<arch>.tar.gz`, or `.zip` for Windows: the name of a GitHub Release asset. */
+export function archiveName(version: string, target: ITarget): string {
+  return `wip-${version}-${targetKey(target)}.${target.os === "windows" ? "zip" : "tar.gz"}`;
+}
+
+/** Archives the binary of `target` into `<out>/release/`, with only the binary at the top; returns the archive path. */
+function archiveBinary(binary: string, target: ITarget, out: string, version: string): string {
+  const dir = join(out, "release");
+  mkdirSync(dir, { recursive: true });
+  const archive = join(dir, archiveName(version, target));
+  rmSync(archive, { force: true });
+  if (target.os === "windows") exec(["zip", "-j", "-q", archive, binary]);
+  else exec(["tar", "-czf", archive, "-C", dirname(binary), basename(binary)]);
+  return archive;
+}
+
+/** The `SHA256SUMS` text (`<hex>  <name>` per line, sorted by name) for `files`, as `shasum -a 256 -c` reads it. */
+export function sha256sums(files: readonly string[]): string {
+  return [...files]
+    .sort((a, b) => basename(a).localeCompare(basename(b)))
+    .map(
+      (file) =>
+        `${createHash("sha256").update(readFileSync(file)).digest("hex")}  ${basename(file)}\n`,
+    )
+    .join("");
+}
+
+/** The package.json of the npm package: the template with the version and the command name `binName`. */
+export function mainPackageJson(
+  template: IPackageJson,
+  version: string,
+  binName: string = DEFAULT_BIN_NAME,
+): IPackageJson {
+  const bin = Object.values(template.bin as Record<string, string>)[0] ?? "bin/wip.mjs";
+  return { ...template, version, bin: { [binName]: bin } };
+}
+
+/** Every file under `dir`, relative to it with `/`, sorted. */
+export function listFiles(dir: string, prefix = ""): string[] {
+  return readdirSync(join(dir, prefix), { withFileTypes: true })
+    .flatMap((entry) => {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      return entry.isDirectory() ? listFiles(dir, rel) : [rel];
+    })
+    .sort();
+}
+
+/**
+ * The npm package in `<out>/npm/wip/`: the Node bundle of src/ (migrations, templates, the web page, yaml and
+ * @garndev/markdown inlined), the bin that runs it, README and LICENSE. No dependencies and no platform packages.
+ */
+function buildPackage(out: string, root: IPackageJson, binName: string, define: string): string {
   const dir = join(out, "npm", "wip");
   rmSync(dir, { recursive: true, force: true });
   mkdirSync(join(dir, "bin"), { recursive: true });
-  copyFileSync(join(MAIN_TEMPLATE, "bin", "wip.js"), join(dir, "bin", "wip.js"));
-  chmodSync(join(dir, "bin", "wip.js"), 0o755);
-
-  const template = readJson<IPackageJson>(join(MAIN_TEMPLATE, "package.json"));
-  const optionalDependencies = Object.fromEntries(
-    ALL_TARGETS.map((t) => [`@garndev/wip-${targetKey(t)}`, root.version]),
-  );
-  writeJson(join(dir, "package.json"), {
-    ...template,
-    version: root.version,
-    optionalDependencies,
-  });
+  exec([
+    process.execPath,
+    "build",
+    LIBRARY_ENTRY,
+    "--target=node",
+    "--format=esm",
+    "--define",
+    `WIP_BUILD_INFO=${define}`,
+    "--outfile",
+    join(dir, "dist", "wip.mjs"),
+  ]);
+  copyFileSync(join(PACKAGE_TEMPLATE, "bin", "wip.mjs"), join(dir, "bin", "wip.mjs"));
+  chmodSync(join(dir, "bin", "wip.mjs"), 0o755);
+  copyFileSync(join(ROOT, "README.md"), join(dir, "README.md"));
+  copyFileSync(join(ROOT, "LICENSE"), join(dir, "LICENSE"));
+  const template = readJson<IPackageJson>(join(PACKAGE_TEMPLATE, "package.json"));
+  writeJson(join(dir, "package.json"), mainPackageJson(template, root.version, binName));
+  const files = listFiles(dir);
+  if (JSON.stringify(files) !== JSON.stringify(PACKAGE_FILES)) {
+    throw new Error(`the package holds ${files.join(", ")}; expected ${PACKAGE_FILES.join(", ")}`);
+  }
+  return dir;
 }
 
-function pack(out: string, packageDirs: string[]): void {
-  for (const dir of packageDirs) {
-    exec(
-      [
-        process.platform === "win32" ? "npm.cmd" : "npm",
-        "pack",
-        "--silent",
-        "--pack-destination",
-        out,
-      ],
-      dir,
-    );
-  }
+function pack(out: string, dir: string): void {
+  exec(
+    [
+      process.platform === "win32" ? "npm.cmd" : "npm",
+      "pack",
+      "--silent",
+      "--pack-destination",
+      out,
+    ],
+    dir,
+  );
 }
 
 function main(): void {
@@ -179,22 +301,24 @@ function main(): void {
   const root = readJson<IPackageJson>(join(ROOT, "package.json"));
   mkdirSync(options.out, { recursive: true });
 
-  const sizes: [string, number][] = [];
-  for (const target of options.targets) {
-    sizes.push([targetKey(target), buildPlatform(target, options.out, root)]);
-  }
-  buildMain(options.out, root);
+  const define = buildInfoDefine({
+    ...gitInfo(ROOT),
+    built_at: buildDate(process.env, new Date()),
+  });
 
-  if (options.pack) {
-    const dirs = [
-      join(options.out, "npm", "wip"),
-      ...options.targets.map((t) => join(options.out, "npm", `wip-${targetKey(t)}`)),
-    ];
-    pack(options.out, dirs);
-  }
+  const dir = buildPackage(options.out, root, options.binName, define);
+  const bundle = statSync(join(dir, "dist", "wip.mjs")).size;
+  console.log(`${"npm/wip".padEnd(14)} ${(bundle / MB).toFixed(2)} MB bundle`);
+  if (options.pack) pack(options.out, dir);
 
-  for (const [key, size] of sizes) {
-    console.log(`${key.padEnd(14)} ${(size / MB).toFixed(1)} MB`);
+  if (options.targets.length > 0) {
+    const archives: string[] = [];
+    for (const target of options.targets) {
+      const binary = buildBinary(target, options.out, define);
+      archives.push(archiveBinary(binary, target, options.out, root.version));
+      console.log(`${targetKey(target).padEnd(14)} ${(statSync(binary).size / MB).toFixed(1)} MB`);
+    }
+    writeFileSync(join(options.out, "release", "SHA256SUMS"), sha256sums(archives));
   }
 }
 

@@ -1,12 +1,12 @@
-import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { type IRunOptions, type IRunOutput, run } from "../../src/cli.ts";
 import { setClockForTests } from "../../src/clock.ts";
 import type { TEnv } from "../../src/env.ts";
+import { Database } from "../../src/sqlite.ts";
 
-/** A scratch directory under the OS temp dir; never a real project nor `~/.agents`. */
+/** A scratch directory under the OS temp dir; never a real project nor `~/.claude`. */
 export function scratch(name: string): string {
   return realpathSync(mkdtempSync(join(tmpdir(), `wip-test-${name}-`)));
 }
@@ -33,7 +33,7 @@ export function makeProject(name: string, env: TEnv = {}): IProject {
     wip,
     json: (argv, options) =>
       JSON.parse(wip([...argv, "--json"], options).stdout) as Record<string, unknown>,
-    db: () => new Database(join(dir, ".wip", "wip.sqlite"), { readonly: true }),
+    db: () => new Database(join(dir, ".wip", "wip.sqlite"), { readOnly: true }),
     cleanup: () => {
       setClockForTests(null);
       rmSync(dir, { recursive: true, force: true });
@@ -41,6 +41,11 @@ export function makeProject(name: string, env: TEnv = {}): IProject {
   };
 }
 
-export function count(db: Database, sql: string): number {
+/** Any connection with a `query(sql).get()`: the wrapper of src/sqlite.ts or a bun:sqlite one. */
+export interface IQueryable {
+  query(sql: string): { get(): unknown };
+}
+
+export function count(db: IQueryable, sql: string): number {
   return (db.query(sql).get() as { n: number }).n;
 }

@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { parseYaml } from "../yaml.ts";
+
 export const PHASE_KINDS = ["work", "wait", "terminal"] as const;
 export const GATES = ["ask", "auto", "none"] as const;
 export const WAITING_DEFAULTS = ["agent", "user", "external", "none"] as const;
@@ -19,6 +22,8 @@ export interface IPhase {
   stage: string | null;
   agent: string | null;
   writes: TWrites;
+  /** Reachable from any non-terminal phase with a plain `wip phase`. */
+  fromAny: boolean;
 }
 
 export interface IFieldDef {
@@ -42,16 +47,31 @@ export interface ISeedItem {
   files: string[];
 }
 
+/** A scheduled check: which agent looks at which phases, and how often. wip never runs it; a scheduler asks `wip poll due`. */
+export interface IPoll {
+  name: string;
+  /** Phases whose open items it checks; empty: a flow-wide pass (discovery) that always applies. */
+  phases: string[];
+  agent: string;
+  /** As written: `30m`, `1h`, `2d`. */
+  cadence: string;
+  cadenceS: number;
+}
+
 /** Plain JSON: the registry stores it as the last valid version of the flow. */
 export interface IFlow {
   name: string;
   hash: string;
   version: 1;
   idPattern: string | null;
+  /** Tone of the stage ramp as `#RRGGBB`, `null` when absent. Absent in versions stored before colours existed: read it as `flow.color ?? STAGE_TONE`. */
+  color: string | null;
   fields: Record<string, IFieldDef>;
   links: ILink[];
   phases: IPhase[];
   seed: ISeedItem[];
+  /** Absent in versions stored before polling existed: read it as `flow.polling ?? []`. */
+  polling: IPoll[];
   /** Text of `## Subagents`, `null` when the file has none. */
   subagents: string | null;
   /** Text of each `### <phase>` section, by phase name. */
@@ -70,8 +90,12 @@ const FIELD_NAME_RE = /^[a-z][a-z0-9_]*$/;
 const ENUM_RE = /^enum\(([^)]*)\)$/;
 const BLOCK_RE = /^```wip-flow[ \t]*\n([\s\S]*?)^```[ \t]*$/gm;
 
-const TOP_KEYS = ["version", "id_pattern", "fields", "links", "phases", "seed"];
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+const TOP_KEYS = ["version", "color", "id_pattern", "fields", "links", "phases", "seed", "polling"];
 const SEED_KEYS = ["id", "phase", "title", "next", "files"];
+const POLL_KEYS = ["name", "phases", "agent", "cadence"];
+const CADENCE_RE = /^([1-9][0-9]*)(m|h|d)$/;
+const CADENCE_UNIT_S = { m: 60, h: 3600, d: 86400 } as const;
 export const DEFAULT_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 /** Item columns of the CLI; `title` is a column too but a flow may declare it as a field. */
 export const RESERVED_FIELDS = [
@@ -97,7 +121,7 @@ export function extractBlocks(text: string): string[] {
 }
 
 export function blockHash(block: string): string {
-  return new Bun.CryptoHasher("sha256").update(block).digest("hex").slice(0, 16);
+  return createHash("sha256").update(block).digest("hex").slice(0, 16);
 }
 
 function isMap(value: unknown): value is Record<string, unknown> {
@@ -162,6 +186,11 @@ function parsePhase(raw: unknown, index: number, problems: string[]): IPhase | n
     if (Array.isArray(raw.next) && raw.next.every((n) => typeof n === "string")) next = raw.next;
     else problems.push(`${where}: next must be a list of phase names`);
   }
+  let fromAny = false;
+  if (raw.from_any !== undefined && raw.from_any !== null) {
+    if (typeof raw.from_any === "boolean") fromAny = raw.from_any;
+    else problems.push(`${where}: from_any must be true or false`);
+  }
   return {
     name: raw.name,
     kind,
@@ -177,6 +206,7 @@ function parsePhase(raw: unknown, index: number, problems: string[]): IPhase | n
     stage: optionalText(raw.stage, `${where}: stage`, problems),
     agent: optionalText(raw.agent, `${where}: agent`, problems),
     writes: oneOf(raw.writes, WRITES, "artifacts", `${where}: writes`, problems),
+    fromAny,
   };
 }
 
@@ -239,6 +269,69 @@ function parseSeed(raw: unknown, problems: string[]): ISeedItem[] {
     if (id !== null && phase !== null) seed.push({ id, phase, title, next, files });
   });
   return seed;
+}
+
+/** `30m`, `1h`, `2d` in seconds, or `null` when it is not a cadence. */
+export function parseCadence(value: string): number | null {
+  const m = CADENCE_RE.exec(value);
+  if (!m) return null;
+  return Number(m[1]) * CADENCE_UNIT_S[m[2] as keyof typeof CADENCE_UNIT_S];
+}
+
+function parseColor(raw: unknown, problems: string[]): string | null {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw === "string" && HEX_RE.test(raw)) return raw.toUpperCase();
+  problems.push(
+    `color: '${typeof raw === "object" ? JSON.stringify(raw) : String(raw)}' is not #RRGGBB`,
+  );
+  return null;
+}
+
+function parsePolling(raw: unknown, problems: string[]): IPoll[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) {
+    problems.push("polling: must be a list of {name, phases, agent, cadence}");
+    return [];
+  }
+  const polling: IPoll[] = [];
+  raw.forEach((entry, i) => {
+    const where = `polling[${i}]`;
+    if (!isMap(entry)) {
+      problems.push(`${where}: must be a mapping with name, agent and cadence`);
+      return;
+    }
+    for (const key of Object.keys(entry)) {
+      if (!POLL_KEYS.includes(key)) problems.push(`${where}: unknown key '${key}'`);
+    }
+    let ok = true;
+    const name = entry.name;
+    if (typeof name !== "string" || !PHASE_NAME_RE.test(name)) {
+      problems.push(`${where}: name '${String(name)}' must match ${PHASE_NAME_RE.source}`);
+      ok = false;
+    }
+    const label = typeof name === "string" ? `polling ${name}` : where;
+    let phases: string[] = [];
+    if (entry.phases !== undefined && entry.phases !== null) {
+      if (Array.isArray(entry.phases) && entry.phases.every((p) => typeof p === "string")) {
+        phases = entry.phases;
+      } else {
+        problems.push(`${label}: phases must be a list of phase names`);
+        ok = false;
+      }
+    }
+    if (entry.agent === undefined) problems.push(`${label}: missing agent`);
+    const agent = optionalText(entry.agent, `${label}: agent`, problems);
+    if (entry.cadence === undefined) problems.push(`${label}: missing cadence`);
+    const cadence = optionalText(entry.cadence, `${label}: cadence`, problems);
+    const cadenceS = cadence === null ? null : parseCadence(cadence);
+    if (cadence !== null && cadenceS === null) {
+      problems.push(`${label}: cadence '${cadence}' must be a number and m, h or d (30m, 1h, 2d)`);
+    }
+    if (ok && typeof name === "string" && agent !== null && cadence !== null && cadenceS !== null) {
+      polling.push({ name, phases, agent, cadence, cadenceS });
+    }
+  });
+  return polling;
 }
 
 function parseFields(raw: unknown, problems: string[]): Record<string, IFieldDef> {
@@ -333,7 +426,7 @@ export function parseFlow(name: string, text: string): IParsed {
   const block = blocks[0] as string;
   let raw: unknown;
   try {
-    raw = Bun.YAML.parse(block);
+    raw = parseYaml(block);
   } catch (err) {
     return {
       flow: null,
@@ -372,10 +465,12 @@ export function parseFlow(name: string, text: string): IParsed {
       hash: blockHash(block),
       version: 1,
       idPattern,
+      color: parseColor(raw.color, problems),
       fields: parseFields(raw.fields, problems),
       links: parseLinks(raw.links, problems),
       phases,
       seed: parseSeed(raw.seed, problems),
+      polling: parsePolling(raw.polling, problems),
       ...sections,
     },
   };

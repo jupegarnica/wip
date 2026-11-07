@@ -45,6 +45,11 @@ phases:
   - name: done
     kind: terminal
     stage: closed
+polling:
+  - name: waiting
+    phases: [waiting]
+    agent: fast
+    cadence: 1h
 ```
 
 ## Subagents
@@ -59,8 +64,8 @@ the phase reads.
 
 ### intake
 
-The coordinator does this phase itself. Create the item with `wip phase <ID> intake --flow review`, then
-`wip set <ID> title=<short title> source=<link or path of the change>`. Move to `read` when the change is reachable.
+The coordinator does this phase itself. Create the item with `"$WIP_BIN" phase <ID> intake --flow review`, then
+`"$WIP_BIN" set <ID> title=<short title> source=<link or path of the change>`. Move to `read` when the change is reachable.
 
 ### read
 
@@ -75,9 +80,10 @@ relaunches it with the user's feedback; back to `read` when the change itself mo
 
 ### waiting
 
-The author answers outside the session: `wip wait <ID> external --next "<what we wait for>"`. New commits go back to
-`read`; an accepted answer goes to `done`.
+The author answers outside the session: `"$WIP_BIN" wait <ID> external --next "<what we wait for>"`. New commits go back to
+`read`; an accepted answer goes to `done`. The flow's `polling` has `fast` look at the change once an hour
+while an item is here (`"$WIP_BIN" poll due`); what it finds is recorded with the usual commands.
 
 ### done
 
-Terminal. Archive with `wip archive <ID>` when nothing is left open.
+Terminal. Archive with `"$WIP_BIN" archive <ID>` when nothing is left open.

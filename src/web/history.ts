@@ -2,10 +2,10 @@ import type { TDatabase } from "../db.ts";
 import type { IFlow } from "../flow/parse.ts";
 import { FLOW_NAME_RE } from "../flow/parse.ts";
 import type { IFlowSet } from "../flow/registry.ts";
-import { type IItemRow, itemFields, terminalPhase } from "../items.ts";
+import { type IItemRow, isTerminal, itemFields } from "../items.ts";
 import { flowColumns, type IItemLink, type IStagePaint, itemLinks, paintOf } from "./state.ts";
 
-/** active: open, any phase · archived: archived in its flow's terminal phase · discarded: archived elsewhere. */
+/** active: open, any phase · archived: archived in a terminal phase of its flow · discarded: archived elsewhere. */
 export type TCategory = "active" | "archived" | "discarded";
 
 export const CATEGORIES: readonly TCategory[] = ["active", "archived", "discarded"];
@@ -49,9 +49,8 @@ export function categoryOf(
   flow: IFlow | null,
 ): TCategory {
   if (item.status === "open") return "active";
-  const terminal = flow ? terminalPhase(flow) : undefined;
-  if (!terminal) return "archived";
-  return item.phase === terminal.name ? "archived" : "discarded";
+  if (!flow) return "archived";
+  return isTerminal(flow, item.phase) ? "archived" : "discarded";
 }
 
 export function historyData(
@@ -59,7 +58,9 @@ export function historyData(
   flows: IFlowSet,
   query: IHistoryQuery = {},
 ): IHistoryPage {
-  const rows = db ? (db.query("SELECT * FROM items ORDER BY id").all() as IItemRow[]) : [];
+  const rows = (db ? (db.query("SELECT * FROM items ORDER BY id").all() as IItemRow[]) : []).filter(
+    (item) => !flows.disabled.has(item.flow),
+  );
   const all: IHistoryItem[] = rows.map((item) => {
     const flow = flows.entries.get(item.flow)?.flow ?? null;
     const category = categoryOf(item, flow);
