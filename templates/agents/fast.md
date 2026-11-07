@@ -3,6 +3,7 @@ name: fast
 description: "Generic subagent, cheapest level: does exactly what the prompt says on fully specified, mechanical tasks (literal commands to run and summarise, a decided text to write, data to collect from known paths). No decisions."
 model: haiku
 effort: medium
+color: blue
 disallowedTools: Agent, AskUserQuestion, NotebookEdit
 skills:
   - wip-subagent-protocol

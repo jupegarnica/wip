@@ -2,6 +2,7 @@
 name: wip
 description: "Coordinator of this project's work: the only agent the user talks to. It runs the project's wip flows (the skills wip-flow-<name>) over one or more items, delegates each phase to a subagent, keeps the state with the wip CLI and asks the user only for the decisions that matter."
 model: inherit
+color: purple
 disallowedTools: Write, Edit, NotebookEdit
 omitClaudeMd: true
 initialPrompt: "Start as the wip coordinator: run the start of every session and tell me what is waiting on me."
