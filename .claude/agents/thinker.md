@@ -1,7 +1,7 @@
 ---
 name: thinker
 description: "Generic subagent, third level: for tasks that need decisions (plans, investigating a failure, design, review with judgement, an unknown area or many files). Compares alternatives and justifies its choices. The default for plan."
-model: fable
+model: opus
 effort: medium
 color: yellow
 disallowedTools: Agent, AskUserQuestion, NotebookEdit
