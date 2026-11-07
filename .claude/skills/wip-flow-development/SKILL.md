@@ -17,18 +17,19 @@ phases:
   - name: plan
     gate: ask
     next: [build]
-    agent: efficient
+    agent: thinker
     writes: artifacts
     stage: plan
   - name: build
     gate: auto
     next: [review]
-    agent: fast
+    agent: thinker
     writes: project
     stage: build
   - name: review
     gate: none
     next: [build, close]
+    agent: efficient
     stage: review
   - name: close
     kind: terminal
@@ -37,10 +38,9 @@ phases:
 
 ## Subagents
 
-- `plan` uses `efficient`: it writes the plan from the user's request and the project files. When the plan needs a
-  decision that is not written anywhere, use `thinker`.
-- `build` uses `fast`: it carries out the approved plan literally. A build that hits a decision the plan does not
-  cover returns `needs-input`; the coordinator escalates to `efficient` and then `thinker`.
+- `plan` uses `thinker`: it writes the plan from the user's request and the project files, deciding what is not written anywhere.
+- `build` uses `thinker`: it carries out the approved plan literally. A build that hits a decision the plan does not
+  cover returns `needs-input`; the coordinator escalates to `wise`.
 
 - `review` uses `efficient` (or `fast` when the steps are mechanical): it prepares the environment, the launcher and
   `qa-plan.md`, then runs itself the cases it can automate and writes `qa-report.md`; the user does the final manual
