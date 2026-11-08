@@ -13,7 +13,9 @@
       "!**/.wip",
       "!test/fixtures",
       "!templates",
-      "!.claude"
+      "!.claude",
+      "!.opencode",
+      "!mods/*/.claude-plugin/types"
     ]
   },
   "formatter": {

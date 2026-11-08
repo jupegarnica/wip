@@ -2,3 +2,4 @@ node_modules/
 dist/
 *.tgz
 .wip/
+mods/*/.claude-plugin/types/
