@@ -23,14 +23,17 @@ A third party installs wip as usual and runs `wip init` in the project. The wiza
 Without a terminal, the flags decide:
 
 ```sh
-wip init --yes --kanban
+wip init --yes
+wip init --yes --force
 wip init --yes --kanban --kanban-settings-file settings.local.json
 ```
 
-`--kanban` installs the copy and writes the entry; `--kanban-settings-file` chooses the file that receives it and
-is only valid together with `--kanban`. `wip init --yes` alone installs nothing: the default `yes` is the wizard's,
-and a script installs with `--kanban`. `--global` decides where the wip agents and skills live, never where the mod
-lives.
+`wip init --yes` takes the wizard's defaults, the Kanban step included: it installs the copy and writes the entry in
+`.claude/settings.json` (or in the file that already holds it). The default is `no` when the entry is explicitly
+`false`, when another tool's folder sits at the mod's path or when the settings cannot take the entry. `--kanban`
+installs anyway (reactivating a `false` with a backup, and exiting 3 with a foreign folder); `--kanban-settings-file`
+chooses the file that receives the entry and is only valid together with `--kanban`. `--global` decides where the wip
+agents and skills live, never where the mod lives.
 
 The install is two things:
 

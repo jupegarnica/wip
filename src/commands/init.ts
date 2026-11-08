@@ -34,6 +34,7 @@ import {
   type IKanbanCopyResult,
   KANBAN_DIR,
   KanbanCopyFailed,
+  kanbanAskDefaults,
   kanbanPreflight,
   kanbanState,
   syncKanban,
@@ -208,19 +209,25 @@ function run(ctx: ICtx, args: IArgs): void {
   const project = resolve(ctx.cwd, path ?? ".");
   const force = args.flags.has("force");
   const global = args.flags.has("global");
-  const kanban = args.flags.has("kanban");
+  const yes = args.flags.has("yes");
+  const kanbanFlag = args.flags.has("kanban");
   const kanbanFileValue = args.opts["kanban-settings-file"];
   if (kanbanFileValue !== undefined) {
-    if (!kanban) throw usage("--kanban-settings-file only goes with --kanban");
+    if (!kanbanFlag) throw usage("--kanban-settings-file only goes with --kanban");
     if (!isSettingsFile(kanbanFileValue)) {
       throw usage("--kanban-settings-file: use settings.json or settings.local.json");
     }
   }
-  const kanbanFile: TSettingsFile = kanbanFileValue ?? "settings.json";
   const defsDir = (global ? HOME_PREFIX : "") + DEFAULT_DEFS_DIR;
   const defsRoot = defsPath(project, defsDir, ctx.env);
   const shown = shownDefsDir(defsDir, ctx.env);
   assertDirectory(project);
+
+  // With --yes, init takes the wizard's default answers too, the Kanban step included.
+  const yesKanban =
+    yes && !kanbanFlag ? kanbanAskDefaults(kanbanState(project), project, force) : null;
+  const kanban = kanbanFlag || (yesKanban?.install ?? false);
+  const kanbanFile: TSettingsFile = kanbanFileValue ?? yesKanban?.file ?? "settings.json";
 
   const sw = folderSwitch(project, defsDir, force, ctx.env);
   const kanbanPre = kanbanPreflight(project, { requested: kanban, force, file: kanbanFile });

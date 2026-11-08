@@ -8,8 +8,10 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 First version.
 
-- `wip init`'s Kanban step defaults to installing the mod (`yes`); `no` and `--yes` still install nothing. The
-  Kanban pane reopens on the first prompt when the engine waits for a person to ask for it.
+- `wip init`'s Kanban step defaults to installing the mod (`yes`); `--yes` accepts that default, so `wip init --yes`
+  and `wip init --force --yes` install the copy and the entry unless the entry is explicitly `false`, the folder is
+  another tool's or the settings cannot take it. The Kanban pane reopens on the first prompt when the engine waits for
+  a person to ask for it.
 
 **Upgrade notes.** `--harness` is removed (exit 2); a `harness` key in `.wip/config.json` is ignored when read and
 dropped on the next write; the definitions folder defaults to `.claude/`; a project with a legacy `defs_dir`
@@ -55,7 +57,10 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   the file question, writing `.claude/settings.json`. The merge preserves every other key with a backup in
   `.wip/backups/claude-settings/`; the other file is read only to warn about an override, a duplicate or an unreadable
   file. `--force` replaces the whole mod folder after copying it to `.wip/backups/kanban/`, removes extras, keeps the
-  generated types and never reactivates a disabled entry unless `--kanban` is given.
+  generated types and never reactivates a disabled entry unless `--kanban` is given. `--yes` takes the wizard's Kanban
+  default: `wip init --yes` and `wip init --force --yes` install the copy and the entry in `.claude/settings.json`
+  (or in the file that already holds it) unless the entry is explicitly `false`, the folder is another tool's or the
+  settings cannot take it.
 - The mod itself: a read-only pane of the project's open items read from `wip state --json` once and every 5 s
   (one process at a time, 4 s timeout, the last valid board on failure), `/wip-kanban on|off`, filters persisted per
   project, `webUrl` and `colorScheme` options, and a click that opens the wip web with the item selected. The pane
@@ -130,7 +135,8 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
 - `wip init` asks, in a terminal, in four steps (coloured only without `NO_COLOR`): the scope (`local`, the default, or
   `--global`), the `wip start` command (saved as `start`), what goes into `.gitignore`, and the Kanban mod, with a
   summary to confirm. The templates carry their `model:` lines (`haiku`, `sonnet`, `opus`, `fable` and `inherit`):
-  init never asks for or writes a model, `--yes` fills no `model:`, and `--models` is removed (exit 2, nothing
+  init never asks for or writes a model, `--yes` fills no `model:` (and takes the default of each step, the Kanban one
+  included), and `--models` is removed (exit 2, nothing
   written). `--start`, `--start-default` and `--no-start` answer without prompting. Without a terminal init asks
   nothing and only `start` can stay unset. `models_unset` points to the agent file without a `model:` line, fixed by
   editing that line; `start_unset` points to `wip init` or `wip start --set`. The coordinator no longer asks for

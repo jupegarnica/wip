@@ -267,6 +267,14 @@ describe("the state of the two settings files and the wizard defaults", () => {
     expect(kanbanDefaults(state)).toMatchObject({ install: true, file: "settings.json" });
   });
 
+  test("kanbanAskDefaults on an empty project says yes with settings.json", () => {
+    const dir = project();
+    expect(kanbanAskDefaults(kanbanState(dir), dir, false)).toMatchObject({
+      install: true,
+      file: "settings.json",
+    });
+  });
+
   test("a complete copy defaults to yes with the file that holds the true entry", () => {
     const json = project();
     syncKanban(json, { requested: true, force: false, stamp: STAMP });

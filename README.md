@@ -202,13 +202,19 @@ enabledPlugins entry go?`:
 Without a terminal:
 
 ```sh
-wip init --yes --kanban
+wip init --yes
+wip init --yes --force
 wip init --yes --kanban --kanban-settings-file settings.local.json
 ```
 
-`--kanban` installs the copy and writes the entry; `--kanban-settings-file settings.json|settings.local.json` chooses
-the file and is only valid together with `--kanban` (else exit 2, nothing written). `--yes` alone installs nothing:
-the default `yes` is the wizard's, and a script installs with `--kanban`.
+`--yes` takes the wizard's default answers, the Kanban step included: it installs the copy and writes the entry in
+`.claude/settings.json` (or in the file that already holds it), so `wip init --yes` and `wip init --force --yes`
+install the mod. The default is still `no` when the entry is explicitly `false`, when a folder that is another tool's
+sits at the mod's path or when the settings cannot take the entry; `--kanban` installs anyway (it reactivates a
+`false` with a backup, and exits 3 with a foreign folder). `--kanban-settings-file
+settings.json|settings.local.json` chooses the file and is only valid together with `--kanban` (else exit 2, nothing
+written). A script that wants the old behaviour (no mod) omits `--yes` and passes `--start-default` to keep the
+default start without a terminal.
 `--kanban` skips the wizard's first question and still asks the file; `--kanban --force` skips both and writes the
 default `.claude/settings.json`; `--kanban-settings-file` skips the second. The
 merge preserves every other key, every other plugin and their order, adds `$schema` only when it creates the file,
@@ -239,12 +245,12 @@ board itself works without the server. `claude plugin configure wip-kanban@skill
 phases and its columns, each with the stage colour as `rgba()` and as the two solid colours and contrasting texts the
 terminal paints. The field is additive: `data.items` and its filters keep their meaning, and the web page is unchanged.
 
-Updating: install the new wip and run `wip init --force` (or `wip init --kanban --force`). With `--force` the whole
+Updating: install the new wip and run `wip init --force --yes` (or `wip init --kanban --force`). With `--force` the whole
 folder is replaced: managed files return to the embedded text, your own extra files inside it are removed (each listed
 as `removed`) and the previous folder is copied first to `.wip/backups/kanban/wip-kanban.<stamp>/`; the
 `.claude-plugin/types/` Claude generates is kept. A second `--force` with nothing changed says `exists` and writes
-nothing. `--force` without `--kanban` refreshes an existing copy and touches neither settings file, so a plugin you
-disabled stays disabled; only `--kanban` writes `true` in the chosen file, with a backup. A folder at that path
+nothing. `--force` alone refreshes an existing copy and touches neither settings file; `--yes` installs the entry with
+the wizard's defaults; only `--kanban` reactivates a `false`, writing `true` in the chosen file with a backup. A folder at that path
 without wip's `.claude-plugin/wip.json` mark, or a file or link there, is another tool's: exit 3 with nothing written,
 also with `--force`.
 
@@ -293,7 +299,8 @@ after a failure.
 The model of each generic agent and of the coordinator (marked `wip: coordinator`) is its `model:` frontmatter line,
 and each template under `templates/agents/` carries one: `haiku` (`fast`), `sonnet` (`efficient`), `opus` (`thinker`),
 `fable` (`wise`) and `inherit` (the coordinator). `wip init` writes the template as it is and never asks for or
-writes a model; `wip init --yes` fills no `model:` either. In a terminal `wip init` asks in four steps: the scope
+writes a model; `wip init --yes` fills no `model:` either and takes the default of each wizard step, the Kanban one
+included (see "The Kanban mod"). In a terminal `wip init` asks in four steps: the scope
 (`local`, the default, in the project, or `global`, in your home folder like `--global`; `--global` skips it and an
 initialised project keeps its scope, shown as `scope kept`), the `wip start` command, what goes into `.gitignore` and
 the Kanban mod (`yes`, the default, or `no`), shows a summary and writes nothing until you confirm (Enter takes the

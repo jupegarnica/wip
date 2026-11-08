@@ -1020,24 +1020,44 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     readFileSync(join(dir, ".claude", name), "utf8");
   const modText = (dir: string, key: string): string => readFileSync(join(dir, MOD, key), "utf8");
 
-  test("--yes installs neither copy nor settings; --kanban installs both in .claude/settings.json", () => {
-    const plain = tmp("k-plain");
-    const out = wipJsonIn(plain, ["init", "--yes"]);
+  test("--yes installs the copy and the entry in .claude/settings.json", () => {
+    const dir = tmp("k-yes");
+    const out = wipJsonIn(dir, ["init", "--yes"]);
     expect(out.code).toBe(EXIT.OK);
-    expect(existsSync(join(plain, MOD))).toBe(false);
-    expect(existsSync(join(plain, ".claude", "settings.json"))).toBe(false);
-    expect(existsSync(join(plain, ".claude", "settings.local.json"))).toBe(false);
-    expect(kanban(out)).toEqual({
-      requested: false,
-      installed: false,
-      path: null,
-      id: null,
-      copy: null,
-      settings: null,
+    expect(tree(join(dir, MOD))).toEqual(
+      Object.fromEntries(
+        Object.entries(KANBAN_MOD)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, text]) => [key, text]),
+      ),
+    );
+    expect(modText(dir, ".claude-plugin/wip.json")).toBe(
+      '{\n  "format": 1,\n  "owner": "@garndev/wip",\n  "plugin": "wip-kanban"\n}\n',
+    );
+    expect(JSON.parse(settingsText(dir, "settings.json"))).toEqual({
+      $schema: "https://json.schemastore.org/claude-code-settings.json",
+      enabledPlugins: { [ID]: true },
     });
+    expect(existsSync(join(dir, ".claude", "settings.local.json"))).toBe(false);
+    expect(kanban(out)).toEqual({
+      requested: true,
+      installed: true,
+      path: MOD,
+      id: ID,
+      copy: { action: "created", backup: null, removed: [] },
+      settings: {
+        path: ".claude/settings.json",
+        scope: "project",
+        action: "created",
+        backup: null,
+      },
+    });
+    expect(out.body.warnings.map((w) => w.code)).toEqual([]);
+  });
 
+  test("--kanban installs both in .claude/settings.json without --yes", () => {
     const dir = tmp("k-install");
-    const withMod = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    const withMod = wipJsonIn(dir, ["init", "--kanban"]);
     expect(withMod.code).toBe(EXIT.OK);
     expect(tree(join(dir, MOD))).toEqual(
       Object.fromEntries(
@@ -1068,6 +1088,77 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
       },
     });
     expect(withMod.body.warnings.map((w) => w.code)).toEqual([]);
+  });
+
+  test("--force --yes in an empty project installs the copy and the entry", () => {
+    const dir = tmp("k-force-yes");
+    const out = wipJsonIn(dir, ["init", "--force", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, MOD, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: MOD,
+      id: ID,
+      copy: { action: "created", backup: null },
+      settings: { path: ".claude/settings.json", scope: "project", action: "created" },
+    });
+  });
+
+  test("a project initialised before the feature installs the mod on --force --yes", () => {
+    const dir = tmp("k-before-feature");
+    expect(wipJsonIn(dir, ["init", "--start-default"]).code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, MOD))).toBe(false);
+    expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
+
+    const out = wipJsonIn(dir, ["init", "--force", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, MOD, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: MOD,
+      id: ID,
+    });
+  });
+
+  test("a second --yes says exists on the copy and the entry and changes no bytes", () => {
+    const dir = tmp("k-yes-twice");
+    expect(wipJsonIn(dir, ["init", "--yes"]).code).toBe(EXIT.OK);
+    const before = tree(dir);
+    const out = wipJsonIn(dir, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(tree(dir)).toEqual(before);
+    expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      copy: { action: "exists", backup: null, removed: [] },
+      settings: {
+        path: ".claude/settings.json",
+        scope: "project",
+        action: "exists",
+        backup: null,
+      },
+    });
+  });
+
+  test("--global --yes installs the copy and the entry in the project, not in $HOME/.claude", () => {
+    const h = tmp("k-home");
+    const dir = tmp("k-global-yes");
+    const out = wipJsonIn(dir, ["init", "--global", "--yes"], { HOME: h });
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, MOD, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(existsSync(join(h, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(h, ".claude", "settings.local.json"))).toBe(false);
+    expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: MOD,
+      settings: { path: ".claude/settings.json", scope: "project" },
+    });
   });
 
   test("--kanban --force installs every default in .claude/settings.json, also without --yes", () => {
@@ -1129,8 +1220,25 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     expect(plain.code).toBe(EXIT.OK);
     expect(tree(dir)).toEqual(before);
     expect(kanban(plain)).toMatchObject({
+      requested: true,
+      installed: true,
+      copy: { action: "exists", backup: null, removed: [] },
+      settings: {
+        path: ".claude/settings.json",
+        scope: "project",
+        action: "exists",
+        backup: null,
+      },
+    });
+
+    const untouched = wipJsonIn(dir, ["init"]);
+    expect(untouched.code).toBe(EXIT.OK);
+    expect(tree(dir)).toEqual(before);
+    expect(kanban(untouched)).toEqual({
       requested: false,
       installed: true,
+      path: MOD,
+      id: ID,
       copy: null,
       settings: null,
     });
@@ -1158,6 +1266,72 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const backup = kanban(out).settings.backup as string;
     expect(backup).toStartWith(".wip/backups/claude-settings/settings.json.");
     expect(readFileSync(join(dir, backup), "utf8")).toBe(before);
+  });
+
+  test("--yes merges an existing settings file, preserving keys, order and plugins, with a backup", () => {
+    const dir = tmp("k-merge-yes");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    const before = `{
+  "permissions": { "allow": ["Bash(wip:*)"] },
+  "enabledPlugins": { "other@market": true },
+  "env": { "A": "1" }
+}
+`;
+    writeFileSync(join(dir, ".claude", "settings.json"), before);
+    const out = wipJsonIn(dir, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    const after = JSON.parse(settingsText(dir, "settings.json"));
+    expect(after).toEqual({
+      permissions: { allow: ["Bash(wip:*)"] },
+      enabledPlugins: { "other@market": true, [ID]: true },
+      env: { A: "1" },
+    });
+    expect(Object.keys(after)).toEqual(["permissions", "enabledPlugins", "env"]);
+    const backup = kanban(out).settings.backup as string;
+    expect(backup).toStartWith(".wip/backups/claude-settings/settings.json.");
+    expect(readFileSync(join(dir, backup), "utf8")).toBe(before);
+  });
+
+  test("--yes with an invalid settings.json writes the entry to settings.local.json and warns", () => {
+    const dir = tmp("k-yes-invalid");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "settings.json"), "{oops");
+    const out = wipJsonIn(dir, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(settingsText(dir, "settings.json")).toBe("{oops");
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual({
+      [ID]: true,
+    });
+    expect(out.body.warnings.map((w) => w.code)).toEqual(["kanban_settings_unreadable"]);
+    expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      copy: { action: "created" },
+      settings: {
+        path: ".claude/settings.local.json",
+        scope: "local",
+        action: "created",
+        backup: null,
+      },
+    });
+  });
+
+  test("--yes with both settings files unreadable installs nothing and exits 0", () => {
+    const dir = tmp("k-yes-broken");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "settings.json"), "{oops");
+    writeFileSync(join(dir, ".claude", "settings.local.json"), "{oops");
+    const out = wipJsonIn(dir, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, MOD))).toBe(false);
+    expect(kanban(out)).toEqual({
+      requested: false,
+      installed: false,
+      path: null,
+      id: null,
+      copy: null,
+      settings: null,
+    });
   });
 
   test("--force replaces the folder, backs the old one up, removes extras and keeps the generated types", () => {
@@ -1323,12 +1497,23 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     );
   });
 
-  test("a normal init leaves an existing settings file byte-identical", () => {
+  test("init without --yes leaves an existing settings file byte-identical; --yes adds the entry with a backup", () => {
     const dir = tmp("k-untouched");
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(join(dir, ".claude", "settings.json"), "{}\n");
-    expect(wipIn(dir, ["init", "--yes"]).code).toBe(EXIT.OK);
+    expect(wipIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(settingsText(dir, "settings.json")).toBe("{}\n");
     expect(existsSync(join(dir, ".claude", "settings.local.json"))).toBe(false);
+
+    const yes = tmp("k-untouched-yes");
+    mkdirSync(join(yes, ".claude"), { recursive: true });
+    writeFileSync(join(yes, ".claude", "settings.json"), "{}\n");
+    const out = wipJsonIn(yes, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(settingsText(yes, "settings.json")).not.toBe("{}\n");
+    expect(JSON.parse(settingsText(yes, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    const backup = kanban(out).settings.backup as string;
+    expect(backup).toStartWith(".wip/backups/claude-settings/settings.json.");
+    expect(readFileSync(join(yes, backup), "utf8")).toBe("{}\n");
   });
 });

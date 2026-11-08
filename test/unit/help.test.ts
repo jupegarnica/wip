@@ -141,6 +141,13 @@ describe("wip help init", () => {
     expect(out.stdout).toContain("[--kanban-settings-file settings.json|settings.local.json]");
   });
 
+  test("it says --yes installs the Kanban mod with the wizard's defaults", () => {
+    const out = bare(["help", "init"]);
+    expect(out.stdout).toContain("`--yes` installs it with the defaults the wizard shows");
+    expect(out.stdout).not.toContain("no Kanban");
+    expect(out.stdout).not.toContain("installs nothing");
+  });
+
   test("init help describes four steps and no --models", () => {
     const out = bare(["help", "init"]);
     expect(out.stdout).toContain("four steps");
