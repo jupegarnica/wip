@@ -69,7 +69,7 @@ function run(ctx: ICtx, args: IArgs): void {
   if (unset.length > 0) {
     ctx.result.warnings.push({
       code: "models_unset",
-      message: `agents without model: ${unset.join(", ")}; run \`wip init\` or edit \`model:\` in the agent file`,
+      message: `agents without model: ${unset.join(", ")}; add a \`model:\` line to each agent file (ask the coordinator: «Changing a model» in wip-coordinate)`,
       agents: unset,
     });
   }

@@ -8,12 +8,11 @@ import {
   START_VARIABLES,
   validateStart,
 } from "../config.ts";
-import { defsPath, shownDefsDir, type TEnv } from "../env.ts";
+import { shownDefsDir, type TEnv } from "../env.ts";
 import { isSettingsFile, type TSettingsFile } from "./claude-settings.ts";
 import { joinCommand, splitCommand } from "./command.ts";
-import { currentModels, savedStart } from "./current.ts";
+import { savedStart } from "./current.ts";
 import { type IKanbanState, KANBAN_DIR, kanbanAskDefaults, kanbanState } from "./kanban.ts";
-import { MODEL_AGENTS, parseModels, SKIP, suggestedModel } from "./models.ts";
 import { askSelect, askText, askYesNo, type IAsker } from "./prompt.ts";
 import { isIgnored } from "./scaffold.ts";
 import { box } from "./style.ts";
@@ -24,15 +23,10 @@ export interface IAskInput {
   env: TEnv;
 }
 
-const STEPS = 5;
+const STEPS = 4;
 
-const MODEL_ROLES: Readonly<Record<string, string>> = {
-  fast: "mechanical tasks",
-  efficient: "scoped work",
-  thinker: "plans and decisions",
-  wise: "high level advisor",
-  wip: "the coordinator",
-};
+/** The answer that leaves no start command, as the start step reads it. */
+const SKIP = "skip";
 
 function checkStart(text: string): string | null {
   try {
@@ -51,10 +45,10 @@ function header(asker: IAsker, n: number, title: string, note?: string): void {
 }
 
 /**
- * Asks what the flags left open, in the order scope, models, start, Git and Kanban, and returns the extra
- * arguments to give the non-interactive init (`--global`, `--models`, `--start`, `--no-start`, `--gitignore`,
- * `--kanban`, `--kanban-settings-file`), or `null` when the user declines the summary. Nothing is written here:
- * every answer is asked before the first write. Throws `Aborted` on Ctrl+C.
+ * Asks what the flags left open, in the order scope, start, Git and Kanban, and returns the extra arguments to give
+ * the non-interactive init (`--global`, `--start`, `--no-start`, `--gitignore`, `--kanban`,
+ * `--kanban-settings-file`), or `null` when the user declines the summary. Nothing is written here: every answer is
+ * asked before the first write. Throws `Aborted` on Ctrl+C.
  */
 export async function askInit(asker: IAsker, input: IAskInput): Promise<string[] | null> {
   const { args } = input;
@@ -98,7 +92,6 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
   }
 
   const defsDir = (global ? HOME_PREFIX : "") + DEFAULT_DEFS_DIR;
-  const current = currentModels(defsPath(project, defsDir, input.env));
   const shownDefs = shownDefsDir(defsDir, input.env);
   // A legacy folder needs --force to move to .claude; the rest of the answers are written as they are.
   const switchFrom =
@@ -118,35 +111,9 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     );
   }
 
-  header(asker, 2, "Models", "one per agent; Enter takes the suggestion");
-  const given = args.opts.models === undefined ? {} : parseModels(args.opts.models);
-  const shown: Record<string, string | null> = {};
-  const written: string[] = [];
-  for (const agent of MODEL_AGENTS) {
-    const was = current[agent] ?? null;
-    if (agent in given) {
-      shown[agent] = given[agent] as string;
-      continue;
-    }
-    const label = `Model of ${agent}${MODEL_ROLES[agent] ? ` ${s.dim(`(${MODEL_ROLES[agent]})`)}` : ""}`;
-    const def = was ?? suggestedModel(agent);
-    const answer = await askText(
-      asker,
-      was ? `${label} ${s.dim(`now ${was}`)}` : label,
-      def,
-      (a) => (/[\r\n]/.test(a) ? "one line only" : null),
-    );
-    if (answer === "") shown[agent] = was;
-    else {
-      shown[agent] = answer;
-      if (answer !== was) written.push(`${agent}=${answer}`);
-    }
-  }
-  if (written.length > 0) extra.push("--models", written.join(","));
-
   header(
     asker,
-    3,
+    2,
     "Start command",
     `what \`wip start\` runs; variables ${START_VARIABLES.map((v) => `{${v}}`).join(" ")}; leave empty for none`,
   );
@@ -167,7 +134,7 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     }
   }
 
-  header(asker, 4, "Git", "what goes into .gitignore");
+  header(asker, 3, "Git", "what goes into .gitignore");
   let gitShown: string;
   if (args.opts.gitignore !== undefined) {
     asker.say(`  ${s.dim(`from --gitignore ${args.opts.gitignore}`)}`);
@@ -195,7 +162,7 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     if (gitShown !== "wip" || !isIgnored(project, ".wip/")) extra.push("--gitignore", gitShown);
   }
 
-  header(asker, 5, "Kanban", "optional: a read-only board of the open items, shown by Claude Code");
+  header(asker, 4, "Kanban", "optional: a read-only board of the open items, shown by Claude Code");
   let state: IKanbanState | null = null;
   try {
     state = kanbanState(project);
@@ -244,6 +211,10 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     if (given !== undefined && isSettingsFile(given)) {
       kanbanFile = given;
       asker.say(`  ${s.dim(`from --kanban-settings-file ${given}`)}`);
+    } else if (args.flags.has("kanban") && args.flags.has("force")) {
+      asker.say(
+        `  ${s.dim("--kanban --force installs with the defaults: .claude/settings.json, no file question")}`,
+      );
     } else {
       const answer = await askSelect(asker, {
         question: "Where does the enabledPlugins entry go?",
@@ -274,7 +245,6 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
   const rows = [
     row("scope", global ? "global" : "local"),
     row("defs", `${shownDefs}/${switchFrom === null ? "" : ` (switch from ${switchFrom}/)`}`),
-    ...MODEL_AGENTS.map((a) => row(a, shown[a] ?? null)),
     row("start", startShown),
     row("gitignore", gitShown),
     row(

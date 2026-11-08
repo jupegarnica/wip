@@ -29,7 +29,7 @@ import {
   type TSettingsFile,
 } from "../init/claude-settings.ts";
 import { splitCommand } from "../init/command.ts";
-import { currentModels, savedStart } from "../init/current.ts";
+import { savedStart } from "../init/current.ts";
 import {
   type IKanbanCopyResult,
   KANBAN_DIR,
@@ -38,7 +38,6 @@ import {
   kanbanState,
   syncKanban,
 } from "../init/kanban.ts";
-import { defaultModel, MODEL_AGENTS, parseModels } from "../init/models.ts";
 import { Aborted, type IAsker, terminalAsker } from "../init/prompt.ts";
 import { foreignFiles, scaffold } from "../init/scaffold.ts";
 import { seedItems } from "../init/seed.ts";
@@ -52,11 +51,21 @@ export function unsetLine(models: readonly string[], startUnset: boolean): strin
   if (models.length > 0) parts.push(`no model for ${models.join(", ")}`);
   if (startUnset) parts.push("no start command");
   if (parts.length === 0) return null;
-  return `Still unset: ${parts.join("; ")}. Run \`wip init\` in a terminal (or with --yes, --models, --start) to set them; until then the runtime default model applies.`;
+  const advice: string[] = [];
+  if (models.length > 0) {
+    advice.push(
+      "Add a `model:` line to each agent file (ask the coordinator, «Changing a model»).",
+    );
+  }
+  if (startUnset) {
+    advice.push("Set the start with `wip init --start <command>` or `wip start --set`.");
+  }
+  if (models.length > 0) advice.push("Until then the runtime default model applies.");
+  return `Still unset: ${parts.join("; ")}. ${advice.join(" ")}`;
 }
 
 const INIT_USAGE =
-  "usage: wip init [<path>] [--global] [--force] [--yes] [--models <agent>=<model>,…] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none] [--kanban] [--kanban-settings-file settings.json|settings.local.json]";
+  "usage: wip init [<path>] [--global] [--force] [--yes] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none] [--kanban] [--kanban-settings-file settings.json|settings.local.json]";
 
 const CLAUDE_CODE_NEXT = [
   "Run `wip start` (or bare `wip`) in this directory: it starts the coordinator, the runtime that runs the project's flows.",
@@ -152,26 +161,6 @@ function liveFlowRefusals(project: string, from: string, to: string, env: TEnv):
   });
 }
 
-/** The models to write: `--models` first, then (with --yes) the defaults for every agent that has none. */
-function modelAnswers(args: IArgs, current: Record<string, string>): Record<string, string> {
-  let flagged: Record<string, string> = {};
-  const text = args.opts.models;
-  if (text !== undefined) {
-    try {
-      flagged = parseModels(text);
-    } catch (err) {
-      throw usage((err as Error).message);
-    }
-  }
-  const out: Record<string, string> = { ...flagged };
-  if (args.flags.has("yes")) {
-    for (const agent of MODEL_AGENTS) {
-      if (!(agent in out) && current[agent] === undefined) out[agent] = defaultModel(agent);
-    }
-  }
-  return out;
-}
-
 /** The start command to save, or `null` to leave `start` as it is (a saved one stays; none is written). */
 function startAnswer(args: IArgs, project: string): string[] | null {
   const given = [
@@ -249,7 +238,6 @@ function run(ctx: ICtx, args: IArgs): void {
     ...kanbanPre.warnings.map((w) => ({ code: w.code, message: w.message })),
   );
 
-  const models = modelAnswers(args, currentModels(defsRoot));
   const start = startAnswer(args, project);
   const ignore = gitignoreAnswer(args);
   const defsIgnored = ignore.defs && !global;
@@ -269,7 +257,6 @@ function run(ctx: ICtx, args: IArgs): void {
     stamp,
     defsDir: shown,
     defsRoot,
-    models,
     ignoreWip: ignore.wip,
     ignoreDefs: defsIgnored,
   });
@@ -348,7 +335,6 @@ function run(ctx: ICtx, args: IArgs): void {
   for (const f of done.files) {
     lines.push(`${f.action} ${f.path}${f.backup ? ` (backup ${f.backup})` : ""}`);
   }
-  for (const [agent, model] of Object.entries(models)) lines.push(`model ${agent}: ${model}`);
   if (start !== null) lines.push(`start: ${start.join(" ")}`);
   const items = seedItems(rootAt(project, ctx.env));
   for (const i of items) {
@@ -415,7 +401,6 @@ function run(ctx: ICtx, args: IArgs): void {
     switched_from: sw.from,
     files: done.files,
     items,
-    models,
     start,
     unset: { models: unsetModels, start: startUnset },
     lint: { ok: lintOk },

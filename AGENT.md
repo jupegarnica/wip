@@ -41,7 +41,7 @@ When trying a build, use a fresh `wip init` in an empty folder: any command of a
 
 **Definitions folder.** `.wip/config.json` stores `defs_dir` (`.claude`, or `~/…` for `init --global`, resolved against `HOME`/`USERPROFILE`). Everything reads definitions from there. `src/init/*` scaffolds it, never overwrites files, and never moves or deletes definitions; `init --force` migrates a legacy folder of the same scope to `.claude` and leaves the old one as it is.
 
-**Interactive init.** `wip init` is a synchronous handler fed by flags (`--yes`, `--models`, `--start`, `--start-default`, `--no-start`); the questions live outside `run()`, like `wip start`'s launch: `src/cli.ts` calls `promptInit` (`src/commands/init.ts`, questions in `src/init/ask.ts`, helpers in `src/init/prompt.ts`) only on a terminal without `--yes`/`--json`, which turns the answers into those flags before `run()`. Model options and defaults are in `src/init/models.ts`.
+**Interactive init.** `wip init` is a synchronous handler fed by flags (`--yes`, `--start`, `--start-default`, `--no-start`); the questions live outside `run()`, like `wip start`'s launch: `src/cli.ts` calls `promptInit` (`src/commands/init.ts`, questions in `src/init/ask.ts`, helpers in `src/init/prompt.ts`) only on a terminal without `--yes`/`--json`, which turns the answers into those flags before `run()`. The `model:` lines come from the templates under `templates/agents/`; init writes them as they are and never asks for or writes a model.
 
 **Pinned binary.** `.wip/config.json` may hold `wip_bin` (absolute, `~/…` or project-relative path); the coordinator runs that executable instead of the global `wip`, so projects can use different versions. `init` preserves it.
 

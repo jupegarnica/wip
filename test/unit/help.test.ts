@@ -140,4 +140,12 @@ describe("wip help init", () => {
     expect(out.stdout).toContain("[--kanban]");
     expect(out.stdout).toContain("[--kanban-settings-file settings.json|settings.local.json]");
   });
+
+  test("init help describes four steps and no --models", () => {
+    const out = bare(["help", "init"]);
+    expect(out.stdout).toContain("four steps");
+    expect(out.stdout).not.toContain("--models");
+    expect(out.stdout).not.toContain("the model of fast");
+    expect(out.stdout).toContain("never asks for or writes a model");
+  });
 });

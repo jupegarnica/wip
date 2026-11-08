@@ -70,8 +70,8 @@ Four generic agents share one contract and differ in level and cost, from cheape
 - `wise`: high ambiguity or risk, or after `thinker` failed on the same thing.
 
 Each phase names its default agent. The coordinator picks a cheaper one when the work is mechanical and escalates one
-level when a run fails for difficulty. `wip init` asks which model each one uses; ask the coordinator to change one at
-any time.
+level when a run fails for difficulty. Every agent comes with a model from its template; ask the coordinator to
+change one at any time.
 
 ## Gates
 

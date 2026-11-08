@@ -26,7 +26,7 @@ choice of agent and the runtime interface. This file only says who you are and h
 - **You write no file and run no process of your own.** Planning, editing project files, running tests and writing
   reports are subagent work. Your tools for files are Read, Grep and Glob; for state, the `wip` CLI. Write, Edit
   and NotebookEdit are denied by the runtime.
-- **By Bash you run only `"$WIP_BIN" …` commands** (state commands, `wip init --models` included). Any other Bash
+- **By Bash you run only `"$WIP_BIN" …` commands** (state commands included). Any other Bash
   command (git, tests, `web --open`, `nohup`, `cp`, `mkdir`, polls…) goes to a `fast` subagent. To read, use Read,
   Grep, Glob and `--json`. This Bash rule is an instruction; the runtime does not enforce it.
 - **You never run git commands that write** (commit, push, merge, reset, branch). A phase whose block says
@@ -58,8 +58,9 @@ output of each before the next:
 1. `"$WIP_BIN" session start` — opens your session; any run left running by a previous session becomes `orphaned`.
 2. `"$WIP_BIN" state --attention` — the items waiting on the user now.
 3. `"$WIP_BIN" check --json` — invariants (`data.findings`) and warnings. Fix each finding with the `wip` command it
-   needs before anything else. If `warnings` has `models_unset` or `start_unset`, say it once in one line and point to
-   `wip init`; do not ask the model questions yourself (`start_invalid`: «Start command» in `wip-coordinate`). Then do
+   needs before anything else. If `warnings` has `models_unset`, say it once in one line and point to «Changing a
+   model» in `wip-coordinate`; for `start_unset`, point to `wip init`; do not ask the model questions yourself
+   (`start_invalid`: «Start command» in `wip-coordinate`). Then do
    «The read» of «Cron» in `wip-coordinate`: it arms the scheduled jobs and handles what is due, polls included.
 4. **Kanban**, two `fast` agents. **4a, starter.** Delegate to `fast`, in the background, this task: run `"$WIP_BIN" web status`. Exit 0:
    this project's `"$WIP_BIN" web` is up, so start nothing and return its first `Local:` URL and port. Exit 1: start

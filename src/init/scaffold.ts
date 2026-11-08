@@ -3,7 +3,6 @@ import { dirname, join } from "node:path";
 import { hasGenericMark, hasWipMark, modelLine, withModelLine } from "../agents.ts";
 import { WIP_DIR } from "../config.ts";
 import { COORDINATOR_AGENT, GENERIC_AGENTS, TEMPLATES } from "../embedded/templates.ts";
-import { modelLineFor } from "./models.ts";
 
 export type TFileAction = "created" | "exists" | "replaced";
 export type TGitignoreAction = "created" | "added" | "exists";
@@ -33,8 +32,6 @@ export interface IScaffoldOptions {
   defsDir: string;
   /** Absolute path of that folder on disk. */
   defsRoot: string;
-  /** Agent name to model: written as the `model:` line of that agent, also without `force`. */
-  models?: Readonly<Record<string, string>>;
   /** Whether `.wip/` goes into `.gitignore` (default true). */
   ignoreWip?: boolean;
   /** Also write the definitions' own paths into `.gitignore` (local scope only; the default is not to). */
@@ -126,12 +123,6 @@ function desired(key: string, template: string, current: string): string {
   return line === null ? template : withModelLine(template, line);
 }
 
-function withChosenModel(key: string, text: string, options: IScaffoldOptions): string {
-  const m = /^agents\/(.+)\.md$/.exec(key);
-  const value = m ? options.models?.[m[1] as string] : undefined;
-  return value === undefined ? text : withModelLine(text, modelLineFor(value));
-}
-
 function placeTemplate(
   project: string,
   key: string,
@@ -141,12 +132,11 @@ function placeTemplate(
   const rel = `${options.defsDir}/${key}`;
   const file = join(options.defsRoot, key);
   if (!existsSync(file)) {
-    write(file, withChosenModel(key, template, options));
+    write(file, template);
     return { path: rel, action: "created", backup: null };
   }
   const current = readFileSync(file, "utf8");
-  const base = options.force ? desired(key, template, current) : current;
-  const text = withChosenModel(key, base, options);
+  const text = options.force ? desired(key, template, current) : current;
   if (text === current) return { path: rel, action: "exists", backup: null };
   const backup = `${BACKUPS_DIR}/${key}.${options.stamp}`;
   write(join(project, backup), current);

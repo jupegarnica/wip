@@ -29,6 +29,8 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   `wip-subagent-protocol`, and the `tasks` flow (stages `preparation`: intake, research, plan · `execution`:
   execute, check · `review`: review, deliver, done), in `.claude/agents` and `.claude/skills`. `.wip/config.json`
   keeps the folder and every command reads it from there.
+- Agents carry their model in the templates; `wip init` never asks for or writes a model, and `--models` is removed
+  (exit 2).
 - `wip init --global`: writes the definitions into `~/.claude/` instead of
   the project, shared by every project initialised that way; `.wip/` stays in the project and its config keeps
   `defs_dir` as `~/.claude`. A project keeps either a local or a global folder, with no migration. In a terminal the `wip init` wizard asks the
@@ -36,7 +38,7 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   Its output and its wizard name a global folder by the absolute path `HOME` gives it, not `~/`.
 - `wip init --gitignore wip,defs | none`: what goes into `.gitignore`. `wip` (the default, also with `--yes` and without a
   terminal) adds `.wip/`; `defs` adds the paths of the wip templates under the definitions folder, not the folder; `none`
-  touches nothing; `defs` with `--global` is ignored with a warning. The wizard asks it as step 4/5 (definitions only in
+  touches nothing; `defs` with `--global` is ignored with a warning. The wizard asks it as step 3/4 (definitions only in
   local scope, default no). `init` also records `wip_bin` like `wip start` (nothing under bun or node; a saved value is kept).
 - The board model shared by the web and the mod lives in `src/board.ts`: stage alpha, `rgba()` colour, the two solid
   colours (over the light and the dark surface) and their contrasting texts. `wip state --json` gains the additive
@@ -44,12 +46,13 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   keep their meaning, and the web page is unchanged.
 - `wip init` can install the Kanban mod for Claude Code with `--kanban`: a self-contained copy of `mods/wip-kanban/`
   in `.claude/skills/wip-kanban/` (also with `--global`; it travels in the npm package and the standalone binary) and
-  `"enabledPlugins": {"wip-kanban@skills-dir": true}` in the chosen settings file. The wizard's fifth step asks
+  `"enabledPlugins": {"wip-kanban@skills-dir": true}` in the chosen settings file. The wizard's fourth step asks
   `Install the wip Kanban mod for Claude Code?` (yes by default; Enter installs the copy and the entry; no writes
   nothing) and, after yes, `Where does the enabledPlugins entry
   go?` between `.claude/settings.json` (project scope, the default, shared) and `.claude/settings.local.json` (local
   scope, personal, applied over the project file). `--kanban-settings-file settings.json|settings.local.json` fixes
-  the file without questions and only goes with `--kanban`. The merge preserves every other key with a backup in
+  the file without questions and only goes with `--kanban`; `--kanban --force` installs with every default and skips
+  the file question, writing `.claude/settings.json`. The merge preserves every other key with a backup in
   `.wip/backups/claude-settings/`; the other file is read only to warn about an override, a duplicate or an unreadable
   file. `--force` replaces the whole mod folder after copying it to `.wip/backups/kanban/`, removes extras, keeps the
   generated types and never reactivates a disabled entry unless `--kanban` is given.
@@ -124,13 +127,14 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   binaries.
 - `wip --version` prints the branch, short commit, `-dirty` mark and build date fixed by `scripts/build.ts`
   (`(source)` from source); `--json` returns them as `branch`, `commit`, `dirty`, `built_at` and `source`.
-- `wip init` asks, in a terminal, in three steps (coloured only without `NO_COLOR`) where the definitions go (a closed choice: `.claude` or `.agents`, by arrows or by typing 1/2), the model of `fast`, `efficient`, `thinker`, `wise` and the
-  coordinator (written as their `model:` line, with a backup of an existing file) and the `wip start` command (saved as
-  `start`), with a summary to confirm. The models are open text: Claude Code suggests one, `.agents` has no default and an
-  empty answer writes no `model:` line. `--yes` accepts the defaults (Claude Code: haiku, sonnet, opus, fable, inherit);
-  `--models`, `--start`, `--start-default` and `--no-start` answer without prompting. Without a terminal and without
-  flags it behaves as before. The coordinator no longer asks for models or `start` at startup: it points to `wip init`
-  and changes a model only when the user asks. The `models_unset` and `start_unset` warnings say so.
+- `wip init` asks, in a terminal, in four steps (coloured only without `NO_COLOR`): the scope (`local`, the default, or
+  `--global`), the `wip start` command (saved as `start`), what goes into `.gitignore`, and the Kanban mod, with a
+  summary to confirm. The templates carry their `model:` lines (`haiku`, `sonnet`, `opus`, `fable` and `inherit`):
+  init never asks for or writes a model, `--yes` fills no `model:`, and `--models` is removed (exit 2, nothing
+  written). `--start`, `--start-default` and `--no-start` answer without prompting. Without a terminal init asks
+  nothing and only `start` can stay unset. `models_unset` points to the agent file without a `model:` line, fixed by
+  editing that line; `start_unset` points to `wip init` or `wip start --set`. The coordinator no longer asks for
+  models or `start` at startup: it points to `wip-coordinate` and changes a model only when the user asks.
 - `wip cron add|list|done|cancel|snooze`: a persistent list of scheduled jobs, free-text reminders (`--item` ties one
   to an open item) and fixed-time passes of a flow poll (`--poll <flow>/<poll>`), once or repeating (`--every`, a
   cadence; `d` keeps the local hour across DST). `--at` takes UTC ISO, ISO with an offset, local `YYYY-MM-DD HH:MM` or

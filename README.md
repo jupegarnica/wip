@@ -191,7 +191,7 @@ Claude Code session, terminal or desktop, loads it by itself as `wip-kanban@skil
 marketplace.
 
 The install writes two things: that copy, and `"enabledPlugins": {"wip-kanban@skills-dir": true}` merged into one
-settings file of the project. In a terminal the wizard's fifth step asks `Install the wip Kanban mod for Claude
+settings file of the project. In a terminal the wizard's fourth step asks `Install the wip Kanban mod for Claude
 Code?` (`yes`, the default, installs the copy and the entry; `no` writes nothing) and, after `yes`, `Where does the
 enabledPlugins entry go?`:
 
@@ -209,7 +209,8 @@ wip init --yes --kanban --kanban-settings-file settings.local.json
 `--kanban` installs the copy and writes the entry; `--kanban-settings-file settings.json|settings.local.json` chooses
 the file and is only valid together with `--kanban` (else exit 2, nothing written). `--yes` alone installs nothing:
 the default `yes` is the wizard's, and a script installs with `--kanban`.
-`--kanban` skips the wizard's first question and still asks the file; `--kanban-settings-file` skips the second. The
+`--kanban` skips the wizard's first question and still asks the file; `--kanban --force` skips both and writes the
+default `.claude/settings.json`; `--kanban-settings-file` skips the second. The
 merge preserves every other key, every other plugin and their order, adds `$schema` only when it creates the file,
 and copies the previous text to `.wip/backups/claude-settings/<file>.<stamp>` before changing it. Init never writes
 the other settings file: it reads it only to warn when its entry wins over the chosen one
@@ -289,22 +290,24 @@ Each phase of a flow names its default agent (`agent:`) and what its subagent ma
 `project`). The coordinator may pick a cheaper or a more capable generic for a given task, and steps up one level
 after a failure.
 
-The model of each generic agent and of the coordinator (marked `wip: coordinator`) is its `model:` frontmatter line.
-In a terminal, `wip init` asks in five steps: the scope (`local`, the default, in the project, or `global`, in your home
-folder like `--global`; `--global` skips it and an initialised project keeps its scope, shown as `scope kept`), each
-of those five models as open text, the `wip start` command, what goes into `.gitignore` and the Kanban mod (`yes`, the default, or `no`), shows a
-summary and writes nothing until you confirm (Enter takes the default, Ctrl+C writes nothing). Colours appear only on a terminal without `NO_COLOR`. The
-suggestions are `haiku` (`fast`), `sonnet` (`efficient`), `opus` (`thinker`), `fable` (`wise`) and `inherit` (the
-coordinator). `wip init --yes` takes every default without asking;
-`--models fast=haiku,wip=inherit`, `--start '<command>'`, `--start-default` and `--no-start` answer one question each.
-Without a terminal (scripts, CI) and without those flags init asks nothing and leaves the models and `start` unset, as
-before: `wip check` then reports `models_unset` and `start_unset` (exit code unchanged) and the coordinator mentions it
-once. Re-running `wip init` asks again with the current values as defaults and never overwrites a saved model or
-`start` unless you answer so; each model change of an existing file is backed up in `.wip/backups/defs/agents/`. The
-choice is kept in the definitions folder. For a local project that folder is versioned with it, so whoever clones the
-project is not asked again. For a `--global` project the definitions and the models live in your home folder: they are
-shared by every `--global` project on your machine, and a clone on another machine has to run `wip init` again. To
-change a model later, run `wip init`, ask the coordinator, or edit the line yourself.
+The model of each generic agent and of the coordinator (marked `wip: coordinator`) is its `model:` frontmatter line,
+and each template under `templates/agents/` carries one: `haiku` (`fast`), `sonnet` (`efficient`), `opus` (`thinker`),
+`fable` (`wise`) and `inherit` (the coordinator). `wip init` writes the template as it is and never asks for or
+writes a model; `wip init --yes` fills no `model:` either. In a terminal `wip init` asks in four steps: the scope
+(`local`, the default, in the project, or `global`, in your home folder like `--global`; `--global` skips it and an
+initialised project keeps its scope, shown as `scope kept`), the `wip start` command, what goes into `.gitignore` and
+the Kanban mod (`yes`, the default, or `no`), shows a summary and writes nothing until you confirm (Enter takes the
+default, Ctrl+C writes nothing). Colours appear only on a terminal without `NO_COLOR`. `--start '<command>'`,
+`--start-default` and `--no-start` answer that one question each. Without a terminal (scripts, CI) init asks nothing
+and only `start` can stay unset, as before: `wip check` then reports `start_unset` (exit code unchanged) and the
+coordinator mentions it once. A definition edited by hand without a `model:` line is reported by `wip check` as
+`models_unset`, and the runtime default model applies meanwhile. Re-running `wip init` never overwrites a saved
+`start` unless you answer so, and `--force` keeps the `model:` line a file already had. The definitions folder is
+versioned with the project when it is local, so whoever clones the project keeps the models. For a `--global` project
+the definitions and the models live in your home folder: they are shared by every `--global` project on your machine,
+and a clone on another machine has to run `wip init` again. To change a model later, edit the `model:` line in
+`<defs>/agents/<name>.md`: the coordinator does it with a backup in `.wip/backups/defs/agents/` and checks the diff,
+the flow lint and `wip check`, or you edit the line by hand.
 
 What happens with `model:` in Claude Code:
 

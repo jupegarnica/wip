@@ -10,14 +10,15 @@ read that fails shows only the reason.
 
 ## Install
 
-A third party installs wip as usual and runs `wip init` in the project. The wizard's fifth step asks:
+A third party installs wip as usual and runs `wip init` in the project. The wizard's fourth step asks:
 
 - `Install the wip Kanban mod for Claude Code?` — `yes` (the default; Enter installs the copy and the entry) or
   `no`.
 - After `yes`, `Where does the enabledPlugins entry go?` — `settings.json` (the default;
   `.claude/settings.json`, Claude's project scope, shared with the repository) or `settings.local.json`
   (`.claude/settings.local.json`, Claude's local scope, personal to this clone and normally not versioned; Claude
-  applies it over the project file for the same plugin id).
+  applies it over the project file for the same plugin id). `--kanban --force` installs with every default and skips
+  this question, writing `.claude/settings.json`.
 
 Without a terminal, the flags decide:
 

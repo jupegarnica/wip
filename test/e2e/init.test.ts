@@ -644,6 +644,46 @@ describe("model onboarding after init (F-NEW-07)", () => {
     expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
     expect(modelsUnset(dir).agents).toBeNull();
   });
+
+  test("--models is a usage error and writes nothing", () => {
+    const dir = tmp("models-removed");
+    const out = wipIn(dir, ["init", "--models", "fast=haiku"]);
+    expect(out.code).toBe(EXIT.USAGE);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
+  test("--yes never fills a model: a file without one stays without it and check reports it", () => {
+    const dir = tmp("models-yes");
+    expect(wipIn(dir, ["init", "--yes"]).code).toBe(EXIT.OK);
+    const fast = agentFile(dir, "fast");
+    writeFileSync(
+      fast,
+      readFileSync(fast, "utf8")
+        .split("\n")
+        .filter((line) => !line.startsWith("model:"))
+        .join("\n"),
+    );
+    expect(wipIn(dir, ["init", "--yes"]).code).toBe(EXIT.OK);
+    expect(readFileSync(fast, "utf8")).not.toContain("\nmodel:");
+    expect(modelsUnset(dir)).toEqual({ code: EXIT.OK, agents: ["fast"] });
+  });
+
+  test("--force restores the template's model line in a file that had none", () => {
+    const dir = tmp("models-force-refresh");
+    expect(wipIn(dir, ["init"]).code).toBe(EXIT.OK);
+    const fast = agentFile(dir, "fast");
+    writeFileSync(
+      fast,
+      readFileSync(fast, "utf8")
+        .split("\n")
+        .filter((line) => !line.startsWith("model:"))
+        .join("\n"),
+    );
+    expect(modelsUnset(dir).agents).toEqual(["fast"]);
+    expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
+    expect(readFileSync(fast, "utf8")).toContain("\nmodel: haiku\n");
+    expect(modelsUnset(dir).agents).toBeNull();
+  });
 });
 
 describe("wip init --global", () => {
@@ -1028,6 +1068,21 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
       },
     });
     expect(withMod.body.warnings.map((w) => w.code)).toEqual([]);
+  });
+
+  test("--kanban --force installs every default in .claude/settings.json, also without --yes", () => {
+    const dir = tmp("k-force-defaults");
+    const out = wipJsonIn(dir, ["init", "--kanban", "--force"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(existsSync(join(dir, ".claude", "settings.local.json"))).toBe(false);
+    expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: MOD,
+      id: ID,
+      settings: { path: ".claude/settings.json", scope: "project" },
+    });
   });
 
   test("--kanban-settings-file settings.local.json writes only the local file", () => {

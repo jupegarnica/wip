@@ -412,7 +412,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const skill = template("skills/wip-coordinate/SKILL.md");
     expect(skill).toContain("## Writing and Bash");
     expect(skill).toContain('By Bash you run only `"$WIP_BIN" …`');
-    expect(skill).toContain("`init --models`");
+    expect(skill).not.toContain("init --models");
     const changing = section(skill, "## Changing the definitions");
     expect(changing).toContain("**The run without item.**");
     expect(changing).toContain("`ID: none`");
@@ -479,7 +479,6 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const section_ = section(template("skills/wip-coordinate/SKILL.md"), "## Changing a model");
     for (const clause of [
       "`models_unset`",
-      "`wip init`",
       "do not block the session",
       "`inherit`",
       "`.wip/backups/defs/agents/<name>.md.<timestamp>`",
@@ -487,10 +486,12 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "exactly that line",
       '`"$WIP_BIN" flow lint` exits 0',
       "restore the backup",
-      '`"$WIP_BIN" init --models <agent>=<model>,…`',
+      "a subagent in a run without item",
+      "never asks for or changes a model",
     ]) {
       expect({ clause, found: section_.includes(clause) }).toEqual({ clause, found: true });
     }
+    expect(section_).not.toContain("init --models");
     expect(template("skills/wip-coordinate/SKILL.md")).not.toContain("## Model onboarding");
     const runtime = section(template("skills/wip-coordinate/SKILL.md"), RUNTIME_SECTION);
     expect(runtime).toContain("reads `model:`");
@@ -865,7 +866,6 @@ describe("the wip: mark of what init writes (guard)", () => {
       stamp: "guard",
       defsDir: ".claude",
       defsRoot,
-      models: { fast: "haiku", thinker: "sonnet" },
     });
     expect(foreignFiles(defsRoot, ".claude")).toEqual([]);
   });

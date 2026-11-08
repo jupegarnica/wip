@@ -273,20 +273,17 @@ It is a reminder, not an alarm: nothing fires with no session open or during a t
 ## Changing a model
 
 The four generic agents (`wip: generic` in their frontmatter) and the coordinator (`wip: coordinator`) run on the
-model their `model:` line names. `wip init` asks for them in a terminal and writes them (`wip init --yes` takes the
-defaults); the choice lives in `<defs>/`: versioned with the project when the folder is inside it, so whoever clones it
-is not asked again; shared by every `--global` project when it is `~/…`.
+model their `model:` line names. Every template carries one and `wip init` writes it as it is.
+Init never asks for or changes a model. The choice lives in `<defs>/`: versioned with the project when the folder is
+inside it, so whoever clones it keeps it; shared by every `--global` project when it is `~/…`.
 
-**Unset.** If `"$WIP_BIN" check --json` has the warning `models_unset` (init ran without a terminal, or the user
-skipped a model), say it once, in one line, with the agents it lists in `agents`: «run `wip init` to choose them, or
-tell me the models and I write them». Do not ask the question yourself, do not block the session and do not wait:
-Claude Code's default model applies meanwhile.
+**Unset.** If `"$WIP_BIN" check --json` has the warning `models_unset` (an agent file written by hand has no
+`model:` line), say it once, in one line, with the agents it lists in `agents`: «tell me the models and I write
+them». Do not ask the question yourself, do not block the session and do not wait: Claude Code's default model
+applies meanwhile.
 
 **On request.** When the user asks to change the model of a generic agent or of the coordinator, or tells you the
-models to write. `model:` changes with `"$WIP_BIN" init --models <agent>=<model>,…`, a state command you may
-run, which keeps a backup of the file; it never changes by editing files yourself. When a hand edit is needed
-(a value `init --models` does not take), a subagent in a run without item does it as «Changing the definitions»
-says:
+models to write, a subagent in a run without item does it as «Changing the definitions» says:
 
 1. **Writing:** for each agent, first copy `<defs>/agents/<name>.md` to
    `.wip/backups/defs/agents/<name>.md.<timestamp>`; then add `model: <value>` on the line right after
@@ -386,8 +383,8 @@ covers it); jobs die with the session (R1 arms them again) and a session holds a
 `CLAUDE_CODE_DISABLE_CRON=1` there is no `schedule`: R5 applies. The generic agents preload
 `wip-subagent-protocol` through the `skills` key of their frontmatter. Claude Code reads `model:` from each agent's
 frontmatter. It accepts an alias (`haiku`, `sonnet`, `opus`, `fable`, cheapest first), `inherit` or a full model ID.
-If the running session does not pick up a model written by `wip init`, ask the user to open `/agents` or to restart
-the session.
+If the running session does not pick up a model changed in the agent file, ask the user to open `/agents` or to
+restart the session.
 
 **Start command.** `wip start` runs `claude --agent wip --name wip-{stamp}` by default, that is the arguments
 `claude`, `--agent`, `wip`, `--name` and `wip-{stamp}`; the coordinator's `model:` is read when it starts and a new
