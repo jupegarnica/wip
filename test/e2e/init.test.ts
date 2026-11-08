@@ -92,6 +92,20 @@ function config(dir: string): unknown {
   return value;
 }
 
+/** Removes every `model:` line of the agents, so `models_unset` has something to report. */
+function stripModels(dir: string): void {
+  for (const name of [...GENERIC_AGENTS, "wip"]) {
+    const file = agentFile(dir, name);
+    writeFileSync(
+      file,
+      readFileSync(file, "utf8")
+        .split("\n")
+        .filter((line) => !line.startsWith("model:"))
+        .join("\n"),
+    );
+  }
+}
+
 const sortedTemplates = (): Record<string, string> =>
   Object.fromEntries(Object.entries(TEMPLATES).sort(([a], [b]) => a.localeCompare(b)));
 
@@ -127,7 +141,7 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
     expect(out.stdout).toContain("Run `wip start` (or bare `wip`) in this directory");
     expect(out.stdout).not.toContain("Point your harness");
     expect(out.stdout).not.toContain("--harness");
-    expect(lines(out.stdout).at(-1)).toBe(ALL_UNSET);
+    expect(lines(out.stdout).at(-1)).toBe(unsetLine([], true) as string);
     expect(existsSync(join(dir, ".agents"))).toBe(false);
     expect(existsSync(join(dir, ".claude", "rules"))).toBe(false);
     expect(existsSync(join(dir, ".claude", "flows"))).toBe(false);
@@ -232,7 +246,9 @@ describe("wip init --force and files of other tools", () => {
     );
     const fastText = readFileSync(fast, "utf8");
     expect(fastText).toContain("\nmodel: cheap\n");
-    expect(fastText.replace("model: cheap\n", "")).toBe(TEMPLATES["agents/fast.md"] as string);
+    expect(fastText.replace("model: cheap\n", "")).toBe(
+      (TEMPLATES["agents/fast.md"] as string).replace(/^model: .*\n/m, ""),
+    );
 
     const before = tree(dir);
     const again = wipJsonIn(dir, ["init", "--force"]);
@@ -286,6 +302,7 @@ describe("the definitions folder in .claude/ (F-NEW-02)", () => {
     expect(links(dir)).toEqual([]);
     expect(readdirSync(join(dir, ".claude")).sort()).toEqual(["agents", "skills"]);
 
+    stripModels(dir);
     const text = wipIn(dir, ["init"]);
     expect(text.code).toBe(EXIT.OK);
     expect(text.stdout).toContain("exists .claude/agents/fast.md");
@@ -299,6 +316,7 @@ describe("the definitions folder in .claude/ (F-NEW-02)", () => {
   test("every command reads .claude/: flow lint, check and phase", () => {
     const dir = tmp("claude-reads");
     wipIn(dir, ["init"]);
+    stripModels(dir);
     expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK tasks\n");
     const check = wipJsonIn(dir, ["check"]);
     expect(check.code).toBe(EXIT.OK);
@@ -595,6 +613,7 @@ describe("model onboarding after init (F-NEW-07)", () => {
   test("check warns models_unset with the four generics and the coordinator, and stops once each has a model", () => {
     const dir = tmp("onboarding");
     wipIn(dir, ["init"]);
+    stripModels(dir);
     expect(modelsUnset(dir)).toEqual({ code: EXIT.OK, agents: [...OWN_AGENTS].sort() });
 
     setModel(dir, "fast", "test-model");

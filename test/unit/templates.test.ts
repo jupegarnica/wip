@@ -38,11 +38,18 @@ const OFFICIAL_KEYS = [
   "initialPrompt",
   "experimental",
 ];
-const GENERIC_TOOLS: Record<string, string> = {
-  efficient: "Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch",
-  fast: "Read, Write, Edit, Bash, Grep, Glob",
-  thinker: "Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, WebSearch",
-  wise: "Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, WebSearch",
+/** The model line of each generic, and the tone of its row in the panes. */
+const GENERIC_MODELS: Record<string, string> = {
+  efficient: "sonnet",
+  fast: "haiku",
+  thinker: "opus",
+  wise: "fable",
+};
+const GENERIC_COLORS: Record<string, string> = {
+  efficient: "blue",
+  fast: "blue",
+  thinker: "yellow",
+  wise: "red",
 };
 const RUNTIME_SECTION = "## Runtime interface";
 const PROTOCOL_SKILL = "wip-subagent-protocol";
@@ -97,8 +104,10 @@ function section(text: string, heading: string): string {
 /** Every template's text, with the runtime interface section of wip-coordinate left out. */
 function outsideRuntimeSection(): [string, string][] {
   return Object.entries(TEMPLATES).map(([key, text]) => {
-    if (key !== "skills/wip-coordinate/SKILL.md") return [key, text];
-    return [key, text.replace(section(text, RUNTIME_SECTION), "")];
+    // An agent's frontmatter names the tools it may not use; its body is what talks to the runtime.
+    const body = key.startsWith("agents/") ? text.replace(/^---\n[\s\S]*?\n---\n/, "") : text;
+    if (key !== "skills/wip-coordinate/SKILL.md") return [key, body];
+    return [key, body.replace(section(body, RUNTIME_SECTION), "")];
   });
 }
 
@@ -118,12 +127,12 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
   });
 
-  test("the coordinator is `wip`: no tools line, writing tools denied, wip: coordinator, an initialPrompt and no model", () => {
+  test("the coordinator is `wip`: no tools line, writing tools denied, wip: coordinator, an initialPrompt and inherit", () => {
     const fm = frontmatter("agents/wip.md");
     expect(fm.name).toBe(COORDINATOR_AGENT);
     expect(fm.tools).toBeUndefined();
     expect(fm.disallowedTools).toBe("Write, Edit, NotebookEdit");
-    expect(fm.model).toBeUndefined();
+    expect(fm.model).toBe("inherit");
     expect(fm.wip).toBe("coordinator");
     expect(String(fm.initialPrompt)).toContain("run the start of every session");
   });
@@ -209,15 +218,15 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
   });
 
-  test("the four generic agents carry wip: generic, an explicit tools list without spawn, questions or notebooks, and no model", () => {
+  test("the four generic agents carry wip: generic, spawn and questions denied, a model per level and the protocol", () => {
     for (const name of GENERIC_AGENTS) {
       const fm = frontmatter(`agents/${name}.md`);
       expect(fm.wip).toBe("generic");
-      expect(fm.tools).toBe(GENERIC_TOOLS[name]);
-      for (const denied of ["Agent", "AskUserQuestion", "NotebookEdit"]) {
-        expect(String(fm.tools).split(", ")).not.toContain(denied);
-      }
-      expect(Object.keys(fm)).not.toContain("model");
+      expect(fm.tools).toBeUndefined();
+      expect(fm.disallowedTools).toBe("Agent, AskUserQuestion, NotebookEdit");
+      expect(fm.model).toBe(GENERIC_MODELS[name] as string);
+      expect(fm.effort).toBe("medium");
+      expect(fm.color).toBe(GENERIC_COLORS[name] as string);
       expect(fm.skills).toEqual([PROTOCOL_SKILL]);
     }
   });
@@ -249,7 +258,8 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     }
     for (const name of GENERIC_AGENTS) {
       const fm = frontmatter(`agents/${name}.md`);
-      expect(fm.tools).toBe(GENERIC_TOOLS[name]);
+      expect(fm.model).toBe(GENERIC_MODELS[name] as string);
+      expect(fm.disallowedTools).toBe("Agent, AskUserQuestion, NotebookEdit");
       expect(fm.skills).toEqual([PROTOCOL_SKILL]);
     }
     const coordinator = frontmatter("agents/wip.md");
@@ -271,19 +281,19 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     expect(skill).toContain("a key without a value is not written");
   });
 
-  test("the CLI reads them as generics without model: the onboarding lists all four", () => {
+  test("the CLI reads them as generics with their level's model", () => {
     const project = initProject();
     for (const name of GENERIC_AGENTS) {
       const def = readAgent(join(project.dir, ".claude", "agents", `${name}.md`));
       expect(def.problems).toEqual([]);
       expect(def.generic).toBe(true);
-      expect(def.model).toBeNull();
+      expect(def.model).toBe(GENERIC_MODELS[name] as string);
     }
     const coordinator = readAgent(join(project.dir, ".claude", "agents", "wip.md"));
     expect(coordinator.problems).toEqual([]);
     expect(coordinator.generic).toBe(false);
     expect(coordinator.coordinator).toBe(true);
-    expect(coordinator.model).toBeNull();
+    expect(coordinator.model).toBe("inherit");
   });
 
   test("the generics share one body; only their name and the Level paragraph differ", () => {

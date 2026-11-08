@@ -473,9 +473,9 @@ describe("wip init flags without a terminal", () => {
     expect(out.code).toBe(0);
     expect(modelOf(dir, "fast")).toBe("haiku");
     expect(modelOf(dir, "wip")).toBe("opus");
-    expect(modelOf(dir, "wise")).toBeNull();
+    expect(modelOf(dir, "wise")).toBe("fable");
     expect(config(dir).start).toEqual(["claude", "--name", "a b"]);
-    expect(out.stdout).toContain("Still unset: no model for efficient, thinker, wise");
+    expect(out.stdout).not.toContain("Still unset");
     expect(wip(dir, ["init", "--force"]).code).toBe(0);
     expect(modelOf(dir, "fast")).toBe("haiku");
     expect(config(dir).start).toEqual(["claude", "--name", "a b"]);

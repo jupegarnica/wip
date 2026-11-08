@@ -144,13 +144,8 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
       const check = exec([binary, "check", "--json"], project, env);
       expect(check.code).toBe(EXIT.OK);
       const body = JSON.parse(check.stdout) as { warnings: { code: string; agents?: string[] }[] };
-      expect(body.warnings.find((w) => w.code === "models_unset")?.agents).toEqual([
-        "efficient",
-        "fast",
-        "thinker",
-        "wip",
-        "wise",
-      ]);
+      // The templates carry their model line, so nothing is unset after init.
+      expect(body.warnings.find((w) => w.code === "models_unset")).toBeUndefined();
     } finally {
       rmSync(realpathSync(project), { recursive: true, force: true });
     }
