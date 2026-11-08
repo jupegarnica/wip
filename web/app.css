@@ -318,6 +318,7 @@ ol.env-list {
 }
 .btn:focus-visible,
 .linkish:focus-visible,
+.flow-toggle:focus-visible,
 .card:focus-visible {
   outline: 2px solid var(--ok);
   outline-offset: 1px;
@@ -392,12 +393,47 @@ ol.env-list {
   font-size: 15px;
   color: var(--muted);
   font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.flow-toggle {
+  border: 0;
+  background: none;
+  padding: 2px 4px;
+  font: inherit;
+  color: inherit;
+  display: inline-flex;
+  gap: 6px;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
+  border-radius: 4px;
+}
+.flow-toggle .chev {
+  width: 1em;
+}
+.flow-name {
+  overflow-wrap: anywhere;
+}
+.flow-count {
+  color: var(--muted);
+  font-weight: 400;
+}
+.flow-attention {
+  color: var(--warn);
+  font-weight: 400;
 }
 .stages {
   display: flex;
   gap: 10px;
   overflow-x: auto;
   padding-bottom: 6px;
+}
+/* A display rule on .stages would beat the hidden attribute. */
+.stages[hidden] {
+  display: none;
 }
 .stage {
   flex: 1 0 180px;

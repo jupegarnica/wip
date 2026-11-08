@@ -227,8 +227,9 @@ installed before this version needs `wip init --force` to get this. `/wip-kanban
 close it. The flow filter is a dim row at the bottom right, outside the board: one button per flow
 (`✓ <flow>` or `✗ <flow>`, one space apart), the hidden ones are remembered per project, and the board prints no
 flow names. Each row is `<id> <phase>`, placed by
-the phase's ordinal and painted with the same stage ramp as the web; an item with `signals.attention` takes the
-stage's solid colour as its background. Clicking a row opens `webUrl` with `?item=<flow>/<id>` and the web shows that
+the phase's ordinal; a row without attention is painted with its flow's colour at full opacity (the phase's alpha
+is not applied), and an item with `signals.attention` takes the stage's solid colour as its background with the
+contrasting text. Clicking a row opens `webUrl` with `?item=<flow>/<id>` and the web shows that
 item's panel, so the link needs `wip web` running at that URL (the default is the first port it tries, 33333). The
 board itself works without the server. `claude plugin configure wip-kanban@skills-dir` sets `webUrl` and
 `colorScheme` (`dark`, the default, or `light`; the pane API does not expose the active theme).
@@ -469,7 +470,9 @@ wip web log -n 20  # the last lines of its log; --follow keeps printing
 A read-only kanban of the project, served from the binary with nothing external: one board per flow (columns by
 `stage` or by phase; each stage in one blue, more transparent stage after stage, with readable text in the light and
 dark themes, and no colour for a phase without a stage), «Your turn», open gates, running agents, the history with archived items, each item's runs,
-gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). Requests with a foreign
+gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). Each flow can be collapsed
+from its header, which keeps showing its open items and how many wait on you; the browser remembers the choice
+(`localStorage`), and History keeps its `Flow` filter. Requests with a foreign
 `Host` header are rejected. Without `--port`, running it again for the same project reports the running one and
 exits 0 (with `--open`, it opens the browser on it); otherwise it serves on 33333 and, when something already
 accepts connections there (on `127.0.0.1` or `[::1]`) or the port does not bind, tries 33334, 33335… up to 33352,

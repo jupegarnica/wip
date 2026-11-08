@@ -58,6 +58,8 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   project, `webUrl` and `colorScheme` options, and a click that opens the wip web with the item selected. The pane
   is already open when Claude Code can place it: from 144 columns at launch, or from 110 after the person's first
   prompt; the mod reopens it on that first prompt.
+- The Kanban pane paints a row that does not wait for you in its flow's colour at full opacity instead of the
+  phase's translucent stage colour, so late phases stay legible on the dark pane.
 - Claude Code: `claude --agent wip` starts the coordinator through its `initialPrompt`; the generic agents preload
   `wip-subagent-protocol` with their `skills` key.
 - `wip start`: runs in the foreground, from the project root, the start command saved in `.wip/config.json` (`start`,
@@ -101,10 +103,11 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   `onboarding` in `intake` with `guide.md`. The coordinator mentions it in one `🟪 NEXT` suggestion and, when the
   user starts it, links the guide on the kanban, answers from it and closes it at a gate, in `done` and archived.
 - `wip web`: a read-only kanban served from the binary, each stage in one blue that grows more transparent stage
-  after stage (light and dark themes); `--open` opens the browser on it, `wip web status` lists this project's
-  servers from its registry (`.wip/web/<port>.json`), `wip web stop` stops them and `wip web log` shows its log
-  (`.wip/logs/web.log`). Without `--port` it reuses this project's running one or serves on the first free port from
-  33333 to 33352.
+  after stage (light and dark themes); each flow can be collapsed from its header, which keeps its open count and
+  its «waiting on you» count, and the browser remembers the choice in `localStorage`; `--open` opens the browser on
+  it, `wip web status` lists this project's servers from its registry (`.wip/web/<port>.json`), `wip web stop`
+  stops them and `wip web log` shows its log (`.wip/logs/web.log`). Without `--port` it reuses this project's
+  running one or serves on the first free port from 33333 to 33352.
 - The coordinator brings up the kanban at the start of every session through `fast`, without waiting for it:
   `wip web status`, then `wip web --open` when this project has none running.
 - Distributed as one npm package, `@garndev/wip`, that runs on Node 22.13 or later on any OS: a JavaScript bundle

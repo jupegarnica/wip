@@ -20,6 +20,7 @@ const HISTORY_PAGE = 50;
 const HISTORY_KEY = "wip-web.history";
 const HISTORY_INCLUDE = ["active", "archived", "discarded"];
 const HISTORY_DEFAULT = { active: true, archived: true, discarded: false };
+const COLLAPSE_KEY = "wip-web.collapsed";
 
 const titleEl = document.getElementById("title");
 const board = document.getElementById("board");
@@ -62,6 +63,28 @@ const hist = { flow: "", q: "", include: initialInclude(), offset: 0 };
 let historyText = null;
 let historyFlows = "";
 let historyTimer = null;
+const collapsed = initialCollapsed();
+
+// Collapsed flows by name; a bad or unknown value leaves every flow expanded.
+function initialCollapsed() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(COLLAPSE_KEY) || "[]");
+    if (Array.isArray(stored)) {
+      return new Set(stored.filter((n) => typeof n === "string" && n.length > 0 && n.length <= 64));
+    }
+  } catch (_) {
+    // no storage or bad JSON
+  }
+  return new Set();
+}
+
+function saveCollapsed() {
+  try {
+    window.localStorage.setItem(COLLAPSE_KEY, JSON.stringify([...collapsed].sort()));
+  } catch (_) {
+    // no storage: the choice lasts until reload
+  }
+}
 
 function el(tag, cls, text) {
   const node = document.createElement(tag);
@@ -270,21 +293,69 @@ const SOURCE_NOTE = {
   null: " · file invalid: no valid version",
 };
 
+// Collapse one flow in place: the header stays, its .stages disappear, nothing else is repainted.
+function setCollapsed(name, next) {
+  if (next) collapsed.add(name);
+  else collapsed.delete(name);
+  saveCollapsed();
+  const toggle = board.querySelector(`[data-flow-toggle="${CSS.escape(name)}"]`);
+  const section = toggle ? toggle.closest(".flow") : null;
+  const stages = toggle ? document.getElementById(toggle.getAttribute("aria-controls")) : null;
+  if (!toggle || !section || !stages) return;
+  stages.hidden = next;
+  section.classList.toggle("flow--collapsed", next);
+  toggle.setAttribute("aria-expanded", String(!next));
+  toggle.setAttribute("title", next ? `Expand flow ${name}` : `Collapse flow ${name}`);
+  const chev = toggle.querySelector(".chev");
+  if (chev) chev.textContent = next ? "▸" : "▾";
+}
+
 function render(data) {
   const scroll = { x: window.scrollX, y: window.scrollY, flows: {} };
   for (const s of board.querySelectorAll(".stages")) scroll.flows[s.dataset.flow] = s.scrollLeft;
+  const focused = document.activeElement?.closest("[data-flow-toggle]");
+  const focusedFlow = focused && board.contains(focused) ? focused.dataset.flowToggle : null;
   const nextCards = new Map();
   const frag = document.createDocumentFragment();
   for (const flow of data.flows) {
+    const items = data.items.filter((i) => i.flow === flow.name);
+    const isCollapsed = collapsed.has(flow.name);
+    const stagesId = `flow-${flow.name}-stages`;
     const section = el("section", "flow");
-    const h = el("h2", null, flow.name);
+    section.dataset.flow = flow.name;
+    section.classList.toggle("flow--collapsed", isCollapsed);
+    const h = el("h2");
+    const toggle = el("button", "flow-toggle");
+    toggle.type = "button";
+    toggle.dataset.flowToggle = flow.name;
+    toggle.setAttribute("aria-expanded", String(!isCollapsed));
+    toggle.setAttribute("aria-controls", stagesId);
+    toggle.setAttribute(
+      "title",
+      isCollapsed ? `Expand flow ${flow.name}` : `Collapse flow ${flow.name}`,
+    );
+    const chev = el("span", "chev", isCollapsed ? "▸" : "▾");
+    chev.setAttribute("aria-hidden", "true");
+    toggle.appendChild(chev);
+    toggle.appendChild(el("span", "flow-name", flow.name));
+    toggle.appendChild(
+      el("span", "flow-count", items.length ? `${items.length} open` : "no open items"),
+    );
+    const attention = items.filter((i) => i.signals.attention).length;
+    if (attention) {
+      const warn = el("span", "flow-attention", `· ${attention} waiting on you`);
+      warn.setAttribute("title", `${attention} items waiting on you`);
+      toggle.appendChild(warn);
+    }
+    h.appendChild(toggle);
     const note = SOURCE_NOTE[String(flow.source)];
     if (note) h.appendChild(el("span", "incoherent", note));
     section.appendChild(h);
     const expanded = view === "expanded" && !perPhase(flow);
     const stages = el("div", expanded ? "stages stages--expanded" : "stages");
     stages.dataset.flow = flow.name;
-    const items = data.items.filter((i) => i.flow === flow.name);
+    stages.id = stagesId;
+    stages.hidden = isCollapsed;
     (expanded ? expandedColumns : groupedColumns)(flow, items, nextCards, stages);
     section.appendChild(stages);
     frag.appendChild(section);
@@ -296,6 +367,10 @@ function render(data) {
   }
   board.replaceChildren(frag);
   prevCards = nextCards;
+  if (focusedFlow) {
+    const again = board.querySelector(`[data-flow-toggle="${CSS.escape(focusedFlow)}"]`);
+    if (again) again.focus();
+  }
   for (const s of board.querySelectorAll(".stages")) {
     if (scroll.flows[s.dataset.flow] !== undefined) s.scrollLeft = scroll.flows[s.dataset.flow];
   }
@@ -886,10 +961,24 @@ function closePanel() {
   const card = scope.querySelector(
     `[data-flow="${CSS.escape(ref.flow)}"][data-id="${CSS.escape(ref.id)}"]`,
   );
-  if (card) card.focus();
+  const hidden = card?.closest(".stages[hidden]");
+  if (card && !hidden) {
+    card.focus();
+    return;
+  }
+  if (hidden && view !== "history") {
+    const toggle = board.querySelector(`[data-flow-toggle="${CSS.escape(ref.flow)}"]`);
+    if (toggle) toggle.focus();
+  }
 }
 
 board.addEventListener("click", (e) => {
+  const toggle = e.target.closest("[data-flow-toggle]");
+  if (toggle) {
+    const name = toggle.dataset.flowToggle;
+    setCollapsed(name, !collapsed.has(name));
+    return;
+  }
   if (e.target.closest("a")) return;
   const c = e.target.closest(".card[data-id]");
   if (c) openPanel(c.dataset.flow, c.dataset.id);

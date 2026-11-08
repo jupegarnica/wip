@@ -864,6 +864,26 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(css).toContain("border-top: 4px solid var(--stage, var(--border));");
     expect(css).toContain("background: var(--stage, var(--gate-bg));");
   });
+
+  test("the board collapses a flow from its header and remembers it in localStorage", () => {
+    const app = WEB["app.js"] as string;
+    for (const needle of [
+      'const COLLAPSE_KEY = "wip-web.collapsed";',
+      "function initialCollapsed",
+      "function saveCollapsed",
+      "data-flow-toggle",
+      'setAttribute("aria-expanded"',
+      'setAttribute("aria-controls"',
+      "stages.hidden = isCollapsed",
+      "localStorage.setItem(COLLAPSE_KEY",
+    ]) {
+      expect(app).toContain(needle);
+    }
+    expect(app).not.toContain("innerHTML");
+    const css = (WEB["app.css"] as string).replace(/\s+/g, " ");
+    expect(css).toContain(".stages[hidden] { display: none; }");
+    expect(css).toContain(".flow-toggle:focus-visible");
+  });
 });
 
 describe("wip web · command (F-WEB-01)", () => {
