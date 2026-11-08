@@ -9,10 +9,12 @@ import {
   readlinkSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { unsetLine } from "../../src/commands/init.ts";
+import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
 import { GENERIC_AGENTS, TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
 import { type IEnvelopeOut, WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
@@ -946,5 +948,313 @@ describe("wip init --gitignore and wip_bin", () => {
       wipIn(dir, ["init", "--yes"]);
       expect(cfg().wip_bin).toBe("/opt/y/wip");
     }
+  });
+});
+
+describe("wip init and the Kanban mod (F-NEW-08)", () => {
+  const MOD = ".claude/skills/wip-kanban";
+  const ID = "wip-kanban@skills-dir";
+
+  // biome-ignore lint/suspicious/noExplicitAny: the init data of the API under test
+  const kanban = (out: IEnvelopeOut): any => out.body.data?.kanban;
+  const settingsText = (dir: string, name: string): string =>
+    readFileSync(join(dir, ".claude", name), "utf8");
+  const modText = (dir: string, key: string): string => readFileSync(join(dir, MOD, key), "utf8");
+
+  test("--yes installs neither copy nor settings; --kanban installs both in .claude/settings.json", () => {
+    const plain = tmp("k-plain");
+    const out = wipJsonIn(plain, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(plain, MOD))).toBe(false);
+    expect(existsSync(join(plain, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(plain, ".claude", "settings.local.json"))).toBe(false);
+    expect(kanban(out)).toEqual({
+      requested: false,
+      installed: false,
+      path: null,
+      id: null,
+      copy: null,
+      settings: null,
+    });
+
+    const dir = tmp("k-install");
+    const withMod = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    expect(withMod.code).toBe(EXIT.OK);
+    expect(tree(join(dir, MOD))).toEqual(
+      Object.fromEntries(
+        Object.entries(KANBAN_MOD)
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([key, text]) => [key, text]),
+      ),
+    );
+    expect(modText(dir, ".claude-plugin/wip.json")).toBe(
+      '{\n  "format": 1,\n  "owner": "@garndev/wip",\n  "plugin": "wip-kanban"\n}\n',
+    );
+    expect(JSON.parse(settingsText(dir, "settings.json"))).toEqual({
+      $schema: "https://json.schemastore.org/claude-code-settings.json",
+      enabledPlugins: { [ID]: true },
+    });
+    expect(existsSync(join(dir, ".claude", "settings.local.json"))).toBe(false);
+    expect(kanban(withMod)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: MOD,
+      id: ID,
+      copy: { action: "created", backup: null, removed: [] },
+      settings: {
+        path: ".claude/settings.json",
+        scope: "project",
+        action: "created",
+        backup: null,
+      },
+    });
+    expect(withMod.body.warnings.map((w) => w.code)).toEqual([]);
+  });
+
+  test("--kanban-settings-file settings.local.json writes only the local file", () => {
+    const dir = tmp("k-local");
+    const out = wipJsonIn(dir, [
+      "init",
+      "--yes",
+      "--kanban",
+      "--kanban-settings-file",
+      "settings.local.json",
+    ]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual({
+      [ID]: true,
+    });
+    expect(kanban(out).settings).toMatchObject({
+      path: ".claude/settings.local.json",
+      scope: "local",
+      action: "created",
+    });
+    expect(
+      wipIn(dir, ["init", "--yes", "--kanban", "--kanban-settings-file", "settings.local.json"])
+        .stdout,
+    ).toContain("--scope local");
+  });
+
+  test("a second run says exists and changes no bytes; a normal init leaves a copy and settings alone", () => {
+    const dir = tmp("k-twice");
+    expect(wipJsonIn(dir, ["init", "--yes", "--kanban"]).code).toBe(EXIT.OK);
+    const before = tree(dir);
+    const out = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(tree(dir)).toEqual(before);
+    expect(kanban(out).copy).toEqual({ action: "exists", backup: null, removed: [] });
+    expect(kanban(out).settings).toEqual({
+      path: ".claude/settings.json",
+      scope: "project",
+      action: "exists",
+      backup: null,
+    });
+
+    const plain = wipJsonIn(dir, ["init", "--yes"]);
+    expect(plain.code).toBe(EXIT.OK);
+    expect(tree(dir)).toEqual(before);
+    expect(kanban(plain)).toMatchObject({
+      requested: false,
+      installed: true,
+      copy: null,
+      settings: null,
+    });
+  });
+
+  test("--kanban merges the chosen file, preserving keys, order and other plugins, with a backup", () => {
+    const dir = tmp("k-merge");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    const before = `{
+  "permissions": { "allow": ["Bash(wip:*)"] },
+  "enabledPlugins": { "other@market": true },
+  "env": { "A": "1" }
+}
+`;
+    writeFileSync(join(dir, ".claude", "settings.json"), before);
+    const out = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    expect(out.code).toBe(EXIT.OK);
+    const after = JSON.parse(settingsText(dir, "settings.json"));
+    expect(after).toEqual({
+      permissions: { allow: ["Bash(wip:*)"] },
+      enabledPlugins: { "other@market": true, [ID]: true },
+      env: { A: "1" },
+    });
+    expect(Object.keys(after)).toEqual(["permissions", "enabledPlugins", "env"]);
+    const backup = kanban(out).settings.backup as string;
+    expect(backup).toStartWith(".wip/backups/claude-settings/settings.json.");
+    expect(readFileSync(join(dir, backup), "utf8")).toBe(before);
+  });
+
+  test("--force replaces the folder, backs the old one up, removes extras and keeps the generated types", () => {
+    const dir = tmp("k-force");
+    expect(wipJsonIn(dir, ["init", "--yes", "--kanban"]).code).toBe(EXIT.OK);
+    writeFileSync(join(dir, MOD, "README.md"), "edited");
+    writeFileSync(join(dir, MOD, "notas.txt"), "mine");
+    mkdirSync(join(dir, MOD, ".claude-plugin", "types"), { recursive: true });
+    writeFileSync(join(dir, MOD, ".claude-plugin", "types", "index.d.ts"), "generated");
+
+    const out = wipJsonIn(dir, ["init", "--yes", "--kanban", "--force"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(modText(dir, "README.md")).toBe(KANBAN_MOD["README.md"] as string);
+    expect(existsSync(join(dir, MOD, "notas.txt"))).toBe(false);
+    expect(readFileSync(join(dir, MOD, ".claude-plugin", "types", "index.d.ts"), "utf8")).toBe(
+      "generated",
+    );
+    const copy = kanban(out).copy;
+    expect(copy.action).toBe("replaced");
+    expect(copy.removed).toEqual([`${MOD}/notas.txt`]);
+    expect(readFileSync(join(dir, copy.backup, "notas.txt"), "utf8")).toBe("mine");
+    expect(readFileSync(join(dir, copy.backup, "README.md"), "utf8")).toBe("edited");
+
+    const again = wipJsonIn(dir, ["init", "--yes", "--kanban", "--force"]);
+    expect(again.code).toBe(EXIT.OK);
+    expect(kanban(again).copy).toEqual({
+      action: "exists",
+      backup: null,
+      removed: [],
+    });
+    expect(readdirSync(join(dir, ".wip", "backups", "kanban"))).toHaveLength(1);
+
+    // The removed file is listed on the output, one line each.
+    writeFileSync(join(dir, MOD, "otra.txt"), "mine");
+    const text = wipIn(dir, ["init", "--yes", "--kanban", "--force"]);
+    expect(text.code).toBe(EXIT.OK);
+    expect(text.stdout).toContain(`removed ${MOD}/otra.txt`);
+  });
+
+  test("a foreign folder, a file or a symlink at the mod path exits 3 and writes nothing", () => {
+    const foreign = tmp("k-foreign");
+    mkdirSync(join(foreign, MOD, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(foreign, MOD, ".claude-plugin", "wip.json"), '{"owner": "someone"}');
+    const beforeForeign = tree(foreign);
+    for (const argv of [
+      ["init", "--yes", "--kanban"],
+      ["init", "--yes", "--kanban", "--force"],
+    ]) {
+      const out = wipJsonIn(foreign, argv);
+      expect(out.code).toBe(EXIT.REJECTED);
+      expect(out.body.message).toContain("not wip's");
+      expect(tree(foreign)).toEqual(beforeForeign);
+    }
+    // Without --kanban the folder is another plugin's and is left alone.
+    const modBefore = tree(join(foreign, MOD));
+    expect(wipJsonIn(foreign, ["init", "--yes"]).code).toBe(EXIT.OK);
+    expect(tree(join(foreign, MOD))).toEqual(modBefore);
+    expect(existsSync(join(foreign, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(foreign, ".claude", "settings.local.json"))).toBe(false);
+
+    const file = tmp("k-file");
+    mkdirSync(join(file, ".claude", "skills"), { recursive: true });
+    writeFileSync(join(file, MOD), "not a folder");
+    const beforeFile = tree(file);
+    const out = wipJsonIn(file, ["init", "--yes", "--kanban", "--force"]);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(tree(file)).toEqual(beforeFile);
+
+    const link = tmp("k-link");
+    mkdirSync(join(link, ".claude", "skills"), { recursive: true });
+    mkdirSync(join(link, "elsewhere"));
+    symlinkSync(join(link, "elsewhere"), join(link, MOD));
+    const beforeLink = tree(link);
+    expect(wipJsonIn(link, ["init", "--yes", "--kanban", "--force"]).code).toBe(EXIT.REJECTED);
+    expect(tree(link)).toEqual(beforeLink);
+  });
+
+  test("--kanban-settings-file without --kanban or with another value is exit 2, writing nothing", () => {
+    for (const argv of [
+      ["init", "--yes", "--kanban-settings-file", "settings.local.json"],
+      ["init", "--yes", "--kanban", "--kanban-settings-file", "other.json"],
+      ["init", "--yes", "--kanban-settings-file", ""],
+      ["init", "--yes", "--kanban=local"],
+    ]) {
+      const dir = tmp("k-usage");
+      const out = wipIn(dir, argv);
+      expect({ argv, code: out.code }).toEqual({ argv, code: EXIT.USAGE });
+      expect(readdirSync(dir)).toEqual([]);
+    }
+  });
+
+  test("an invalid chosen settings file exits 3 and writes neither the copy nor .wip/", () => {
+    const dir = tmp("k-invalid");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "settings.json"), "{oops");
+    const before = tree(dir);
+    const out = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.body.message).toContain(".claude/settings.json");
+    expect(tree(dir)).toEqual(before);
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+    expect(existsSync(join(dir, MOD))).toBe(false);
+  });
+
+  test("a false local entry overrides the project one: a warning, and the local file is not edited", () => {
+    const dir = tmp("k-overridden");
+    expect(wipJsonIn(dir, ["init", "--yes", "--kanban"]).code).toBe(EXIT.OK);
+    writeFileSync(
+      join(dir, ".claude", "settings.local.json"),
+      `${JSON.stringify({ enabledPlugins: { [ID]: false } })}\n`,
+    );
+    const localBefore = settingsText(dir, "settings.local.json");
+    const out = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.warnings.map((w) => w.code)).toEqual(["kanban_settings_overridden"]);
+    expect(out.body.warnings[0]?.message).toContain(".claude/settings.local.json");
+    expect(settingsText(dir, "settings.local.json")).toBe(localBefore);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins[ID]).toBe(true);
+  });
+
+  test("a project false with a local true is a duplicate; the project file is not edited", () => {
+    const dir = tmp("k-duplicate");
+    expect(wipJsonIn(dir, ["init", "--yes", "--kanban"]).code).toBe(EXIT.OK);
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      `${JSON.stringify({ enabledPlugins: { [ID]: false } })}\n`,
+    );
+    const projectBefore = settingsText(dir, "settings.json");
+    const out = wipJsonIn(dir, [
+      "init",
+      "--yes",
+      "--kanban",
+      "--kanban-settings-file",
+      "settings.local.json",
+    ]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.warnings.map((w) => w.code)).toEqual(["kanban_settings_duplicate"]);
+    expect(out.body.warnings[0]?.message).toContain(".claude/settings.json");
+    expect(settingsText(dir, "settings.json")).toBe(projectBefore);
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins[ID]).toBe(true);
+  });
+
+  test("--force does not reactivate a false entry; --kanban writes true with a backup", () => {
+    const dir = tmp("k-false");
+    expect(wipJsonIn(dir, ["init", "--yes", "--kanban"]).code).toBe(EXIT.OK);
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      `${JSON.stringify({ enabledPlugins: { [ID]: false } })}\n`,
+    );
+    const falseText = settingsText(dir, "settings.json");
+
+    const forced = wipJsonIn(dir, ["init", "--yes", "--force"]);
+    expect(forced.code).toBe(EXIT.OK);
+    expect(settingsText(dir, "settings.json")).toBe(falseText);
+    expect(kanban(forced)).toMatchObject({ requested: false, settings: null });
+
+    const again = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    expect(again.code).toBe(EXIT.OK);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins[ID]).toBe(true);
+    expect(kanban(again).settings.action).toBe("updated");
+    expect(kanban(again).settings.backup).toStartWith(
+      ".wip/backups/claude-settings/settings.json.",
+    );
+  });
+
+  test("a normal init leaves an existing settings file byte-identical", () => {
+    const dir = tmp("k-untouched");
+    mkdirSync(join(dir, ".claude"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "settings.json"), "{}\n");
+    expect(wipIn(dir, ["init", "--yes"]).code).toBe(EXIT.OK);
+    expect(settingsText(dir, "settings.json")).toBe("{}\n");
+    expect(existsSync(join(dir, ".claude", "settings.local.json"))).toBe(false);
   });
 });

@@ -9,8 +9,10 @@ import {
   validateStart,
 } from "../config.ts";
 import { defsPath, shownDefsDir, type TEnv } from "../env.ts";
+import { isSettingsFile, type TSettingsFile } from "./claude-settings.ts";
 import { joinCommand, splitCommand } from "./command.ts";
 import { currentModels, savedStart } from "./current.ts";
+import { type IKanbanState, KANBAN_DIR, kanbanAskDefaults, kanbanState } from "./kanban.ts";
 import { MODEL_AGENTS, parseModels, SKIP, suggestedModel } from "./models.ts";
 import { askSelect, askText, askYesNo, type IAsker } from "./prompt.ts";
 import { isIgnored } from "./scaffold.ts";
@@ -22,7 +24,7 @@ export interface IAskInput {
   env: TEnv;
 }
 
-const STEPS = 4;
+const STEPS = 5;
 
 const MODEL_ROLES: Readonly<Record<string, string>> = {
   fast: "mechanical tasks",
@@ -49,9 +51,10 @@ function header(asker: IAsker, n: number, title: string, note?: string): void {
 }
 
 /**
- * Asks what the flags left open, in the order scope, models, start and Git, and returns the extra arguments to give
- * the non-interactive init (`--global`, `--models`, `--start`, `--no-start`), or `null` when the user declines the
- * summary. Nothing is written here: every answer is asked before the first write. Throws `Aborted` on Ctrl+C.
+ * Asks what the flags left open, in the order scope, models, start, Git and Kanban, and returns the extra
+ * arguments to give the non-interactive init (`--global`, `--models`, `--start`, `--no-start`, `--gitignore`,
+ * `--kanban`, `--kanban-settings-file`), or `null` when the user declines the summary. Nothing is written here:
+ * every answer is asked before the first write. Throws `Aborted` on Ctrl+C.
  */
 export async function askInit(asker: IAsker, input: IAskInput): Promise<string[] | null> {
   const { args } = input;
@@ -192,6 +195,80 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     if (gitShown !== "wip" || !isIgnored(project, ".wip/")) extra.push("--gitignore", gitShown);
   }
 
+  header(asker, 5, "Kanban", "optional: a read-only board of the open items, shown by Claude Code");
+  let state: IKanbanState | null = null;
+  try {
+    state = kanbanState(project);
+  } catch {
+    state = null;
+  }
+  const defaults =
+    state === null
+      ? { install: false, file: "settings.json" as TSettingsFile, notes: [] }
+      : kanbanAskDefaults(state, project, args.flags.has("force"));
+  const copyOwned = state?.copy === "owned";
+  asker.say(`  ${s.dim(`default: ${defaults.install ? "yes" : "no"}`)}`);
+  if (args.flags.has("force") && copyOwned) {
+    asker.say(
+      `  ${s.dim("--force refreshes the copy even when the answer is no; only --kanban changes settings")}`,
+    );
+  }
+  if (global) {
+    asker.say(`  ${s.dim(`the mod is installed in this project anyway (${KANBAN_DIR}/)`)}`);
+  }
+  for (const note of defaults.notes) asker.say(`  ${s.dim(note)}`);
+
+  let installKanban = false;
+  if (args.flags.has("kanban")) {
+    installKanban = true;
+    asker.say(`  ${s.dim("from --kanban")}`);
+  } else {
+    const answer = await askSelect(asker, {
+      question: "Install the wip Kanban mod for Claude Code?",
+      options: [
+        { value: "no", label: "no", hint: "don't install it" },
+        {
+          value: "yes",
+          label: "yes",
+          hint: `${KANBAN_DIR}/ with an enabledPlugins entry`,
+        },
+      ],
+      initial: defaults.install ? 1 : 0,
+    });
+    installKanban = answer === "yes";
+  }
+
+  let kanbanFile: TSettingsFile = "settings.json";
+  if (installKanban) {
+    const given = args.opts["kanban-settings-file"];
+    if (given !== undefined && isSettingsFile(given)) {
+      kanbanFile = given;
+      asker.say(`  ${s.dim(`from --kanban-settings-file ${given}`)}`);
+    } else {
+      const answer = await askSelect(asker, {
+        question: "Where does the enabledPlugins entry go?",
+        options: [
+          {
+            value: "settings.json",
+            label: "settings.json",
+            hint: ".claude/settings.json (project, shared with the repository; default)",
+          },
+          {
+            value: "settings.local.json",
+            label: "settings.local.json",
+            hint: ".claude/settings.local.json (local to this clone, not shared; wins over settings.json)",
+          },
+        ],
+        initial: defaults.file === "settings.local.json" ? 1 : 0,
+      });
+      if (isSettingsFile(answer)) kanbanFile = answer;
+    }
+    if (!args.flags.has("kanban")) extra.push("--kanban");
+    if (kanbanFile === "settings.local.json" && args.opts["kanban-settings-file"] === undefined) {
+      extra.push("--kanban-settings-file", "settings.local.json");
+    }
+  }
+
   const row = (k: string, v: string | null) =>
     `${s.dim(k.padEnd(10))}${v === null ? s.dim("(unset)") : s.cyan(v)}`;
   const rows = [
@@ -200,6 +277,12 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     ...MODEL_AGENTS.map((a) => row(a, shown[a] ?? null)),
     row("start", startShown),
     row("gitignore", gitShown),
+    row(
+      "kanban",
+      installKanban
+        ? `yes (${kanbanFile === "settings.local.json" ? ".claude/settings.local.json" : ".claude/settings.json"})`
+        : "no",
+    ),
   ];
   asker.say("");
   for (const line of box("Summary", rows, s)) asker.say(line);

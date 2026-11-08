@@ -181,6 +181,83 @@ one scope to the other (`--global` on a local project, or the reverse, exits 3 a
 with `--force`); within a scope, `--force` switches the folder as described above. Whoever
 clones the repository needs their own `wip init` (with or without `--global`).
 
+### The Kanban mod: `--kanban`
+
+`wip init` can install an optional, read-only Kanban for Claude Code: a pane listing the project's open wip items. An
+installed copy lives in `.claude/skills/wip-kanban/`, always in the project, also with `--global` (that flag decides
+where the agents and skills live, never where this copy does). It is a self-contained copy of `mods/wip-kanban/`,
+embedded in the npm package and the standalone binary, so installing needs no network and no extra download. A new
+Claude Code session, terminal or desktop, loads it by itself as `wip-kanban@skills-dir`, with no `--plugin-dir` and no
+marketplace.
+
+The install writes two things: that copy, and `"enabledPlugins": {"wip-kanban@skills-dir": true}` merged into one
+settings file of the project. In a terminal the wizard's fifth step asks `Install the wip Kanban mod for Claude
+Code?` (`yes`, the default, installs the copy and the entry; `no` writes nothing) and, after `yes`, `Where does the
+enabledPlugins entry go?`:
+
+- `settings.json`, the default: `.claude/settings.json`, Claude's project scope, shared with the repository;
+- `settings.local.json`: `.claude/settings.local.json`, Claude's local scope, personal to this clone, normally not
+  versioned, and applied by Claude over the project file for the same plugin id.
+
+Without a terminal:
+
+```sh
+wip init --yes --kanban
+wip init --yes --kanban --kanban-settings-file settings.local.json
+```
+
+`--kanban` installs the copy and writes the entry; `--kanban-settings-file settings.json|settings.local.json` chooses
+the file and is only valid together with `--kanban` (else exit 2, nothing written). `--yes` alone installs nothing:
+the default `yes` is the wizard's, and a script installs with `--kanban`.
+`--kanban` skips the wizard's first question and still asks the file; `--kanban-settings-file` skips the second. The
+merge preserves every other key, every other plugin and their order, adds `$schema` only when it creates the file,
+and copies the previous text to `.wip/backups/claude-settings/<file>.<stamp>` before changing it. Init never writes
+the other settings file: it reads it only to warn when its entry wins over the chosen one
+(`kanban_settings_overridden`), disagrees with it (`kanban_settings_duplicate`) or cannot be read
+(`kanban_settings_unreadable`). A warning never changes the exit code. An invalid JSON, an `enabledPlugins` that is
+not an object, a non-boolean value or a file that is not a regular file in the chosen path exits 3 with nothing
+written.
+
+A copy in the project is project scope: Claude keeps it suppressed until you accept the workspace trust dialog, also
+when the entry is in `.claude/settings.local.json`; then run `/reload-plugins` or start a new session. The pane opens
+on its own as `wip Kanban`: Claude Code places a pane no one asked for from 144 terminal columns and one the person
+opened before from 110; on a narrower terminal the mod opens it on your first prompt, and from then on at launch in
+terminals of 110 columns or more. Below 110 columns the engine places no pane, even with `/wip-kanban on`. A copy
+installed before this version needs `wip init --force` to get this. `/wip-kanban on` and `/wip-kanban off` open and
+close it. The flow filter is a dim row at the bottom right, outside the board: one button per flow
+(`✓ <flow>` or `✗ <flow>`, one space apart), the hidden ones are remembered per project, and the board prints no
+flow names. Each row is `<id> <phase>`, placed by
+the phase's ordinal and painted with the same stage ramp as the web; an item with `signals.attention` takes the
+stage's solid colour as its background. Clicking a row opens `webUrl` with `?item=<flow>/<id>` and the web shows that
+item's panel, so the link needs `wip web` running at that URL (the default is the first port it tries, 33333). The
+board itself works without the server. `claude plugin configure wip-kanban@skills-dir` sets `webUrl` and
+`colorScheme` (`dark`, the default, or `light`; the pane API does not expose the active theme).
+
+`wip state --json` also carries the model the pane and the web share: `data.board.flows`, every flow with its declared
+phases and its columns, each with the stage colour as `rgba()` and as the two solid colours and contrasting texts the
+terminal paints. The field is additive: `data.items` and its filters keep their meaning, and the web page is unchanged.
+
+Updating: install the new wip and run `wip init --force` (or `wip init --kanban --force`). With `--force` the whole
+folder is replaced: managed files return to the embedded text, your own extra files inside it are removed (each listed
+as `removed`) and the previous folder is copied first to `.wip/backups/kanban/wip-kanban.<stamp>/`; the
+`.claude-plugin/types/` Claude generates is kept. A second `--force` with nothing changed says `exists` and writes
+nothing. `--force` without `--kanban` refreshes an existing copy and touches neither settings file, so a plugin you
+disabled stays disabled; only `--kanban` writes `true` in the chosen file, with a backup. A folder at that path
+without wip's `.claude-plugin/wip.json` mark, or a file or link there, is another tool's: exit 3 with nothing written,
+also with `--force`.
+
+Disable the mod without deleting it with `claude plugin disable wip-kanban@skills-dir --scope project` (or
+`--scope local` for `.claude/settings.local.json`) and enable it with the same scope; the wrong scope does not reach
+the other file's entry. To remove it, delete `.claude/skills/wip-kanban/` and, if you want, the entry from the
+settings file that holds it (`claude plugin uninstall` is for marketplace installs only). `wip init --kanban` installs
+it again. `--gitignore defs` never ignores the copy, and init does not add it to `.gitignore`: with
+`.claude/settings.json`, version the copy with the settings; with `.claude/settings.local.json`, the entry is personal
+and each clone decides whether to version the copy or run its own `wip init --kanban`.
+
+Development keeps using the checkout directly, `claude --plugin-dir /path/to/wip/mods/wip-kanban` (or
+`CLAUDE_CODE_PLUGIN_DIRS` for desktop), and must not run at the same time as an installed `skills-dir` copy in one
+session: both register `/wip-kanban` and the pane. `wip start` and the rest of wip are unchanged.
+
 ## Start the coordinator: `wip start`
 
 `wip start` runs, from the project root and in the foreground, the start command saved in `.wip/config.json`: by
@@ -212,10 +289,10 @@ Each phase of a flow names its default agent (`agent:`) and what its subagent ma
 after a failure.
 
 The model of each generic agent and of the coordinator (marked `wip: coordinator`) is its `model:` frontmatter line.
-In a terminal, `wip init` asks in four steps: the scope (`local`, the default, in the project, or `global`, in your home
+In a terminal, `wip init` asks in five steps: the scope (`local`, the default, in the project, or `global`, in your home
 folder like `--global`; `--global` skips it and an initialised project keeps its scope, shown as `scope kept`), each
-of those five models as open text and the `wip start` command, shows a summary and writes nothing until you confirm
-(Enter takes the default, Ctrl+C writes nothing). Colours appear only on a terminal without `NO_COLOR`. The
+of those five models as open text, the `wip start` command, what goes into `.gitignore` and the Kanban mod (`yes`, the default, or `no`), shows a
+summary and writes nothing until you confirm (Enter takes the default, Ctrl+C writes nothing). Colours appear only on a terminal without `NO_COLOR`. The
 suggestions are `haiku` (`fast`), `sonnet` (`efficient`), `opus` (`thinker`), `fable` (`wise`) and `inherit` (the
 coordinator). `wip init --yes` takes every default without asking;
 `--models fast=haiku,wip=inherit`, `--start '<command>'`, `--start-default` and `--no-start` answer one question each.

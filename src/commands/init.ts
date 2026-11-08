@@ -15,12 +15,29 @@ import {
 } from "../config.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { openForRead } from "../db.ts";
+import { KANBAN_MOD } from "../embedded/kanban.ts";
 import { defsPath, FLOW_SKILL_PREFIX, rootAt, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, usage } from "../errors.ts";
 import { liveItems, loadFlows } from "../flow/registry.ts";
 import { askInit } from "../init/ask.ts";
+import {
+  applySettings,
+  isSettingsFile,
+  KANBAN_PLUGIN_ID,
+  scopeOf,
+  settingsRel,
+  type TSettingsFile,
+} from "../init/claude-settings.ts";
 import { splitCommand } from "../init/command.ts";
 import { currentModels, savedStart } from "../init/current.ts";
+import {
+  type IKanbanCopyResult,
+  KANBAN_DIR,
+  KanbanCopyFailed,
+  kanbanPreflight,
+  kanbanState,
+  syncKanban,
+} from "../init/kanban.ts";
 import { defaultModel, MODEL_AGENTS, parseModels } from "../init/models.ts";
 import { Aborted, type IAsker, terminalAsker } from "../init/prompt.ts";
 import { foreignFiles, scaffold } from "../init/scaffold.ts";
@@ -39,7 +56,7 @@ export function unsetLine(models: readonly string[], startUnset: boolean): strin
 }
 
 const INIT_USAGE =
-  "usage: wip init [<path>] [--global] [--force] [--yes] [--models <agent>=<model>,…] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none]";
+  "usage: wip init [<path>] [--global] [--force] [--yes] [--models <agent>=<model>,…] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none] [--kanban] [--kanban-settings-file settings.json|settings.local.json]";
 
 const CLAUDE_CODE_NEXT = [
   "Run `wip start` (or bare `wip`) in this directory: it starts the coordinator, the runtime that runs the project's flows.",
@@ -202,12 +219,22 @@ function run(ctx: ICtx, args: IArgs): void {
   const project = resolve(ctx.cwd, path ?? ".");
   const force = args.flags.has("force");
   const global = args.flags.has("global");
+  const kanban = args.flags.has("kanban");
+  const kanbanFileValue = args.opts["kanban-settings-file"];
+  if (kanbanFileValue !== undefined) {
+    if (!kanban) throw usage("--kanban-settings-file only goes with --kanban");
+    if (!isSettingsFile(kanbanFileValue)) {
+      throw usage("--kanban-settings-file: use settings.json or settings.local.json");
+    }
+  }
+  const kanbanFile: TSettingsFile = kanbanFileValue ?? "settings.json";
   const defsDir = (global ? HOME_PREFIX : "") + DEFAULT_DEFS_DIR;
   const defsRoot = defsPath(project, defsDir, ctx.env);
   const shown = shownDefsDir(defsDir, ctx.env);
   assertDirectory(project);
 
   const sw = folderSwitch(project, defsDir, force, ctx.env);
+  const kanbanPre = kanbanPreflight(project, { requested: kanban, force, file: kanbanFile });
   const conflicts = [
     ...(sw.refusal ? [sw.refusal] : []),
     ...(sw.from === null ? [] : liveFlowRefusals(project, sw.from, defsDir, ctx.env)),
@@ -215,8 +242,12 @@ function run(ctx: ICtx, args: IArgs): void {
       (rel) =>
         `${rel} exists without a \`wip:\` mark (another tool's file); rename or move it and run init again`,
     ),
+    ...kanbanPre.refusals,
   ];
   if (conflicts.length > 0) throw rejected(`nothing written: ${conflicts.join("; ")}`);
+  ctx.result.warnings.push(
+    ...kanbanPre.warnings.map((w) => ({ code: w.code, message: w.message })),
+  );
 
   const models = modelAnswers(args, currentModels(defsRoot));
   const start = startAnswer(args, project);
@@ -232,9 +263,10 @@ function run(ctx: ICtx, args: IArgs): void {
   mkdirSync(project, { recursive: true });
   const before = readConfig(project);
   const bin = launchBin(ctx.env, process.execPath, ctx.cwd);
+  const stamp = compact();
   const done = scaffold(project, {
     force,
-    stamp: compact(),
+    stamp,
     defsDir: shown,
     defsRoot,
     models,
@@ -247,6 +279,29 @@ function run(ctx: ICtx, args: IArgs): void {
     ...(start === null ? {} : { start }),
   });
   const configAction = before === null ? "created" : sw.from === null ? "exists" : "updated";
+
+  const touchCopy = kanban || (force && kanbanPre.state.copy === "owned");
+  let kanbanCopy: IKanbanCopyResult | null = null;
+  let settings: { action: string; backup: string | null } | null = null;
+  let kanbanFailed = false;
+  try {
+    if (touchCopy) kanbanCopy = syncKanban(project, { requested: kanban, force, stamp });
+    if (kanban) settings = applySettings(project, kanbanFile, { stamp });
+  } catch (err) {
+    if (err instanceof KanbanCopyFailed) {
+      kanbanCopy = null;
+      kanbanFailed = true;
+      ctx.result.warnings.push({ code: "kanban_copy_failed", message: err.message });
+    } else if (kanban) {
+      settings = null;
+      kanbanFailed = true;
+      ctx.result.warnings.push({
+        code: "kanban_settings_failed",
+        message: `the ${settingsRel(kanbanFile)} entry could not be written (${(err as Error).message}); the copy stays installed and Claude still loads ${KANBAN_PLUGIN_ID} from it`,
+      });
+    } else throw err;
+  }
+  const installed = kanbanState(project).copy === "owned";
 
   const lines = ctx.result.lines;
   lines.push(`wip init · ${project}`);
@@ -303,10 +358,50 @@ function run(ctx: ICtx, args: IArgs): void {
   }
   const lintOk = lint(ctx, project);
 
+  if (kanbanCopy !== null) {
+    const files = Object.keys(KANBAN_MOD).length;
+    const copyLine = {
+      created: `created ${KANBAN_DIR}/ (${files} files)`,
+      updated: `updated ${KANBAN_DIR}/ (missing files created; run with --force to replace the folder)`,
+      replaced: `replaced ${KANBAN_DIR}/ (backup ${kanbanCopy.backup})`,
+      exists:
+        kanbanCopy.differ.length > 0
+          ? `exists ${KANBAN_DIR}/ (files differ; run with --force to replace the folder)`
+          : `exists ${KANBAN_DIR}/`,
+    } as const;
+    lines.push(copyLine[kanbanCopy.action]);
+    for (const rel of kanbanCopy.removed) lines.push(`removed ${rel}`);
+  }
+  if (settings !== null) {
+    const base = settingsRel(kanbanFile);
+    const what = `enabledPlugins ${KANBAN_PLUGIN_ID}`;
+    const settingsLine = {
+      created: `created ${base} with ${what}`,
+      added: `added ${base}: ${what}`,
+      updated: `updated ${base}: ${what} (backup ${settings.backup})`,
+      exists: `exists ${base}: ${what}`,
+    } as const;
+    lines.push(
+      settingsLine[settings.action as keyof typeof settingsLine] ?? `exists ${base}: ${what}`,
+    );
+  }
+
   const unsetModels = modelsUnset(join(defsRoot, "agents"));
   const startUnset = savedStart(project) === null;
   const unset = unsetLine(unsetModels, startUnset);
-  const next = [...CLAUDE_CODE_NEXT, ...(unset === null ? [] : [unset])];
+  const kanbanNext: string[] = [];
+  if (installed && kanbanCopy?.action === "created") {
+    kanbanNext.push(
+      `Reload plugins or restart Claude Code: it loads ${KANBAN_PLUGIN_ID}; trust this workspace if Claude asks to.`,
+    );
+  }
+  if (kanban) {
+    const scope = scopeOf(kanbanFile);
+    kanbanNext.push(
+      `Disable the mod with \`claude plugin disable ${KANBAN_PLUGIN_ID} --scope ${scope}\`; enable it with \`claude plugin enable ${KANBAN_PLUGIN_ID} --scope ${scope}\`.`,
+    );
+  }
+  const next = [...CLAUDE_CODE_NEXT, ...kanbanNext, ...(unset === null ? [] : [unset])];
   lines.push("", "Next steps:", ...next);
   ctx.result.message = `wip initialised in ${project}`;
   ctx.result.data = {
@@ -324,9 +419,32 @@ function run(ctx: ICtx, args: IArgs): void {
     start,
     unset: { models: unsetModels, start: startUnset },
     lint: { ok: lintOk },
+    kanban: {
+      requested: kanban,
+      installed,
+      path: installed ? KANBAN_DIR : null,
+      id: installed ? KANBAN_PLUGIN_ID : null,
+      copy:
+        kanbanCopy === null
+          ? null
+          : {
+              action: kanbanCopy.action,
+              backup: kanbanCopy.backup,
+              removed: kanbanCopy.removed,
+            },
+      settings:
+        settings === null || !kanban
+          ? null
+          : {
+              path: settingsRel(kanbanFile),
+              scope: scopeOf(kanbanFile),
+              action: settings.action,
+              backup: settings.backup,
+            },
+    },
     next,
   };
-  if (!lintOk) {
+  if (!lintOk || kanbanFailed) {
     ctx.result.ok = false;
     ctx.result.code = EXIT.FINDINGS;
   }
@@ -365,6 +483,10 @@ export async function promptInit(
     args = parseArgs(argv.slice(1), spec?.flags ?? []);
     allow(args, [...(spec?.options ?? []), ...(spec?.flags ?? [])]);
   } catch {
+    return { argv: [...argv], code: 0 }; // the command reports the usage error itself
+  }
+  const kanbanFile = args.opts["kanban-settings-file"];
+  if (kanbanFile !== undefined && (!args.flags.has("kanban") || !isSettingsFile(kanbanFile))) {
     return { argv: [...argv], code: 0 }; // the command reports the usage error itself
   }
   try {

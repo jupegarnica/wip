@@ -8,6 +8,9 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 First version.
 
+- `wip init`'s Kanban step defaults to installing the mod (`yes`); `no` and `--yes` still install nothing. The
+  Kanban pane reopens on the first prompt when the engine waits for a person to ask for it.
+
 **Upgrade notes.** `--harness` is removed (exit 2); a `harness` key in `.wip/config.json` is ignored when read and
 dropped on the next write; the definitions folder defaults to `.claude/`; a project with a legacy `defs_dir`
 (`.agents`) keeps reading it, and `wip init --force` migrates it to `.claude/`.
@@ -33,8 +36,28 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
   Its output and its wizard name a global folder by the absolute path `HOME` gives it, not `~/`.
 - `wip init --gitignore wip,defs | none`: what goes into `.gitignore`. `wip` (the default, also with `--yes` and without a
   terminal) adds `.wip/`; `defs` adds the paths of the wip templates under the definitions folder, not the folder; `none`
-  touches nothing; `defs` with `--global` is ignored with a warning. The wizard asks it as step 4/4 (definitions only in
+  touches nothing; `defs` with `--global` is ignored with a warning. The wizard asks it as step 4/5 (definitions only in
   local scope, default no). `init` also records `wip_bin` like `wip start` (nothing under bun or node; a saved value is kept).
+- The board model shared by the web and the mod lives in `src/board.ts`: stage alpha, `rgba()` colour, the two solid
+  colours (over the light and the dark surface) and their contrasting texts. `wip state --json` gains the additive
+  `data.board.flows`, every flow with its declared phases and columns; `data.items`, its filters and the text output
+  keep their meaning, and the web page is unchanged.
+- `wip init` can install the Kanban mod for Claude Code with `--kanban`: a self-contained copy of `mods/wip-kanban/`
+  in `.claude/skills/wip-kanban/` (also with `--global`; it travels in the npm package and the standalone binary) and
+  `"enabledPlugins": {"wip-kanban@skills-dir": true}` in the chosen settings file. The wizard's fifth step asks
+  `Install the wip Kanban mod for Claude Code?` (yes by default; Enter installs the copy and the entry; no writes
+  nothing) and, after yes, `Where does the enabledPlugins entry
+  go?` between `.claude/settings.json` (project scope, the default, shared) and `.claude/settings.local.json` (local
+  scope, personal, applied over the project file). `--kanban-settings-file settings.json|settings.local.json` fixes
+  the file without questions and only goes with `--kanban`. The merge preserves every other key with a backup in
+  `.wip/backups/claude-settings/`; the other file is read only to warn about an override, a duplicate or an unreadable
+  file. `--force` replaces the whole mod folder after copying it to `.wip/backups/kanban/`, removes extras, keeps the
+  generated types and never reactivates a disabled entry unless `--kanban` is given.
+- The mod itself: a read-only pane of the project's open items read from `wip state --json` once and every 5 s
+  (one process at a time, 4 s timeout, the last valid board on failure), `/wip-kanban on|off`, filters persisted per
+  project, `webUrl` and `colorScheme` options, and a click that opens the wip web with the item selected. The pane
+  is already open when Claude Code can place it: from 144 columns at launch, or from 110 after the person's first
+  prompt; the mod reopens it on that first prompt.
 - Claude Code: `claude --agent wip` starts the coordinator through its `initialPrompt`; the generic agents preload
   `wip-subagent-protocol` with their `skills` key.
 - `wip start`: runs in the foreground, from the project root, the start command saved in `.wip/config.json` (`start`,

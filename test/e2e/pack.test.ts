@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { basename, join } from "node:path";
+import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
 import { EXIT } from "../../src/errors.ts";
 import { scratch } from "../helpers/project.ts";
 
@@ -17,6 +18,18 @@ const WINDOWS = process.platform === "win32";
 const HOST = `${WINDOWS ? "windows" : process.platform}-${process.arch}`;
 const NPM = WINDOWS ? "npm.cmd" : "npm";
 const NO_NODE_PATH = WINDOWS ? "C:\\Windows\\System32" : "/usr/bin:/bin";
+
+const ID = "wip-kanban@skills-dir";
+
+/** The installed copy, keyed by its path under `.claude/skills/wip-kanban/`. */
+function modFiles(project: string): Record<string, string> {
+  const dir = join(project, ".claude", "skills", "wip-kanban");
+  return Object.fromEntries(
+    Object.keys(KANBAN_MOD)
+      .sort()
+      .map((key) => [key, readFileSync(join(dir, key), "utf8")]),
+  );
+}
 
 const VERSION_LINE = new RegExp(
   `^${VERSION.replaceAll(".", "\\.")} \\(.+, built \\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ\\)\n$`,
@@ -148,5 +161,70 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
     const archive = join(dir, "release", `wip-${VERSION}-${HOST}.${ext}`);
     expect(existsSync(archive)).toBe(true);
     expect(readFileSync(join(dir, "release", "SHA256SUMS"), "utf8")).toContain(basename(archive));
+  });
+
+  test("init --kanban installs the same copy and entry from the npm package, with no network", () => {
+    const wip = installedWip(prefix);
+    const project = scratch("pack-kanban");
+    try {
+      const out = exec([wip, "init", "--yes", "--kanban"], project);
+      expect(out.code).toBe(EXIT.OK);
+      expect(modFiles(project)).toEqual(
+        Object.fromEntries(
+          Object.keys(KANBAN_MOD)
+            .sort()
+            .map((key) => [key, KANBAN_MOD[key] as string]),
+        ),
+      );
+      const settings = JSON.parse(
+        readFileSync(join(project, ".claude", "settings.json"), "utf8"),
+      ) as { enabledPlugins: Record<string, boolean> };
+      expect(settings.enabledPlugins[ID]).toBe(true);
+      expect(existsSync(join(project, ".claude", "settings.local.json"))).toBe(false);
+    } finally {
+      rmSync(realpathSync(project), { recursive: true, force: true });
+    }
+  });
+
+  test("init --kanban with settings.local.json writes only the personal file", () => {
+    const wip = installedWip(prefix);
+    const project = scratch("pack-kanban-local");
+    try {
+      const out = exec(
+        [wip, "init", "--yes", "--kanban", "--kanban-settings-file", "settings.local.json"],
+        project,
+      );
+      expect(out.code).toBe(EXIT.OK);
+      expect(existsSync(join(project, ".claude", "settings.json"))).toBe(false);
+      const settings = JSON.parse(
+        readFileSync(join(project, ".claude", "settings.local.json"), "utf8"),
+      ) as { enabledPlugins: Record<string, boolean> };
+      expect(settings.enabledPlugins[ID]).toBe(true);
+    } finally {
+      rmSync(realpathSync(project), { recursive: true, force: true });
+    }
+  });
+
+  test("the standalone binary installs the same copy with neither Node nor Bun in PATH", () => {
+    const binary = hostBinary(dir);
+    const project = scratch("pack-kanban-bin");
+    try {
+      const env = { PATH: NO_NODE_PATH };
+      const out = exec([binary, "init", "--yes", "--kanban"], project, env);
+      expect(out.code).toBe(EXIT.OK);
+      expect(modFiles(project)).toEqual(
+        Object.fromEntries(
+          Object.keys(KANBAN_MOD)
+            .sort()
+            .map((key) => [key, KANBAN_MOD[key] as string]),
+        ),
+      );
+      const settings = JSON.parse(
+        readFileSync(join(project, ".claude", "settings.json"), "utf8"),
+      ) as { enabledPlugins: Record<string, boolean> };
+      expect(settings.enabledPlugins[ID]).toBe(true);
+    } finally {
+      rmSync(realpathSync(project), { recursive: true, force: true });
+    }
   });
 });

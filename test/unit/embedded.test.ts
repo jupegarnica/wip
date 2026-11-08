@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
+import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
 import { MIGRATIONS } from "../../src/embedded/migrations.ts";
 import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { MARKDOWN_LIB, MARKDOWN_PACKAGE, WEB } from "../../src/embedded/web.ts";
@@ -40,6 +41,32 @@ describe("embedded files (D15)", () => {
     for (const [key, text] of Object.entries(WEB)) {
       expect(text).toBe(readFileSync(join(REPO, "web", key), "utf8"));
     }
+  });
+
+  test("KANBAN_MOD holds exactly the eight distributable files, with their text as on disk", () => {
+    const dir = join(REPO, "mods", "wip-kanban");
+    expect(Object.keys(KANBAN_MOD).sort()).toEqual([
+      ".claude-plugin/plugin.json",
+      ".claude-plugin/wip.json",
+      "LICENSE",
+      "README.md",
+      "hooks/hooks.json",
+      "hooks/register.tsx",
+      "tsconfig.json",
+      "types/index.d.ts",
+    ]);
+    for (const [key, text] of Object.entries(KANBAN_MOD)) {
+      expect(text).toBe(readFileSync(join(dir, key), "utf8"));
+    }
+    expect(Object.keys(KANBAN_MOD).some((key) => key.endsWith(".test.tsx"))).toBe(false);
+    expect(Object.keys(KANBAN_MOD).some((key) => key.startsWith(".claude-plugin/types/"))).toBe(
+      false,
+    );
+    expect(JSON.parse(KANBAN_MOD[".claude-plugin/wip.json"] as string)).toEqual({
+      format: 1,
+      owner: "@garndev/wip",
+      plugin: "wip-kanban",
+    });
   });
 
   test("@garndev/markdown is the exact 0.3.1 devDependency, and the manifest is closed under its imports", () => {

@@ -115,4 +115,29 @@ describe("wip help init", () => {
     expect(out.stdout).toContain("~/.claude/");
     expect(out.stdout).not.toContain("--harness");
   });
+
+  test("it documents the Kanban mod, its two settings files and their scopes", () => {
+    const out = bare(["help", "init"]);
+    expect(out.stdout).toContain("--kanban");
+    expect(out.stdout).toContain("--kanban-settings-file");
+    expect(out.stdout).toContain(".claude/settings.json");
+    expect(out.stdout).toContain(".claude/settings.local.json");
+    expect(out.stdout).toContain("--scope local");
+    expect(out.stdout).toContain("--scope project");
+    expect(out.stdout).toContain(".wip/backups/kanban/");
+    expect(out.stdout).toContain("replace");
+    expect(out.stdout).toContain("Install the wip Kanban mod for Claude Code?");
+    expect(out.stdout).toContain("Where does the enabledPlugins entry go?");
+    expect(out.stdout).toContain("yes (the default");
+    expect(out.stdout).not.toContain("no (the default");
+    // The old flag name, but never as a word of its own: it is a prefix of --kanban-settings-file.
+    expect(out.stdout).not.toMatch(/--kanban-settings(?![\w-])/);
+    expect(out.stdout).not.toContain("CLAUDE_CODE_PLUGIN_DIRS");
+  });
+
+  test("init usage lists the flag and the option", () => {
+    const out = bare(["init", "--help"]);
+    expect(out.stdout).toContain("[--kanban]");
+    expect(out.stdout).toContain("[--kanban-settings-file settings.json|settings.local.json]");
+  });
 });
