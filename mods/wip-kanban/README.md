@@ -60,9 +60,9 @@ next session.
   so another project is unaffected. The board prints no flow names; the buttons are the only place they appear.
 - A row is placed by the phase's ordinal: the first phase starts at the left edge, the last ends at the right
   edge, and a one-phase flow stays at the left. A label too long for the pane is cut with `…`.
-- A flow's stages paint the rows with the same alpha ramp as the web. A row with `signals.attention` takes the
-  stage's solid colour as its background with the contrasting text; any other row uses the stage colour as its
-  text. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
+- A row with `signals.attention` takes the stage's solid colour as its background with the contrasting text; any
+  other row uses its flow's colour at full opacity (the phase's alpha is not applied), so a late phase stays
+  legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
 - Clicking a row opens `webUrl` with `?item=<flow>/<id>`; the web shows that item's panel. The board works without
   the server, but the link needs `wip web` running at that URL (terminal link opening may need Cmd/Ctrl).
 
@@ -72,8 +72,9 @@ next session.
 
 - `webUrl` — default `http://localhost:33333/`, the first port `wip web` tries. If the server uses another port,
   change it here. Only `http:` and `https:` URLs are accepted; an invalid one leaves the IDs as plain text.
-- `colorScheme` — `dark` (default) or `light`: which theme's solid colours and contrasting text the pane uses.
-  The pane API does not expose the active theme, so this choice is explicit.
+- `colorScheme` — `dark` (default) or `light`: which theme's solid colours and contrasting text the attention rows
+  use, and which amber fallback a stageless attention row takes. Non-attention rows use the flow tone in both
+  schemes. The pane API does not expose the active theme, so this choice is explicit.
 
 ## Update, disable and remove
 

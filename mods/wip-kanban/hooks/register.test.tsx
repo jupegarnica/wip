@@ -558,7 +558,7 @@ test("labels are truncated inside bodyColumns and the offset is recomputed for a
   expect(drawnText(narrowRow).length).toBeLessThanOrEqual(8);
 });
 
-test("attention paints the solid stage colour in the dark scheme; a normal row uses it as text", async ($, on) => {
+test("attention paints the solid stage colour in the dark scheme; a normal row uses the flow tone at full opacity", async ($, on) => {
   const w = world({
     reply: async () => ({
       exitCode: 0,
@@ -578,12 +578,13 @@ test("attention paints the solid stage colour in the dark scheme; a normal row u
     backgroundColor: "#223051",
     color: "#FFFFFF",
   });
-  expect(styleOf(rowText(tree, "K2"))).toMatchObject({ color: "#223051" });
+  expect(styleOf(rowText(tree, "K2"))).toMatchObject({ color: "rgb(37, 99, 235)" });
   expect(styleOf(rowText(tree, "K2")).backgroundColor).toBeUndefined();
+  expect(styleOf(rowText(tree, "K2")).underline).toBeUndefined();
 });
 
 test(
-  "the light scheme paints the light solid colour",
+  "the light scheme paints the attention background and every row uses the flow tone",
   { options: { colorScheme: "light" } },
   async ($, on) => {
     const w = world({
@@ -605,9 +606,47 @@ test(
       backgroundColor: "#2563EB",
       color: "#FFFFFF",
     });
-    expect(styleOf(rowText(tree, "L2"))).toMatchObject({ color: "#2563EB" });
+    expect(styleOf(rowText(tree, "L2"))).toMatchObject({ color: "rgb(37, 99, 235)" });
   },
 );
+
+test("a late phase is not dimmed: the row paints the flow tone at full opacity", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "K1", flow: "development", phase: "done" }]),
+      stderr: "",
+    }),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+
+  const tree = await (await mount($, "terminal", 40)).drawn();
+  expect(styleOf(rowText(tree, "K1"))).toMatchObject({ color: "rgb(37, 99, 235)" });
+  expect(styleOf(rowText(tree, "K1")).backgroundColor).toBeUndefined();
+});
+
+test("a flow with its own colour paints that tone at full opacity", async ($, on) => {
+  const custom = column("stage:doing", ["intake", "plan", "execute", "done"], 0.25);
+  custom.color = "rgba(168, 85, 247, 0.25)";
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson(
+        [{ id: "K1", flow: "development", phase: "execute" }],
+        [flow("development", ["intake", "plan", "execute", "done"], [custom])],
+      ),
+      stderr: "",
+    }),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+
+  const tree = await (await mount($, "terminal", 40)).drawn();
+  expect(styleOf(rowText(tree, "K1")).color).toBe("rgb(168, 85, 247)");
+});
 
 test("a stageless phase with attention uses the dark amber fallback", async ($, on) => {
   const flows = [

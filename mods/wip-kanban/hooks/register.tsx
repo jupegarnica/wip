@@ -226,6 +226,16 @@ function truncate(label: string, width: number): string {
   return `${label.slice(0, width - 1)}…`;
 }
 
+/** The flow's own tone at full opacity: `column.color` is the CSS `rgba()` the web paints the stage with. */
+function flowTone(column: TKanbanColumn): string | null {
+  const match = /^rgba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*(?:,\s*[\d.]+\s*)?\)$/.exec(
+    column.color,
+  );
+  const [, r, g, b] = match ?? [];
+  if (r === undefined || g === undefined || b === undefined) return null;
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
 interface IRow {
   label: string;
   offset: number;
@@ -234,7 +244,10 @@ interface IRow {
   attention: boolean;
 }
 
-/** `<id> <phase>`, placed by the phase's ordinal and painted like the web paints its column. */
+/**
+ * `<id> <phase>`, placed by the phase's ordinal; an attention row paints the stage's solid colour as its
+ * background, every other row paints the flow's tone at full opacity.
+ */
 function rowOf(
   item: TKanbanItem,
   flow: TKanbanFlow | null,
@@ -249,6 +262,7 @@ function rowOf(
   const offset = Math.round(ratio * Math.max(0, width - label.length));
   const column = known ? flow?.columns.find((c) => c.phases.includes(item.phase)) : undefined;
   const solid = column !== undefined && column.alpha !== null;
+  const tone = column === undefined ? null : flowTone(column);
   const color = solid ? (scheme === "light" ? column.color_light : column.color_dark) : null;
   const onColor = solid ? (scheme === "light" ? column.text : column.text_dark) : null;
   if (item.attention) {
@@ -264,7 +278,7 @@ function rowOf(
       attention: true,
     };
   }
-  return { label, offset, color, background: null, attention: false };
+  return { label, offset, color: tone, background: null, attention: false };
 }
 
 export const register: Register = (on, options) => {

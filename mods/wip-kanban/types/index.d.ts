@@ -14,12 +14,12 @@ export type TKanbanColumn = {
   stage: string | null;
   phases: string[];
   alpha: number | null;
-  /** CSS `rgba()`, kept for the web; the pane uses the two solids. */
+  /** CSS `rgba()`; the pane reads its RGB as the flow's tone at full opacity. */
   color: string;
-  /** The tone composited over a white surface, and the text that contrasts with it. */
+  /** The tone composited over a white surface, and the text that contrasts with it; the attention rows use them. */
   color_light: string;
   text: string;
-  /** The tone composited over the dark surface, and the text that contrasts with it. */
+  /** The tone composited over the dark surface, and the text that contrasts with it; the attention rows use them. */
   color_dark: string;
   text_dark: string;
 };
