@@ -1,0 +1,21 @@
+{
+  "name": "wip-kanban",
+  "version": "0.1.0",
+  "description": "A read-only Kanban of the project's open wip items, in a pane of Claude Code.",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "webUrl": {
+      "type": "string",
+      "title": "Web URL",
+      "description": "Base URL of the wip web that opens an item; an invalid URL leaves the IDs as plain text.",
+      "default": "http://localhost:33333/"
+    },
+    "colorScheme": {
+      "type": "string",
+      "title": "Colour scheme",
+      "description": "The theme the pane paints for: dark, the first-run default of Claude Code, or light.",
+      "default": "dark",
+      "options": ["dark", "light"]
+    }
+  }
+}

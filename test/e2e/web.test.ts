@@ -773,6 +773,25 @@ describe("wip web · a disabled flow", () => {
 });
 
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
+  test("?item=<flow>%2F<id> serves the same page, and app.js opens and clears the parameter", async () => {
+    const p = board();
+    await serve(p);
+    const linked = await get("/?item=development%2Fkanban-mod");
+    expect(linked.status).toBe(200);
+    expect(linked.headers.get("content-type")).toBe("text/html; charset=utf-8");
+    expect(await linked.text()).toBe(WEB["index.html"] as string);
+
+    const app = WEB["app.js"] as string;
+    expect(app).toContain('new URLSearchParams(window.location.search).get("item")');
+    expect(app).toContain("openPanel(linked[0], linked[1])");
+    const from = app.indexOf("function setItemParam");
+    const body = app.slice(from, from + 400);
+    expect(body).toContain('url.searchParams.set("item"');
+    expect(body).toContain('url.searchParams.delete("item")');
+    expect(app).toContain("setItemParam(ref)");
+    expect(app).toContain("setItemParam(null)");
+  });
+
   test("the page files and @garndev/markdown are served as embedded, with their types", async () => {
     const p = board();
     await serve(p);
