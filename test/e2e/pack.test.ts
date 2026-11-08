@@ -67,7 +67,7 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
       if (build.code !== 0) throw new Error(`build failed: ${build.stderr}`);
     }
     rmSync(prefix, { recursive: true, force: true });
-    // cwd is `dir`: pass `./name.tgz`, the form the README gives. npm reads `dir/name.tgz` (no leading ./) as the
+    // cwd is `dir`: pass `./name.tgz`, the form npm accepts. npm reads `dir/name.tgz` (no leading ./) as the
     // GitHub repository `dir/name.tgz`.
     const install = exec(
       [

@@ -1,10 +1,11 @@
 # Releasing wip
 
+[← Back to the README](../README.md)
+
 wip is published as one npm package, `@garndev/wip` (a JavaScript bundle for Node 22.13 or later, no
 dependencies), by `.github/workflows/release.yml`, which also makes a GitHub Release with the CHANGELOG notes and no
 assets. The root package `@garndev/wip-dev` is private and never published. The standalone binaries are not built or
-released by CI: `bun scripts/build.ts --targets …` builds them locally (see the README, Development), and
-`docs/future-improvements.md` ("Binaries in the release") describes how to add them back to the release.
+released by CI: `bun scripts/build.ts --targets …` builds them locally (see [CLAUDE.md](../CLAUDE.md)).
 
 Nothing here runs without the maintainer: pushing a tag, approving the `npm-publish` environment and making the repo
 public are the maintainer's steps.

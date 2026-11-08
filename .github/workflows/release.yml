@@ -5,7 +5,7 @@ name: Release
 # built and tested, `npm publish --dry-run` runs, and nothing is published. See docs/releasing.md.
 #
 # The compiled binaries are not built here for now: `bun scripts/build.ts --targets …` still builds and archives them
-# locally. Bringing them back to the release is described in docs/future-improvements.md ("Binaries in the release").
+# locally.
 
 on:
   push:

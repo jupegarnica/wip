@@ -143,7 +143,7 @@ function pruneMd(r: IItemPrune, moved: readonly IEntry[], dest: string): string 
     `- Destination: ${dest}`,
     `- Total: ${fmtMb(bytes)} MB in ${files} files`,
     `- Rules: ${rules || "none"}`,
-    "- The rules are in the README of wip, section `wip prune`.",
+    "- The rules are in `docs/prune.md` of wip.",
   ];
   if (moved.some((e) => e.rule === "D4")) {
     lines.push("- It held browser profiles (D4): empty that folder of the trash when you like.");

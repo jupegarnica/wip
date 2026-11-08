@@ -30,7 +30,7 @@ jobs:
       - run: bun test
 
   # The npm package (src/ bundled for Node) built once, then the e2e suite against it on each Node line. The compiled
-  # binaries (`bun scripts/build.ts --targets …`) are not built in CI for now; see docs/future-improvements.md.
+  # binaries (`bun scripts/build.ts --targets …`) are not built in CI for now.
   package:
     runs-on: ubuntu-latest
     steps:
