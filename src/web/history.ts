@@ -1,9 +1,10 @@
+import { flowColumns, type IStagePaint, paintOf } from "../board.ts";
 import type { TDatabase } from "../db.ts";
 import type { IFlow } from "../flow/parse.ts";
 import { FLOW_NAME_RE } from "../flow/parse.ts";
 import type { IFlowSet } from "../flow/registry.ts";
 import { type IItemRow, isTerminal, itemFields } from "../items.ts";
-import { flowColumns, type IItemLink, type IStagePaint, itemLinks, paintOf } from "./state.ts";
+import { type IItemLink, itemLinks } from "./state.ts";
 
 /** active: open, any phase · archived: archived in a terminal phase of its flow · discarded: archived elsewhere. */
 export type TCategory = "active" | "archived" | "discarded";

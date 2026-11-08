@@ -19,7 +19,7 @@ describe("wip archive (F-ARC-01)", () => {
       archived_at: "2026-10-30T10:00:00Z",
     });
     expect(body.events[0]).toMatchObject({ kind: "archive", phase: "plan" });
-    expect(ok(p, ["state"]).data).toEqual({ items: [] });
+    expect(ok(p, ["state"]).data).toMatchObject({ items: [] });
     expect(rows(ok(p, ["state", "--archived"]), "items")).toHaveLength(1);
     expect(ok(p, ["check"]).data).toEqual({ findings: [] });
     expect(p.wip(["archive", "T1"]).stdout).toContain("already archived");

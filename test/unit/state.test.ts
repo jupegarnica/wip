@@ -84,8 +84,32 @@ describe("wip state (F-EST-16)", () => {
     expect(p.wip(["state"]).stdout).toContain("! I4");
   });
 
+  test("data.board lists the flows' phases and columns, also when a filter hides their items", () => {
+    const p = fourItems();
+    const body = ok(p, ["state", "--flow", "minimal"]);
+    const board = body.data?.board as { flows: Record<string, unknown>[] };
+    expect(board.flows.map((f) => f.name)).toEqual(["minimal", "valid"]);
+    const valid = board.flows.find((f) => f.name === "valid") as {
+      source: string;
+      phases: string[];
+      columns: { key: string; phases: string[] }[];
+    };
+    expect(valid.source).toBe("file");
+    expect(valid.phases).toEqual(["intake", "plan", "execute", "verify", "done"]);
+    expect(valid.columns.map((c) => [c.key, c.phases])).toEqual([
+      ["stage:todo", ["intake"]],
+      ["stage:doing", ["plan", "execute", "verify"]],
+      ["stage:closed", ["done"]],
+    ]);
+    // The filtered items keep their own list; the board is metadata of the flows.
+    expect((body.data as { items: { id: string }[] }).items.map((i) => i.id)).toEqual(["A1"]);
+  });
+
   test("a project with no database lists nothing and does not create it", () => {
     const p = ctx.set(makeProject("state-empty"));
     expect(p.wip(["state"]).stdout).toBe("no items\n");
+    const body = ok(p, ["state"]);
+    expect(body.data?.board).toEqual({ flows: [] });
+    expect((body.data as { items: unknown[] }).items.length).toBe(0);
   });
 });

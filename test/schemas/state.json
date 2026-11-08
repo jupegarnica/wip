@@ -19,9 +19,60 @@
     "message": { "type": ["string", "null"] },
     "data": {
       "type": "object",
-      "required": ["items"],
+      "required": ["items", "board"],
       "additionalProperties": false,
       "properties": {
+        "board": {
+          "type": "object",
+          "required": ["flows"],
+          "additionalProperties": false,
+          "properties": {
+            "flows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "source", "phases", "columns"],
+                "additionalProperties": false,
+                "properties": {
+                  "name": { "type": "string" },
+                  "source": { "enum": ["file", "stored", null] },
+                  "phases": { "type": "array", "items": { "type": "string" } },
+                  "columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "key",
+                        "label",
+                        "stage",
+                        "phases",
+                        "alpha",
+                        "color",
+                        "color_light",
+                        "color_dark",
+                        "text",
+                        "text_dark"
+                      ],
+                      "additionalProperties": false,
+                      "properties": {
+                        "key": { "type": "string" },
+                        "label": { "type": "string" },
+                        "stage": { "type": ["string", "null"] },
+                        "phases": { "type": "array", "items": { "type": "string" } },
+                        "alpha": { "type": ["number", "null"] },
+                        "color": { "type": "string" },
+                        "color_light": { "type": "string" },
+                        "color_dark": { "type": "string" },
+                        "text": { "type": "string" },
+                        "text_dark": { "type": "string" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
         "items": {
           "type": "array",
           "items": {

@@ -1,4 +1,5 @@
 import type { IArgs } from "../args.ts";
+import { boardFlows } from "../board.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import type { TDatabase } from "../db.ts";
 import { usage } from "../errors.ts";
@@ -125,7 +126,7 @@ function run(ctx: ICtx, args: IArgs): void {
     attention: args.flags.has("attention"),
     grep,
   });
-  ctx.result.data = { items };
+  ctx.result.data = { items, board: { flows: boardFlows(flows, items) } };
   for (const s of items) {
     ctx.result.lines.push(stateLine(s));
     for (const m of s.matches ?? []) {

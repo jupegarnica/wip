@@ -11,6 +11,18 @@ import {
 } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import {
+  composite,
+  flowColumns,
+  STAGE_ALPHA_FIRST,
+  STAGE_ALPHA_LAST,
+  STAGE_TONE,
+  SURFACE_DARK,
+  SURFACE_LIGHT,
+  stageAlpha,
+  stageColor,
+  textOn,
+} from "../../src/board.ts";
 import { setClockForTests } from "../../src/clock.ts";
 import { commandHelp, findCommand, type ICommandSpec } from "../../src/commands/help.ts";
 import {
@@ -44,20 +56,7 @@ import {
   privateRank,
   startWeb,
 } from "../../src/web/server.ts";
-import {
-  composite,
-  flowColumns,
-  itemLinks,
-  openReadOnly,
-  STAGE_ALPHA_FIRST,
-  STAGE_ALPHA_LAST,
-  STAGE_TONE,
-  SURFACE_DARK,
-  SURFACE_LIGHT,
-  stageAlpha,
-  stageColor,
-  textOn,
-} from "../../src/web/state.ts";
+import { itemLinks, openReadOnly } from "../../src/web/state.ts";
 import { WIP_CMD } from "../helpers/bin.ts";
 import { fixture, minimalFlow, putFlow } from "../helpers/defs.ts";
 import { at, itemInPlan, itemsProject, ok, T0, tick, useProject } from "../helpers/items.ts";
@@ -172,10 +171,31 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
       [0.63, stageColor(0.63)],
       [0.25, stageColor(0.25)],
     ]);
+    expect(valid.phases).toEqual(["intake", "plan", "execute", "verify", "done"]);
     expect(valid.columns[0]).toMatchObject({ text: "#FFFFFF", text_dark: "#FFFFFF" });
     expect(valid.columns[2]).toMatchObject({ text: "#111111", text_dark: "#FFFFFF" });
+    expect(valid.columns.map((c: TJson) => c.color_light)).toEqual([
+      composite(STAGE_TONE, 1, SURFACE_LIGHT),
+      composite(STAGE_TONE, 0.63, SURFACE_LIGHT),
+      composite(STAGE_TONE, 0.25, SURFACE_LIGHT),
+    ]);
+    expect(valid.columns.map((c: TJson) => c.color_dark)).toEqual([
+      composite(STAGE_TONE, 1, SURFACE_DARK),
+      composite(STAGE_TONE, 0.63, SURFACE_DARK),
+      composite(STAGE_TONE, 0.25, SURFACE_DARK),
+    ]);
+    expect(valid.columns.map((c: TJson) => c.text)).toEqual(
+      valid.columns.map((c: TJson) => textOn(c.color_light)),
+    );
     for (const c of minimal.columns) {
-      expect(c).toMatchObject({ alpha: null, color: "", text: "", text_dark: "" });
+      expect(c).toMatchObject({
+        alpha: null,
+        color: "",
+        color_light: "",
+        color_dark: "",
+        text: "",
+        text_dark: "",
+      });
     }
     const t1 = body.items.find((i: TJson) => i.id === "T1");
     expect(t1).toMatchObject({
@@ -183,9 +203,25 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
       stage: "doing",
       alpha: 0.63,
       color: stageColor(0.63),
+      color_light: composite(STAGE_TONE, 0.63, SURFACE_LIGHT),
+      color_dark: composite(STAGE_TONE, 0.63, SURFACE_DARK),
+      text: textOn(composite(STAGE_TONE, 0.63, SURFACE_LIGHT)),
+      text_dark: textOn(composite(STAGE_TONE, 0.63, SURFACE_DARK)),
     });
     const a1 = body.items.find((i: TJson) => i.id === "A1");
     expect(a1).toMatchObject({ column: "phase:todo", stage: null, alpha: null, color: "" });
+  });
+
+  test("data.board.flows is the same model /api/kanban serves", async () => {
+    const p = board();
+    await serve(p);
+    const kanban = await getJson("/api/kanban");
+    const state = ok(p, ["state"]);
+    expect((state.data as { board: TJson }).board.flows).toEqual(kanban.flows);
+    expect(kanban.flows.map((f: TJson) => f.phases)).toEqual([
+      ["todo", "done"],
+      ["intake", "plan", "execute", "verify", "done"],
+    ]);
   });
 
   test("a flow with `color` paints its stages in that tone and the others stay blue", async () => {
