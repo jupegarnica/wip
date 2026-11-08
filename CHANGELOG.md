@@ -8,6 +8,8 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 First version.
 
+- `wip web` serves its icon at `/icon.svg` (embedded with the rest of the page, not a sixth package
+  file), and the README shows the wip icon.
 - `wip init`'s Kanban step defaults to installing the mod (`yes`); `--yes` accepts that default, so `wip init --yes`
   and `wip init --force --yes` install the copy and the entry unless the entry is explicitly `false`, the folder is
   another tool's or the settings cannot take it. The Kanban pane reopens on the first prompt when the engine waits for

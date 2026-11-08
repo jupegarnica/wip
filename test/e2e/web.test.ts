@@ -574,6 +574,7 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
     for (const path of [
       "/",
       "/index.html",
+      "/icon.svg",
       "/app.js",
       "/app.css",
       "/markdown.js",
@@ -773,6 +774,37 @@ describe("wip web · a disabled flow", () => {
 });
 
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
+  test("the pages link the SVG favicon and the file is self-contained", async () => {
+    const p = board();
+    await serve(p);
+    const link = '<link rel="icon" href="/icon.svg" type="image/svg+xml">';
+    expect(WEB["index.html"]).toContain(link);
+    expect(WEB["view.html"]).toContain(link);
+
+    const res = await get("/icon.svg");
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/svg+xml");
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(await res.text()).toBe(WEB["icon.svg"] as string);
+
+    const svg = WEB["icon.svg"] as string;
+    expect(svg.startsWith("<svg")).toBe(true);
+    expect(svg).toContain('viewBox="0 0 64 64"');
+    for (const forbidden of [
+      "<script",
+      "<style",
+      "<text",
+      "<image",
+      "<foreignObject",
+      "xlink:href",
+      "font-family",
+      "url(",
+    ]) {
+      expect({ forbidden, found: svg.includes(forbidden) }).toEqual({ forbidden, found: false });
+    }
+    expect(svg.replace('xmlns="http://www.w3.org/2000/svg"', "")).not.toContain("http");
+  });
+
   test("?item=<flow>%2F<id> serves the same page, and app.js opens and clears the parameter", async () => {
     const p = board();
     await serve(p);
@@ -801,6 +833,7 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     for (const [path, key, type] of [
       ["/app.js", "app.js", "text/javascript; charset=utf-8"],
       ["/app.css", "app.css", "text/css; charset=utf-8"],
+      ["/icon.svg", "icon.svg", "image/svg+xml"],
       ["/markdown.js", "markdown.js", "text/javascript; charset=utf-8"],
       ["/view.js", "view.js", "text/javascript; charset=utf-8"],
     ] as const) {

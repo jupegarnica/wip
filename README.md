@@ -1,5 +1,7 @@
 # wip
 
+![wip icon](https://raw.githubusercontent.com/jupegarnica/wip/main/web/icon.svg)
+
 **Talk to one agent. It orchestrates a fleet of subagents that run a deterministic flow.**
 
 You talk to one agent — the coordinator. It orchestrates a fleet of subagents that run a deterministic flow: named phases, gates that stop for your decisions, and the subagent each phase runs. Every run, gate and artifact is recorded in the project, so you can audit the work and keep control without asking the model what happened.
