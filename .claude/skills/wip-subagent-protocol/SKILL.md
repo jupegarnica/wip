@@ -39,7 +39,7 @@ Never, whatever `Writes:` says:
 - `<defs>/` (agents and skills, flows included), unless the task is to edit that definition.
 - Files the task does not need, or files of another item.
 
-Temporary files go in `ARTIFACT_DIR/tmp/`, never in the project tree.
+Temporary files — scripts, fixtures, disposable projects, logs — go in `ARTIFACT_DIR/tmp/`, never in the project tree. Leave them there when the run ends: do not delete them, so the coordinator and the user can inspect them. Delete files only when the task tests a concrete deletion, and then only the files that test needs.
 
 ## The state belongs to the coordinator
 
