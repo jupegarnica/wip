@@ -11,7 +11,7 @@ questions and answers, written as a final artifact, and then it waits in `will` 
 or to discard it. It ends in `done` or `discarded`, both archived; `will` is not archived. Three stages:
 
 - **backlog**
-  - `initial`: state only; the first `refine` subagent writes `idea.md` with the user's raw idea.
+  - `initial`: state only; the first `refine` subagent writes `v0.idea.md` with the user's raw idea.
 - **ongoing**
   - `refine`: a subagent and the user shape the idea in rounds of questions and answers.
   - `final`: a subagent writes the refined idea.
