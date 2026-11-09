@@ -1,13 +1,13 @@
 ---
 name: wip-flow-development
-description: "wip flow `development`, for the coordinator: phases, gates and subagents of an item that is a small piece of work, from the backlog, through the plan approved by the user and a build in its own worktree and branch, to the user's review, the commit, the release that closes the worktree and publishes the build, and the close. Read it before every phase of an item of this flow."
+description: "wip flow `development`, for the coordinator: phases, gates and subagents of an item that is a small piece of work, from the backlog and the plan approved by the user, through a build in its own worktree and branch, a QA plan prepared and run, the user's review, the commit, the release that closes the worktree and publishes the build, and the close. Read it before every phase of an item of this flow."
 ---
 
 # development
 
-A small piece of work with one plan, one build in a worktree of its own branch, one review by the user, one commit and
-one release. An item starts in `backlog` when the user names the work; it ends in `close` after the worktree is closed
-and the build published, or when the user drops it.
+A small piece of work with one plan, one build in a worktree of its own branch, a QA plan prepared and run, the
+user's review, one commit and one release. An item starts in `backlog` when the user names the work; it ends in
+`close` after the worktree is closed and the build published, or when the user drops it.
 
 ```wip-flow
 version: 1
@@ -20,7 +20,7 @@ phases:
     gate: none
     next: [plan]
     waiting_default: user
-    stage: backlog
+    stage: plan
   - name: plan
     gate: ask
     next: [worktree]
@@ -35,14 +35,26 @@ phases:
     stage: build
   - name: build
     gate: auto
-    next: [review]
+    next: [qa-plan]
     agent: thinker
     writes: project
     stage: build
-  - name: review
-    gate: none
-    next: [build, commit]
+  - name: qa-plan
+    gate: auto
+    next: [qa-exec]
     agent: efficient
+    writes: artifacts
+    stage: review
+  - name: qa-exec
+    gate: auto
+    next: [human-review, build]
+    agent: efficient
+    writes: artifacts
+    stage: review
+  - name: human-review
+    gate: none
+    next: [build, plan, commit]
+    waiting_default: user
     stage: review
   - name: commit
     gate: auto
@@ -66,7 +78,9 @@ phases:
 - `plan` uses `thinker`: it writes the plan from the user's request and the project files, deciding what is not written anywhere.
 - `worktree` uses `efficient`: it creates the branch and the worktree the build runs in.
 - `build` uses `thinker`: it carries out the approved plan literally inside the worktree. A build that hits a decision the plan does not cover returns `needs-input`; the coordinator escalates to `wise`.
-- `review` uses `efficient` (or `fast` when the steps are mechanical): it prepares the environment, the launcher and `qa-plan.md`, then runs itself the cases it can automate and writes `qa-report.md`; the user does the final manual test.
+- `qa-plan` uses `efficient`: it prepares the environment, the launcher and `qa-plan.md`, and runs no case.
+- `qa-exec` uses `efficient` (or `fast` when the steps are mechanical): it runs the cases the plan lists and writes `qa-report.md`.
+- `human-review` has no subagent: the coordinator presents the test plan and waits on the user.
 - `commit` uses `efficient`: it commits the reviewed work on the item's branch.
 - `release` uses `efficient`: it merges the branch, builds the package, installs it globally and removes the worktree, after the user approves the gate.
 
@@ -86,19 +100,25 @@ Inputs: the approved `v<N>.plan.md`. The subagent creates a git worktree at `.wo
 
 ### build
 
-Inputs: the approved `v<N>.plan.md`, the worktree path from the item's `worktree` field and the branch from `branch`. The subagent makes the change inside the worktree as the plan says and writes `build.md` in `ARTIFACT_DIR`: what changed, which checks ran and their result. When it returns `done`, move to `review` without asking.
+Inputs: the approved `v<N>.plan.md`, the worktree path from the item's `worktree` field and the branch from `branch`. The subagent makes the change inside the worktree as the plan says and writes `build.md` in `ARTIFACT_DIR`: what changed, which checks ran and their result. When it returns `done`, move to `qa-plan` without asking.
 
-### review
+### qa-plan
 
-Inputs: `build.md`. No gate opens on entering `review`. The coordinator launches a subagent (`efficient`, or `fast` when the steps are mechanical; `Writes: artifacts`) that prepares:
+Inputs: `build.md` and the approved `v<N>.plan.md`. No gate opens on entering `qa-plan`. The subagent prepares, without running any case:
 
 - **An environment** in the item's own `tmp` folder, `ARTIFACT_DIR/tmp/`, where the change can be tried without touching real data or the project's own `.wip/`: a disposable folder (or one per case) and a script that creates a fresh case. Nothing of it goes outside `ARTIFACT_DIR`.
 - **A binary or launcher** that runs the build from the worktree, never the one installed globally: the built output of the worktree, or a wrapper that runs the worktree's working tree. It is checked with a smoke run (version and one real command) before it is handed over.
 - **A test plan**, `qa-plan.md` in `ARTIFACT_DIR`: the cases to try, each with the exact command or action, the expected result and how to reset; it covers the plan's goal, its error paths and what was not tested by hand (`build.md`, «Checks»). The same text goes in the environment's README.
 
-Then the subagent runs the cases it can automate and writes `qa-report.md` in `ARTIFACT_DIR`: each case is passed, failed or left for the user, with the command and the output.
+It writes no other artifact and runs no case. When it returns `done`, move to `qa-exec` without asking.
 
-When the subagent returns `done`, the coordinator presents the user the test plan: the commands to enter the environment, the path of the launcher, the path of `qa-plan.md`, the subagent's results from `qa-report.md` and what only the user can test. It waits with `"$WIP_BIN" wait <ID> user --next "test with qa-plan.md"`, not with a gate. The user's literal word «ok» (log it with `"$WIP_BIN" log <ID> "<words>" --kind user`) moves to `commit`; feedback moves to `build` with the same plan (the environment and the worktree are reused and only updated); a change of the plan itself goes back to `plan`. If the subagent's own run finds a failed case, the coordinator shows it to the user in a gate before deciding: fix in `build` or continue to the user's test.
+### qa-exec
+
+Inputs: `qa-plan.md` and `build.md`. The subagent runs the cases it can automate and writes `qa-report.md` in `ARTIFACT_DIR`: each case is passed, failed or left for the user, with the command and the output. All green → move to `human-review` without asking. A failed case returns `blocked`: the coordinator shows it to the user in a gate and decides whether to fix in `build` or continue to the user's review.
+
+### human-review
+
+No subagent runs here. The coordinator presents the user the test plan: the commands to enter the environment, the path of the launcher, the path of `qa-plan.md`, the results from `qa-report.md` and what only the user can test. It waits with `"$WIP_BIN" wait <ID> user --next "test with qa-plan.md"`, not with a gate. The user's literal word «ok» (log it with `"$WIP_BIN" log <ID> "<words>" --kind user`) moves to `commit`; feedback moves to `build` with the same plan (the environment and the worktree are reused and only updated); a change of the plan goes to `plan`, whose gate approves the new version.
 
 ### commit
 
