@@ -11,6 +11,13 @@ folder (`wip init --global`), shared by every project initialised that way).
 
 ## What wip is
 
+You talk to one agent — the coordinator. It splits your work into deterministic workflows with named phases,
+gates that stop for your decisions, and the subagent each phase runs. Every run, gate and artifact is recorded in
+`.wip/`, so you can audit the work and keep control without asking the model what happened.
+
+The workflow is yours to change. Ask the coordinator for the flows you want, the phases in them, and an agent for
+each phase with the rules, the model and the write scope you choose. Flows and agents are Markdown under `<defs>/`.
+
 - **The coordinator** is the only agent you talk to. It moves your work forward, records every step and asks you
   only for the decisions that are yours.
 - **An item** is one unit of work with an ID: a task, an investigation, a document. This guide is the artifact of the
@@ -127,7 +134,10 @@ You never need them, but they are there:
 
 ## Your own flows and agents
 
-Ask the coordinator: «create a flow for code reviews», «add an agent that writes release notes». It uses the skills
+Ask the coordinator: «create a flow for code reviews», «add an agent that writes release notes».
+
+You choose the phases and, for each one, the agent and the instructions it follows; agents are Markdown too, with
+their rules and their model. It uses the skills
 `wip-new-flow` and `wip-new-agent`: a proposal you approve, a backup, the file under `<defs>/`, and `"$WIP_BIN" flow lint`.
 `<defs>/skills/wip-new-flow/example.md` is a complete flow to start from.
 
