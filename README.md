@@ -1,6 +1,6 @@
 # wip
 
-![wip icon](https://raw.githubusercontent.com/jupegarnica/wip/main/web/icon.svg)
+![wip icon](./web/icon.svg)
 
 **Talk to one agent. It orchestrates a fleet of subagents that run a deterministic flow.**
 

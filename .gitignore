@@ -3,3 +3,4 @@ dist/
 *.tgz
 .wip/
 mods/*/.claude-plugin/types/
+.worktrees/
