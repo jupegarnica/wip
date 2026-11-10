@@ -4,8 +4,11 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.2.1 (unreleased)
+## 0.2.1 (2026-11-10)
 
+- The GitHub Release carries standalone binaries for macOS (`darwin-arm64`, `darwin-x64`) and Linux (`linux-x64`,
+  `linux-arm64`), compiled by CI and listed in `SHA256SUMS`; they run without Node. The macOS ones are ad hoc
+  signed, not notarized. Windows has no binary yet (`windows-x64` stays buildable from source with `--targets`).
 - `wip web`: an artifact's preview in the item panel keeps its scroll across the 5 s refreshes, and the panel no
   longer repaints when only an open gate's wait time moves.
 
