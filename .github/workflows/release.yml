@@ -105,6 +105,11 @@ jobs:
           npm install -g npm@11
           tarball="./package/garndev-wip-$VERSION.tgz"
           test -f "$tarball"
+          # Rerunning a release (or approving a retried run) must not fail on a version that is already out.
+          if npm view "@garndev/wip@$VERSION" version >/dev/null 2>&1; then
+            echo "@garndev/wip@$VERSION is already in the registry; nothing to publish."
+            exit 0
+          fi
           flags=(--access public --tag "$DIST_TAG")
           if [ "$DRY_RUN" = "true" ]; then flags+=(--dry-run); fi
           npm publish "$tarball" "${flags[@]}"
@@ -166,7 +171,8 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           export npm_config_prefix="$RUNNER_TEMP/prefix" npm_config_cache="$RUNNER_TEMP/cache"
-          for i in 1 2 3 4 5; do npm install -g "@garndev/wip@$VERSION" && break; sleep 30; done
+          # The first publish of a version shows up in the registry minutes later ("being processed"), so retry.
+          for i in 1 2 3 4 5 6 7 8 9 10; do npm install -g "@garndev/wip@$VERSION" && break; sleep 30; done
           if [ "$RUNNER_OS" = "Windows" ]; then echo "WIP=$RUNNER_TEMP/prefix/wip.cmd" >> "$GITHUB_ENV"; else echo "WIP=$RUNNER_TEMP/prefix/bin/wip" >> "$GITHUB_ENV"; fi
       - name: version, signatures, init, check, state and web, with no warning
         env:
