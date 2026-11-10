@@ -11,6 +11,7 @@ user's review, one commit and one release. An item starts in `backlog` when the 
 
 ```wip-flow
 version: 1
+color: "#AA3300"
 fields:
   title: string
   branch: string
