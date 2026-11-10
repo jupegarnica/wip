@@ -129,7 +129,7 @@ dropped on the next write; the definitions folder defaults to `.claude/`; a proj
 - Before migrating a database, every command copies it as it was (`VACUUM INTO`) to
   `.wip/backups/db/wip.sqlite.v<schema>.<time>.<pid>`, so a rollback to the older wip can restore it.
 - CI on pushes and pull requests (tests on Linux, macOS and Windows; the e2e suite against the packed npm package on
-  Node 22, 24 and 26) and a release workflow: tag `v<version>` → tests, a gated `npm publish --provenance`, the
+  Node 22, 24 and 26) and a release workflow: tag `v<version>` → tests, a gated `npm publish`, the
   GitHub Release with the CHANGELOG notes, and a check of the published version (`docs/releasing.md`). CI builds no
   binaries.
 - `wip --version` prints the branch, short commit, `-dirty` mark and build date fixed by `scripts/build.ts`

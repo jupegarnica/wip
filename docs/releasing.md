@@ -7,8 +7,8 @@ dependencies), by `.github/workflows/release.yml`, which also makes a GitHub Rel
 assets. The root package `@garndev/wip-dev` is private and never published. The standalone binaries are not built or
 released by CI: `bun scripts/build.ts --targets …` builds them locally (see [CLAUDE.md](../CLAUDE.md)).
 
-Nothing here runs without the maintainer: pushing a tag, approving the `npm-publish` environment and making the repo
-public are the maintainer's steps.
+Nothing here runs without the maintainer: pushing a tag and approving the `npm-publish` environment are the
+maintainer's steps.
 
 ## Versions and tags
 
@@ -33,30 +33,44 @@ starts from a tag).
 | ---------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `version`        | ubuntu                                        | reads the version, checks the tag and the CHANGELOG section, picks `latest` or `next`                                                                                                                |
 | `test`           | `ci.yml`                                      | typecheck, lint, `bun test` on 3 OSes; packs the npm package, `npm publish --dry-run`; e2e against it on Node 22, 24, 26 (Linux) and 24 (macOS, Windows)                                             |
-| `publish`        | ubuntu, environment `npm-publish`             | `npm publish <the tested tarball> --access public --provenance --tag <latest\|next>` (`--dry-run` in a dry run, in environment `npm-publish-dry-run`)                                                |
+| `publish`        | ubuntu, environment `npm-publish`             | `npm publish <the tested tarball> --access public --tag <latest\|next>` with the `NPM_TOKEN` secret (`--dry-run` in a dry run, in environment `npm-publish-dry-run`)                                 |
 | `github-release` | ubuntu, `contents: write`                     | notes from the CHANGELOG section, `gh release create v<version>` with no assets (only printed in a dry run)                                                                                          |
 | `verify`         | Node 22, 24, 26 (ubuntu), 24 (macOS, Windows) | not in a dry run: `npm i -g @garndev/wip@<version>` from the registry, `--version`, `npm audit signatures`, `init`, `check`, `state --json`, `web` `/health`, and no `ExperimentalWarning` on stderr |
 
-Actions are pinned by commit SHA. Permissions default to `contents: read`; `publish` adds `id-token: write`
-(trusted publishing and provenance), `github-release` adds `contents: write`.
+Actions are pinned by commit SHA. Permissions default to `contents: read`; `github-release` adds `contents: write`.
 
 ## One-time setup (before the first release)
 
-1. Make the repository public: npm provenance needs it.
-2. In GitHub, Settings > Environments: create `npm-publish` with the maintainer as required reviewer. (`npm-publish-dry-run`
-   needs no reviewer; GitHub creates it on first use.)
-3. The first publish of `@garndev/wip` is done by hand, because npm configures a trusted publisher only for a package
-   that exists. From a terminal logged in to npm with 2FA, on the release commit:
+1. On npmjs.com, Access Tokens > Generate New Token > **Granular Access Token**:
+   - name it `wip-ci` and give it the shortest expiration that covers your release cadence;
+   - permissions: **Read and write**, on the **`@garndev` scope** (a scope token covers a package that does not
+     exist yet; org access alone does not grant publishing);
+   - **Bypass 2FA: on**. With a token, `npm publish` cannot answer an interactive 2FA challenge, so without this
+     switch CI fails with `EOTP`;
+   - no IP allowlist: GitHub runners have no fixed address.
+
+2. Store the token as the `NPM_TOKEN` repository secret:
 
    ```sh
-   bun install --frozen-lockfile
-   bun scripts/build.ts --out dist --pack
-   npm publish dist/garndev-wip-<version>.tgz --access public --tag next   # 0.1.0-rc.1 goes to next
+   gh secret set NPM_TOKEN        # paste the token at the prompt
    ```
 
-4. On npmjs.com, package settings: add a trusted publisher (GitHub Actions, repository `jupegarnica/wip`, workflow
-   `release.yml`, environment `npm-publish`) and set "Require two-factor authentication and disallow tokens". From then
-   on only the workflow publishes; no token is stored anywhere.
+3. In GitHub, Settings > Environments: `npm-publish` is referenced by the workflow. Add the maintainer as required
+   reviewer if the plan allows it (required reviewers on a private repository need a paid plan; without them the
+   pushed tag is the only gate). `npm-publish-dry-run` needs no reviewer; GitHub creates it on first use.
+
+4. Rotate the token before it expires and update the secret; revoking it makes every release fail with `E401`.
+
+## Trusted publishing (if the repository becomes public)
+
+The token exists because the repository is private: npm attests provenance and trusted publishers only for public
+builds. If `jupegarnica/wip` becomes public, switch over:
+
+1. On npmjs.com, package settings: add a trusted publisher (GitHub Actions, repository `jupegarnica/wip`, workflow
+   `release.yml`, environment `npm-publish`) and set "Require two-factor authentication and disallow tokens".
+2. In `.github/workflows/release.yml`, add `id-token: write` to the `publish` job permissions, put `--provenance`
+   back in `flags`, and remove `NODE_AUTH_TOKEN`.
+3. Delete the `NPM_TOKEN` secret and revoke the token.
 
 ## Release checklist
 
@@ -78,7 +92,7 @@ Actions are pinned by commit SHA. Permissions default to `contents: read`; `publ
    job must pass; `verify` is skipped.
 5. Tag and push (the maintainer runs it): `git tag -s vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
 6. Approve the `npm-publish` environment when `publish` waits.
-7. Check the `verify` job, the npm page (provenance badge) and the GitHub Release (notes).
+7. Check the `verify` job, the npm page and the GitHub Release (notes).
 8. On your own machine, from a throwaway prefix:
 
    ```sh
@@ -90,5 +104,5 @@ Actions are pinned by commit SHA. Permissions default to `contents: read`; `publ
 
 ## First release
 
-`0.1.0-rc.1` on `next` (published by hand, step 3 of the setup, then the trusted publisher), then `0.1.0` on `latest`
-through the workflow.
+`0.2.0` is the first publish of `@garndev/wip` and goes through the workflow like any other: the granular token is
+scoped to `@garndev`, so the package does not have to exist beforehand.

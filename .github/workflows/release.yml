@@ -80,9 +80,11 @@ jobs:
     runs-on: ubuntu-latest
     # A reviewer approves every real publish; a dry run uses an environment without reviewers.
     environment: ${{ needs.version.outputs.dry_run == 'true' && 'npm-publish-dry-run' || 'npm-publish' }}
+    # npm publishes with the `NPM_TOKEN` secret (a granular access token with "Bypass 2FA" on and read-write
+    # access to @garndev/wip). The repository is private, so `--provenance` and trusted publishing (OIDC) are not
+    # available: npm attests only public repositories.
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
@@ -98,11 +100,12 @@ jobs:
           VERSION: ${{ needs.version.outputs.version }}
           DIST_TAG: ${{ needs.version.outputs.dist_tag }}
           DRY_RUN: ${{ needs.version.outputs.dry_run }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           npm install -g npm@11
           tarball="package/garndev-wip-$VERSION.tgz"
           test -f "$tarball"
-          flags=(--access public --tag "$DIST_TAG" --provenance)
+          flags=(--access public --tag "$DIST_TAG")
           if [ "$DRY_RUN" = "true" ]; then flags+=(--dry-run); fi
           npm publish "$tarball" "${flags[@]}"
 
