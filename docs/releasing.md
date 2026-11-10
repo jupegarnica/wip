@@ -39,6 +39,10 @@ starts from a tag).
 
 Actions are pinned by commit SHA. Permissions default to `contents: read`; `github-release` adds `contents: write`.
 
+Windows runs every job but does not gate a release: its suite is red (path separators, the launcher spawn, the
+PowerShell recycle bin, SIGTERM in `wip web`). The `continue-on-error` entries in `ci.yml` and `release.yml` mark it;
+remove them when the Windows pass lands.
+
 ## One-time setup (before the first release)
 
 1. On npmjs.com, Access Tokens > Generate New Token > **Granular Access Token**:
