@@ -146,6 +146,27 @@ export function itemLinks(
   return out;
 }
 
+/** Absolute http(s) URLs in the item's fields: the panel's Links section shows them (F-WEB-12). */
+export function fieldLinks(fields: Record<string, unknown>): IItemLink[] {
+  const out: IItemLink[] = [];
+  for (const [source, value] of Object.entries(fields)) {
+    for (const v of Array.isArray(value) ? value : [value]) {
+      if (typeof v !== "string") continue;
+      const text = v.trim();
+      let url: URL;
+      try {
+        url = new URL(text);
+      } catch {
+        continue;
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      if (out.some((l) => l.url === url.href)) continue;
+      out.push({ label: text, url: url.href, source });
+    }
+  }
+  return out;
+}
+
 function flowOf(flows: IFlowSet, name: string): IFlow | null {
   return flows.entries.get(name)?.flow ?? null;
 }

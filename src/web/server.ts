@@ -13,7 +13,7 @@ import { findItem } from "../items.ts";
 import { ARTIFACT_MAX_BYTES, artifactFile, itemDir, listArtifacts } from "./artifacts.ts";
 import { historyData, parseHistoryQuery } from "./history.ts";
 import type { TWebLog } from "./log.ts";
-import { boardData, itemLinks, migrateIfBehind, openReadOnly } from "./state.ts";
+import { boardData, fieldLinks, itemLinks, migrateIfBehind, openReadOnly } from "./state.ts";
 
 // A read-only kanban on 127.0.0.1 and, unless `local`, on the machine's private LAN IPv4 too. Stateless: each /api
 // request opens the database read-only, reads and closes it, so a concurrent `wip phase` is never blocked.
@@ -215,6 +215,7 @@ export async function startWeb(options: IWebOptions): Promise<IWebServer> {
               ref.id,
               view.item.fields as Record<string, unknown>,
             ),
+            field_links: fieldLinks(view.item.fields as Record<string, unknown>),
             artifacts: listArtifacts(root, ref.flow, ref.id),
           };
         });
