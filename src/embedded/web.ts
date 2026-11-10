@@ -28,6 +28,8 @@ import iconSvg from "../../web/icon.svg" with { type: "text" };
 import indexHtml from "../../web/index.html" with { type: "text" };
 // @ts-expect-error text import of a JavaScript file
 import markdownJs from "../../web/markdown.js" with { type: "text" };
+// @ts-expect-error text import of a JavaScript file
+import tabsJs from "../../web/tabs.js" with { type: "text" };
 import viewHtml from "../../web/view.html" with { type: "text" };
 // @ts-expect-error text import of a JavaScript file
 import viewJs from "../../web/view.js" with { type: "text" };
@@ -41,6 +43,7 @@ export const WEB: Readonly<Record<string, string>> = {
   "icon.svg": iconSvg,
   "index.html": text(indexHtml),
   "markdown.js": text(markdownJs),
+  "tabs.js": text(tabsJs),
   "view.html": text(viewHtml),
   "view.js": text(viewJs),
 };

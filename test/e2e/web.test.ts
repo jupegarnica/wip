@@ -736,6 +736,7 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
       "/app.js",
       "/app.css",
       "/markdown.js",
+      "/tabs.js",
       "/view.js",
       "/lib/garndev-markdown/index.js",
       "/lib/garndev-markdown/tokens.css",
@@ -932,7 +933,7 @@ describe("wip web · a disabled flow", () => {
 });
 
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
-  test("the title is the project's folder name, with no wip prefix or placeholder", async () => {
+  test("the project name is only the browser tab title, with no wip prefix or placeholder", async () => {
     const p = board();
     await serve(p);
     const health = await getJson("/health");
@@ -941,12 +942,18 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
 
     const html = WEB["index.html"] as string;
     expect(html).toContain("<title></title>");
-    expect(html).toContain('<h1 id="title"></h1>');
+    expect(html).not.toContain('id="title"');
+    expect(html).not.toContain("<h1");
     expect(html).not.toContain(">wip<");
 
     const app = WEB["app.js"] as string;
     expect(app).toContain("health.name");
-    expect(app).toContain("document.title = name");
+    expect(app).toContain("document.title = name;");
+    expect(app).not.toContain("titleEl");
+    expect(app).not.toContain('getElementById("title")');
+    for (const gone of ["TITLE_MARK", "paintTitle()", "titleBase", "titleMarked"]) {
+      expect({ gone, found: app.includes(gone) }).toEqual({ gone, found: false });
+    }
     expect(app).not.toContain("wip · ");
   });
 
@@ -991,13 +998,198 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
 
     const app = WEB["app.js"] as string;
     expect(app).toContain('new URLSearchParams(window.location.search).get("item")');
-    expect(app).toContain("openPanel(linked[0], linked[1])");
+    for (const needle of [
+      "itemTabs.claim()",
+      "itemTabs.takeOver(",
+      "window.close()",
+      "openPanel(",
+    ]) {
+      expect(app).toContain(needle);
+    }
+    expect(app).not.toContain("itemTabs.notifyOpen(");
+    expect(app).not.toContain("openPanel(linked[0], linked[1])");
     const from = app.indexOf("function setItemParam");
     const body = app.slice(from, from + 400);
     expect(body).toContain('url.searchParams.set("item"');
     expect(body).toContain('url.searchParams.delete("item")');
     expect(app).toContain("setItemParam(ref)");
     expect(app).toContain("setItemParam(null)");
+  });
+
+  test("one tab per origin: Web Locks owns it and the owner hands it over", () => {
+    const html = WEB["index.html"] as string;
+    const tabsAt = html.indexOf('<script src="/tabs.js" defer></script>');
+    const appAt = html.indexOf('<script src="/app.js" defer></script>');
+    expect(tabsAt).toBeGreaterThan(-1);
+    expect(tabsAt).toBeLessThan(appAt);
+    expect(html).toContain(
+      '<div id="tab-notice" class="tab-notice" role="status" aria-live="polite" hidden></div>',
+    );
+    expect(html).not.toContain("This project is open in another tab.");
+    expect(WEB["view.html"]).not.toContain("/tabs.js");
+
+    const tabs = WEB["tabs.js"] as string;
+    for (const needle of [
+      "navigator?.locks",
+      "BroadcastChannel",
+      "ifAvailable: true",
+      "wip-web:tab",
+      "wip-web.tabs",
+      "release",
+      "takeOver()",
+      "setLocked",
+      "isLocked",
+      'type: "takeover"',
+      'type: "yielded"',
+      'type: "locked"',
+    ]) {
+      expect(tabs).toContain(needle);
+    }
+
+    const app = WEB["app.js"] as string;
+    for (const needle of [
+      "itemTabs.claim()",
+      "itemTabs.takeOver(",
+      "window.close()",
+      "showTabNotice(",
+      "TAB_NOTICE_OPEN",
+      "TAB_NOTICE_MOVED",
+      "TAB_NOTICE_LOCKED",
+      "itemTabs.setLocked(",
+      "itemTabs.isLocked()",
+      "focus: false",
+    ]) {
+      expect(app).toContain(needle);
+    }
+    for (const gone of [
+      "wip-web:item:",
+      "claim(refKey",
+      "notifyOpen",
+      "onOpen",
+      "TITLE_MARK",
+      "paintTitle",
+      '"hello"',
+      '"here"',
+      '"open-ack"',
+      "HELLO_MS",
+      "tabId",
+      "pagehide",
+      "pageshow",
+      "itemTabs.reclaim",
+    ]) {
+      expect({ gone, found: tabs.includes(gone) || app.includes(gone) }).toEqual({
+        gone,
+        found: false,
+      });
+    }
+  });
+
+  test("the handover releases the lock before it confirms and tries to close the old tab", () => {
+    const tabs = WEB["tabs.js"] as string;
+    const handler = tabs.slice(
+      tabs.indexOf('if (msg.type !== "takeover"'),
+      tabs.indexOf("function claim"),
+    );
+    expect(handler).toContain("!held");
+    expect(handler).toContain("yielding");
+    expect(handler.indexOf("release()")).toBeGreaterThan(-1);
+    expect(handler.indexOf("release()")).toBeLessThan(handler.indexOf('post({ type: "yielded" })'));
+
+    const app = WEB["app.js"] as string;
+    const hand = app.slice(app.indexOf("function handOver"), app.indexOf("function showTabNotice"));
+    expect(hand.indexOf("window.close()")).toBeGreaterThan(-1);
+    expect(hand.indexOf("window.close()")).toBeLessThan(hand.indexOf("TAB_NOTICE_MOVED"));
+  });
+
+  test("the header leads with the padlock and the status, in every view", () => {
+    const html = WEB["index.html"] as string;
+    const header = html.indexOf('<header class="top">');
+    const headerEnd = html.indexOf("</header>", header);
+    const topStart = html.indexOf('<div class="top-start">');
+    const lock = html.indexOf('id="tab-lock"');
+    const status = html.indexOf('id="status"');
+    const views = html.indexOf('<fieldset class="views"');
+    expect(topStart).toBeGreaterThan(header);
+    expect(lock).toBeGreaterThan(topStart);
+    expect(status).toBeGreaterThan(lock);
+    expect(views).toBeGreaterThan(status);
+    expect(views).toBeLessThan(headerEnd);
+    expect(lock).toBeLessThan(html.indexOf('<main id="board"'));
+    expect(html).not.toContain('class="top-end"');
+    expect(html).not.toContain('id="title"');
+
+    const css = WEB["app.css"] as string;
+    expect(css).toContain(".top-start");
+    expect(css).not.toContain(".top-end");
+    expect(css).not.toContain(".top h1");
+
+    const button = html.slice(lock, html.indexOf("</button>", lock));
+    for (const needle of [
+      'aria-pressed="false"',
+      'aria-label="Keep this tab open"',
+      'class="lock-open"',
+      'class="lock-closed"',
+      'aria-hidden="true"',
+    ]) {
+      expect(button).toContain(needle);
+    }
+
+    const app = WEB["app.js"] as string;
+    for (const needle of [
+      'getElementById("tab-lock")',
+      "itemTabs.setLocked(",
+      "itemTabs.isLocked()",
+      'addEventListener("click"',
+      "paintLock()",
+      "TAB_NOTICE_LOCKED",
+      'showTabNotice(outcome === "locked" ? TAB_NOTICE_LOCKED : TAB_NOTICE_OPEN)',
+    ]) {
+      expect(app).toContain(needle);
+    }
+    // handOver() and the item-less tab; the locked branch never closes this tab.
+    expect(app.split("window.close()").length - 1).toBe(2);
+
+    const tabs = WEB["tabs.js"] as string;
+    for (const needle of ["setLocked", "isLocked", 'type: "locked"']) {
+      expect(tabs).toContain(needle);
+    }
+    expect(WEB["view.html"]).not.toContain("tab-lock");
+  });
+
+  test("the padlock is kept in this tab's history entry and survives a reload", () => {
+    const app = WEB["app.js"] as string;
+    for (const needle of [
+      'const LOCK_STATE = "wip-web.tabLocked"',
+      "function readLockState()",
+      "function writeLockState(locked)",
+      "function replaceUrl(url)",
+      "window.history.state",
+      "itemTabs.setLocked(readLockState())",
+      "writeLockState(itemTabs.isLocked())",
+    ]) {
+      expect({ needle, found: app.includes(needle) }).toEqual({ needle, found: true });
+    }
+    // The padlock survives the URL rewrites: replaceState(null, ...) would drop it.
+    expect(app).not.toContain("replaceState(null");
+    const replace = app.slice(
+      app.indexOf("function replaceUrl"),
+      app.indexOf("function setItemParam"),
+    );
+    expect(replace).toContain("replaceState(window.history.state");
+    const item = app.slice(
+      app.indexOf("function setItemParam"),
+      app.indexOf("function markOpenCard"),
+    );
+    expect(item).toContain("replaceUrl(url)");
+    const view = app.slice(
+      app.indexOf("function setViewParam"),
+      app.indexOf("function paintView()"),
+    );
+    expect(view).toContain("replaceUrl(url)");
+    // No storage shared between tabs; tabs.js stays free of storage too.
+    expect(app).not.toContain("sessionStorage");
+    expect(WEB["tabs.js"]).not.toContain("sessionStorage");
+    expect(WEB["tabs.js"]).not.toContain("localStorage");
   });
 
   test("the item panel keeps the preview scroll and ignores the clock-derived total", () => {
@@ -1027,6 +1219,7 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
       ["/app.css", "app.css", "text/css; charset=utf-8"],
       ["/icon.svg", "icon.svg", "image/svg+xml"],
       ["/markdown.js", "markdown.js", "text/javascript; charset=utf-8"],
+      ["/tabs.js", "tabs.js", "text/javascript; charset=utf-8"],
       ["/view.js", "view.js", "text/javascript; charset=utf-8"],
     ] as const) {
       const res = await get(path);
@@ -1061,7 +1254,7 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
   });
 
   test("the scripts build the DOM with textContent only and poll every 5 s", () => {
-    for (const key of ["app.js", "markdown.js", "view.js"]) {
+    for (const key of ["app.js", "markdown.js", "tabs.js", "view.js"]) {
       const src = WEB[key] as string;
       for (const forbidden of [
         "innerHTML",

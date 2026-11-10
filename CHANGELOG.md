@@ -10,6 +10,18 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
   `.wip/config.json`), shared by `wip web` and the Kanban mod; flows the list does not name follow alphabetically,
   and with no `flow_order` nothing changes. A malformed value only warns (`flow_order_invalid`) and leaves the board
   alphabetical.
+- `wip web` keeps one tab per origin in `localhost`: a new page with `?item=` asks the open tab for the origin; the
+  open tab releases it, confirms and tries to close itself (best-effort: if the browser refuses, it stays with the
+  notice «This project moved to another tab.» and no ownership), and the new tab shows the item. The board alone
+  does not take over: it tries to close itself and, if refused, shows «This project is open in another tab.».
+  Each port has its own tab; the artifact page (`/view/`) and the LAN (or a browser without Web Locks) are not
+  deduplicated.
+- `wip web`: the board page shows the padlock and the poll status in the top-left of its header, where the project
+  title used to be; the project name is only the browser tab title. The padlock is open by default. With it closed
+  the tab refuses the takeover, keeps the project and is not closed automatically; the tab that asked shows its
+  item with «This project is locked in another tab.» and stays. The padlock is kept in the tab's history entry, so
+  a reload keeps it closed while a new tab starts open (duplicating the tab can copy it); its state is not shared
+  between tabs, and closing the tab by hand always works.
 
 ## 0.2.1 (2026-11-10)
 

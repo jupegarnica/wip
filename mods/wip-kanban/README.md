@@ -73,7 +73,16 @@ next session.
   other row uses its flow's colour at full opacity (the phase's alpha is not applied), so a late phase stays
   legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
 - Clicking a row opens this project's running `wip web`, found with `wip web status --json` (polled about every
-  15 s), at `?item=<flow>/<id>`; the web shows that item's panel. When no server of this project runs, the row uses
+  15 s), at `?item=<flow>/<id>`; the web shows that item's panel. In `localhost`, clicking a row again does not
+  open a second tab of the same origin: the new tab asks the open one for the origin, the open tab hands it over and
+  tries to close itself (best-effort: if the browser refuses, it stays with a notice and no ownership), so the item
+  opens in the tab that was just clicked (each port has its own tab; on the LAN there is no deduplication). The
+  board page also shows the padlock and the poll status in the top-left of its header (the project name is the
+  browser tab title), with the padlock open by default. With it closed the page refuses the takeover, keeps its
+  item and is never closed automatically; the tab that asked shows its item with “This project is locked in
+  another tab.” and stays. The padlock is kept in the tab's history entry, so a reload keeps it closed and a new
+  tab starts open (duplicating the tab can copy it); it does not stop closing the tab by hand. When no
+  server of this project runs, the row uses
   `webUrl` (default `http://localhost:33333/`) instead, so two projects on different ports each link to their own.
   The board works without the server, but the link needs `wip web` running (terminal link opening may need
   Cmd/Ctrl).
