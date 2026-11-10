@@ -705,8 +705,19 @@ function panelTotals(t) {
 
 function panelLinks(data) {
   const links = section("Links");
-  if (!data.links.length) links.appendChild(el("p", "muted", "none"));
-  for (const l of data.links) kv(links, l.source, link(l.label, l.url));
+  const seen = new Set();
+  const rows = [];
+  for (const l of [...(data.links || []), ...(data.field_links || [])]) {
+    if (!l || typeof l.url !== "string" || seen.has(l.url)) continue;
+    seen.add(l.url);
+    rows.push(l);
+  }
+  if (!rows.length) links.appendChild(el("p", "muted", "none"));
+  for (const l of rows) {
+    const a = link(l.label, l.url);
+    a.setAttribute("title", `${l.source}: ${l.url}`);
+    kv(links, l.source, a);
+  }
   kv(links, "artifacts", data.item.artifact_dir, true);
   return links;
 }

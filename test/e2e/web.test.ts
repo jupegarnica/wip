@@ -56,7 +56,7 @@ import {
   privateRank,
   startWeb,
 } from "../../src/web/server.ts";
-import { itemLinks, openReadOnly } from "../../src/web/state.ts";
+import { fieldLinks, itemLinks, openReadOnly } from "../../src/web/state.ts";
 import { WIP_CMD } from "../helpers/bin.ts";
 import { fixture, minimalFlow, putFlow } from "../helpers/defs.ts";
 import { at, itemInPlan, itemsProject, ok, T0, tick, useProject } from "../helpers/items.ts";
@@ -370,6 +370,68 @@ describe("wip web · links (F-FLU-10, F-WEB-12)", () => {
     expect(itemLinks(null, "T7", {})).toEqual([]);
   });
 
+  test("fieldLinks lists every absolute http(s) URL of the fields, once", () => {
+    expect(fieldLinks({})).toEqual([]);
+    expect(
+      fieldLinks({
+        pr: "https://github.com/acme/wip/pull/7",
+        prs: [
+          "https://github.com/acme/wip/pull/8",
+          "https://github.com/acme/wip/pull/9",
+          "not a url",
+          7,
+          "",
+        ],
+      }),
+    ).toEqual([
+      {
+        label: "https://github.com/acme/wip/pull/7",
+        url: "https://github.com/acme/wip/pull/7",
+        source: "pr",
+      },
+      {
+        label: "https://github.com/acme/wip/pull/8",
+        url: "https://github.com/acme/wip/pull/8",
+        source: "prs",
+      },
+      {
+        label: "https://github.com/acme/wip/pull/9",
+        url: "https://github.com/acme/wip/pull/9",
+        source: "prs",
+      },
+    ]);
+  });
+
+  test("fieldLinks normalizes the scheme, keeps the text and drops what is not a URL", () => {
+    expect(fieldLinks({ docs: "HTTPS://Example.com/x" })).toEqual([
+      { label: "HTTPS://Example.com/x", url: "https://example.com/x", source: "docs" },
+    ]);
+    expect(
+      fieldLinks({
+        pr: "https://github.com/acme/wip/pull/7",
+        mirror: "https://github.com/acme/wip/pull/7",
+      }),
+    ).toEqual([
+      {
+        label: "https://github.com/acme/wip/pull/7",
+        url: "https://github.com/acme/wip/pull/7",
+        source: "pr",
+      },
+    ]);
+    expect(
+      fieldLinks({
+        n: 3,
+        empty: "",
+        ftp: "ftp://x/y",
+        mail: "mailto:a@b.c",
+        proto: "//x/y",
+        prose: "see https://x",
+        num: "#7",
+        nested: { url: "https://x/y" },
+      }),
+    ).toEqual([]);
+  });
+
   test("cards, history and the item panel carry the links", async () => {
     const p = board();
     await serve(p);
@@ -381,10 +443,69 @@ describe("wip web · links (F-FLU-10, F-WEB-12)", () => {
     expect((await getJson("/api/item/valid/T1")).links).toEqual([link]);
     expect(kanban.items.find((i: TJson) => i.id === "A1").links).toEqual([]);
   });
+
+  test("/api/item carries the URLs of the fields as field_links, and only there", async () => {
+    const p = ctx.set(makeProject("web-field-links"));
+    putFlow(
+      p.dir,
+      "prs",
+      [
+        "```wip-flow",
+        "version: 1",
+        "fields:",
+        "  pr: string",
+        "  prs: list",
+        "  note: string",
+        "phases:",
+        "  - name: todo",
+        "    next: [done]",
+        "  - name: done",
+        "    kind: terminal",
+        "```",
+        "",
+      ].join("\n"),
+    );
+    ok(p, ["phase", "P1", "todo", "--flow", "prs", "--wait", "external"]);
+    ok(p, [
+      "set",
+      "P1",
+      "pr=https://github.com/acme/wip/pull/7",
+      "prs=https://github.com/acme/wip/pull/8,https://github.com/acme/wip/pull/9",
+      "note=#7",
+    ]);
+    await serve(p);
+    const body = await getJson("/api/item/prs/P1");
+    expect(body.field_links).toEqual([
+      {
+        label: "https://github.com/acme/wip/pull/7",
+        url: "https://github.com/acme/wip/pull/7",
+        source: "pr",
+      },
+      {
+        label: "https://github.com/acme/wip/pull/8",
+        url: "https://github.com/acme/wip/pull/8",
+        source: "prs",
+      },
+      {
+        label: "https://github.com/acme/wip/pull/9",
+        url: "https://github.com/acme/wip/pull/9",
+        source: "prs",
+      },
+    ]);
+    expect(body.links).toEqual([]);
+    expect(body.item.fields.pr).toBe("https://github.com/acme/wip/pull/7");
+    expect(body.item.fields.note).toBe("#7");
+    const card = (await getJson("/api/kanban")).items.find((i: TJson) => i.id === "P1");
+    expect(card.links).toEqual([]);
+    expect("field_links" in card).toBe(false);
+    const row = (await getJson("/api/history")).items.find((i: TJson) => i.id === "P1");
+    expect(row.links).toEqual([]);
+    expect("field_links" in row).toBe(false);
+  });
 });
 
 describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
-  test("/api/item/<flow>/<ID> is `wip show --json` plus links and artifacts", async () => {
+  test("/api/item/<flow>/<ID> is `wip show --json` plus links, field_links and artifacts", async () => {
     const p = board();
     at("2026-10-30T12:00:00Z");
     await serve(p);
@@ -400,6 +521,7 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
       crons: body.crons,
     }).toEqual(shown.data as TJson);
     expect(body.totals.user_wait_seconds).toBe(7200);
+    expect(body.field_links).toEqual([]);
   });
 
   test("an unknown item, another flow or a bad segment is 404", async () => {
@@ -868,6 +990,22 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     }
     expect((await get("/lib/garndev-markdown/dist/index.js")).status).toBe(404);
     expect((await get("/lib/garndev-markdown/package.json")).status).toBe(404);
+  });
+
+  test("the item panel merges the flow's links and the fields' URLs in Links", () => {
+    const app = WEB["app.js"] as string;
+    expect(app).toContain("function panelLinks");
+    const from = app.indexOf("function panelLinks");
+    const body = app.slice(from, app.indexOf("\n}\n", from));
+    for (const needle of [
+      "data.field_links",
+      "data.links",
+      "seen.has(l.url)",
+      "link(l.label, l.url)",
+      "l.source",
+    ]) {
+      expect(body).toContain(needle);
+    }
   });
 
   test("the scripts build the DOM with textContent only and poll every 5 s", () => {
