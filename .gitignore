@@ -4,3 +4,4 @@ dist/
 .wip/
 mods/*/.claude-plugin/types/
 .worktrees/
+.opencode/
