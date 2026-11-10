@@ -3,9 +3,11 @@
 [← Back to the README](../README.md)
 
 wip is published as one npm package, `@garndev/wip` (a JavaScript bundle for Node 22.13 or later, no
-dependencies), by `.github/workflows/release.yml`, which also makes a GitHub Release with the CHANGELOG notes and no
-assets. The root package `@garndev/wip-dev` is private and never published. The standalone binaries are not built or
-released by CI: `bun scripts/build.ts --targets …` builds them locally (see [CLAUDE.md](../CLAUDE.md)).
+dependencies), by `.github/workflows/release.yml`, which also makes a GitHub Release with the CHANGELOG notes and the
+standalone binaries for macOS (`darwin-arm64`, `darwin-x64`) and Linux (`linux-x64`, `linux-arm64`), one `.tar.gz`
+per target and one `SHA256SUMS`. The root package `@garndev/wip-dev` is private and never published. The binaries
+are compiled by `release.yml` on CI; `ci.yml` does not build them, and `bun scripts/build.ts --targets …` still
+builds them locally (see [CLAUDE.md](../CLAUDE.md)).
 
 Nothing here runs without the maintainer: pushing a tag and approving the `npm-publish` environment are the
 maintainer's steps.
@@ -29,13 +31,14 @@ maintainer's steps.
 Triggered by a pushed tag `v*`, or by hand (`workflow_dispatch`) with `dry_run` (default `true`; a real release only
 starts from a tag).
 
-| Job              | Runs on                                       | What                                                                                                                                                                                                 |
-| ---------------- | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`        | ubuntu                                        | reads the version, checks the tag and the CHANGELOG section, picks `latest` or `next`                                                                                                                |
-| `test`           | `ci.yml`                                      | typecheck, lint, `bun test` on 3 OSes; packs the npm package, `npm publish --dry-run`; e2e against it on Node 22, 24, 26 (Linux) and 24 (macOS, Windows)                                             |
-| `publish`        | ubuntu, environment `npm-publish`             | `npm publish <the tested tarball> --access public --tag <latest\|next>` with the `NPM_TOKEN` secret (`--dry-run` in a dry run, in environment `npm-publish-dry-run`)                                 |
-| `github-release` | ubuntu, `contents: write`                     | notes from the CHANGELOG section, `gh release create v<version>` with no assets (only printed in a dry run)                                                                                          |
-| `verify`         | Node 22, 24, 26 (ubuntu), 24 (macOS, Windows) | not in a dry run: `npm i -g @garndev/wip@<version>` from the registry, `--version`, `npm audit signatures`, `init`, `check`, `state --json`, `web` `/health`, and no `ExperimentalWarning` on stderr |
+| Job              | Runs on                                       | What                                                                                                                                                                                                                                                                |
+| ---------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`        | ubuntu                                        | reads the version, checks the tag and the CHANGELOG section, picks `latest` or `next`                                                                                                                                                                               |
+| `test`           | `ci.yml`                                      | typecheck, lint, `bun test` on 3 OSes; packs the npm package, `npm publish --dry-run`; e2e against it on Node 22, 24, 26 (Linux) and 24 (macOS, Windows)                                                                                                            |
+| `binaries`       | `macos-latest`, `ubuntu-latest`               | one Ubuntu image only: compiles the four targets (`darwin-arm64`, `darwin-x64` on macOS; `linux-x64`, `linux-arm64` on Ubuntu), runs the runner's native binary, checks `file`/`codesign` on the other, uploads two artifacts (`binaries-darwin`, `binaries-linux`) |
+| `publish`        | ubuntu, environment `npm-publish`             | `npm publish <the tested tarball> --access public --tag <latest\|next>` with the `NPM_TOKEN` secret (`--dry-run` in a dry run, in environment `npm-publish-dry-run`); waits for `binaries`, so a broken binary blocks the publish                                   |
+| `github-release` | ubuntu, `contents: write`                     | notes from the CHANGELOG section; downloads both artifacts, writes one `SHA256SUMS` for the four, `gh release create v<version>` with the four `.tar.gz` and `SHA256SUMS` (only printed in a dry run); a second run uploads the assets again with `--clobber`       |
+| `verify`         | Node 22, 24, 26 (ubuntu), 24 (macOS, Windows) | not in a dry run: `npm i -g @garndev/wip@<version>` from the registry, `--version`, `npm audit signatures`, `init`, `check`, `state --json`, `web` `/health`, and no `ExperimentalWarning` on stderr                                                                |
 
 Actions are pinned by commit SHA. Permissions default to `contents: read`; `github-release` adds `contents: write`.
 
@@ -86,27 +89,39 @@ builds. If `jupegarnica/wip` becomes public, switch over:
 
    ```sh
    bun run typecheck && bun run lint && bun test
-   bun scripts/build.ts --out dist --pack
+   bun scripts/build.ts --out dist --pack --targets darwin-arm64,darwin-x64,linux-x64,linux-arm64
    npm publish --dry-run dist/npm/wip      # lists LICENSE, README.md, bin/wip.mjs, dist/wip.mjs, package.json
    WIP_TEST_BIN=$PWD/dist/npm/wip/bin/wip.mjs bun test test/e2e
    WIP_PACK_DIR=$(mktemp -d) bun test test/e2e/pack.test.ts
+   dist/bin/darwin-arm64/wip --version      # the host target; built 0.2.1 on a Mac arm64
+   (cd dist/release && shasum -a 256 -c SHA256SUMS)
    ```
 
 4. Run `release.yml` by hand (Actions > Release > Run workflow) on the release branch with `dry_run` checked. Every
-   job must pass; `verify` is skipped.
+   job must pass, including the two `binaries` runs; `verify` is skipped. `github-release` prints the five assets it
+   would attach.
 5. Tag and push (the maintainer runs it): `git tag -s vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
-6. Approve the `npm-publish` environment when `publish` waits.
-7. Check the `verify` job, the npm page and the GitHub Release (notes).
-8. On your own machine, from a throwaway prefix:
+6. Approve the `npm-publish` environment when `publish` waits (when the environment has reviewers).
+7. Check the `verify` job, the npm page and the GitHub Release: the notes, the four `wip-X.Y.Z-<os>-<arch>.tar.gz`
+   and `SHA256SUMS`.
+8. On your own machine, from a throwaway prefix and from the Release:
 
    ```sh
    npm i -g --prefix /tmp/wip-verify @garndev/wip@X.Y.Z
    /tmp/wip-verify/bin/wip --version
+   mkdir -p /tmp/wip-bin && cd /tmp/wip-bin
+   gh release download vX.Y.Z --pattern 'wip-X.Y.Z-*' --pattern SHA256SUMS
+   shasum -a 256 -c SHA256SUMS              # Linux: sha256sum -c SHA256SUMS
+   tar -xzf wip-X.Y.Z-darwin-arm64.tar.gz && ./wip --version
    ```
+
+   The `linux-arm64` and `darwin-x64` archives are checked with `file`/`codesign` on CI but only run by hand on a
+   machine of that architecture.
 
 9. Open the next `## X.Y.(Z+1) (unreleased)` section in the CHANGELOG.
 
 ## First release
 
-`0.2.0` is the first publish of `@garndev/wip` and goes through the workflow like any other: the granular token is
-scoped to `@garndev`, so the package does not have to exist beforehand.
+`0.2.0` was the first publish of `@garndev/wip` and went through the workflow like any other: the granular token is
+scoped to `@garndev`, so the package does not have to exist beforehand. `0.2.1` is the first release with binaries in
+the GitHub Release; the workflow of the tagged commit must contain the `binaries` job.
