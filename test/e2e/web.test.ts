@@ -774,6 +774,24 @@ describe("wip web · a disabled flow", () => {
 });
 
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
+  test("the title is the project's folder name, with no wip prefix or placeholder", async () => {
+    const p = board();
+    await serve(p);
+    const health = await getJson("/health");
+    expect(health.name).toBe(String(p.dir).split(/[\\/]/).pop());
+    expect(health.project).toBe(p.dir);
+
+    const html = WEB["index.html"] as string;
+    expect(html).toContain("<title></title>");
+    expect(html).toContain('<h1 id="title"></h1>');
+    expect(html).not.toContain(">wip<");
+
+    const app = WEB["app.js"] as string;
+    expect(app).toContain("health.name");
+    expect(app).toContain("document.title = name");
+    expect(app).not.toContain("wip · ");
+  });
+
   test("the pages link the SVG favicon and the file is self-contained", async () => {
     const p = board();
     await serve(p);

@@ -52,6 +52,8 @@ export interface IHealth {
   pid: number;
   port: number;
   project: string;
+  /** The page title: `project`'s last path segment, or the whole path for a root. */
+  name: string;
   version: string;
   lan: string | null;
   local: boolean;
@@ -88,6 +90,16 @@ export function privateIPv4s(ifaces: TInterfaces = networkInterfaces()): string[
 /** Host header values the server answers (DNS rebinding): loopback names and the given IPs, with the port. */
 export function allowedHosts(port: number, ips: readonly string[] = []): Set<string> {
   return new Set(["localhost", "127.0.0.1", ...ips].map((h) => `${h}:${port}`));
+}
+
+/** The project's name on the page: the last segment of its path, or the whole path when it has none (a root). */
+export function projectName(project: string): string {
+  const last =
+    project
+      .replace(/[\\/]+$/, "")
+      .split(/[\\/]/)
+      .pop() ?? "";
+  return last || project;
 }
 
 export const PAGE_CSP =
@@ -288,6 +300,7 @@ export async function startWeb(options: IWebOptions): Promise<IWebServer> {
           pid: process.pid,
           port,
           project: root.project,
+          name: projectName(root.project),
           version: pkg.version,
           lan,
           local: Boolean(options.local),
