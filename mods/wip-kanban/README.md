@@ -61,9 +61,10 @@ next session.
 ## Using it
 
 - The flow filter is the dim row at the bottom right of the pane, outside the board: one button per flow,
-  `✓ <flow>` shows it, `✗ <flow>` hides it, one space apart. Hiding removes the flow's items and keeps its
-  button. The list of hidden flows is kept per project in the mod's store, keyed by the project's absolute root,
-  so another project is unaffected. The board prints no flow names; the buttons are the only place they appear.
+  `◉ <flow>` (a green fisheye) shows it, `⊘ <flow>` (a red crossed circle) hides it, one space apart; the flow's
+  name stays dim. Hiding removes the flow's items and keeps its button. The list of hidden flows is kept per
+  project in the mod's store, keyed by the project's absolute root, so another project is unaffected. The board
+  prints no flow names; the buttons are the only place they appear.
 - A row is placed by the phase's ordinal: the first phase starts at the left edge, the last ends at the right
   edge, and a one-phase flow stays at the left. A label too long for the pane is cut with `…`.
 - A row with `signals.attention` takes the stage's solid colour as its background with the contrasting text; any

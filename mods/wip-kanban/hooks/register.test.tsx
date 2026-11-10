@@ -3,6 +3,9 @@ import { expect, mock, test } from "claude-code/testing";
 
 const PANE_ID = "wip-kanban";
 const ROOT = "/projects/demo";
+/** The filter row's marks: a fisheye when the flow is shown, a crossed circle when it is hidden. */
+const SHOWN = "\u{25C9}";
+const HIDDEN = "\u{2298}";
 
 type TJson = Record<string, unknown>;
 
@@ -233,6 +236,16 @@ function submit($: Parameters<Parameters<typeof test>[1]>[0]): TPromptSubmit {
 
 function textNodes(tree: unknown): INode[] {
   return nodes(tree).filter((n) => n.type === "Text");
+}
+
+/** The two Texts of one flow's filter button: the coloured mark and the dim name. */
+function filterParts(
+  button: { children?: unknown[] } | undefined,
+  flow: string,
+): { mark?: INode; name?: INode } {
+  const texts = nodes(button?.children).filter((n) => n.type === "Text");
+  const named = texts.find((n) => drawnText(n) === ` ${flow}`);
+  return { mark: texts.find((n) => n !== named), name: named };
 }
 
 /** The Text of one item's row: the one whose text ends with the label the row shows. */
@@ -747,10 +760,18 @@ test("the flow filters sit last, right-aligned, dim and one column apart", async
   const buttons = await ui.findAll({ type: "Button" });
   expect(buttons).toHaveLength(2);
   expect(buttons.map((button) => button.key)).toEqual(["filter:development", "filter:tasks"]);
-  expect(buttons.map((button) => button.text)).toEqual(["✓ development", "✓ tasks"]);
+  expect(buttons.map((button) => button.text)).toEqual([`${SHOWN} development`, `${SHOWN} tasks`]);
+  // The accessible name says what a press does; the mark alone is decoration.
+  expect(buttons.map((button) => button.props.label)).toEqual(["Hide development", "Hide tasks"]);
   for (const button of buttons) {
-    expect(button.props.dimColor).toBe(true);
     expect(button.props.plain).toBe(true);
+  }
+  // A shown flow: a green fisheye and a separate dim name.
+  for (const [index, flowName] of ["development", "tasks"].entries()) {
+    const { mark, name } = filterParts(buttons[index], flowName);
+    expect(mark?.children).toEqual([SHOWN]);
+    expect(mark?.props.color).toBe("green");
+    expect(name?.props.dimColor).toBe(true);
   }
 
   // The row's only children are the two Buttons: the one-column gap is layout, not a Text between them.
@@ -760,8 +781,8 @@ test("the flow filters sit last, right-aligned, dim and one column apart", async
 
   // The row is the last thing in the tree: the buttons come after every item row.
   const text = drawnText(await ui.drawn());
-  expect(text.indexOf("✓ development")).toBeGreaterThan(text.lastIndexOf("K1"));
-  expect(text.indexOf("✓ tasks")).toBeGreaterThan(text.lastIndexOf("T1"));
+  expect(text.indexOf(`${SHOWN} development`)).toBeGreaterThan(text.lastIndexOf("K1"));
+  expect(text.indexOf(`${SHOWN} tasks`)).toBeGreaterThan(text.lastIndexOf("T1"));
 });
 
 test("the board prints no flow titles and a flow with no items is only its button", async ($, on) => {
@@ -780,7 +801,7 @@ test("the board prints no flow titles and a flow with no items is only its butto
 
   const tree = await ui.drawn();
   expect(drawnText(tree)).toContain("K1");
-  expect(drawnText(tree)).toContain("✓ tasks");
+  expect(drawnText(tree)).toContain(`${SHOWN} tasks`);
   expect(drawnText(tree)).not.toContain("No open items.");
   const titles = textNodes(tree).map((node) => drawnText(node));
   expect(titles).not.toContain("development");
@@ -788,7 +809,7 @@ test("the board prints no flow titles and a flow with no items is only its butto
 
   // Hiding the empty flow keeps the board's one item and draws no extra row for it.
   await ui.press({ key: "filter:tasks" });
-  expect((await ui.find({ type: "Button", key: "filter:tasks" }))?.text).toBe("✗ tasks");
+  expect((await ui.find({ type: "Button", key: "filter:tasks" }))?.text).toBe(`${HIDDEN} tasks`);
   expect(drawnText(await ui.drawn())).toContain("K1");
   await ui.unmount();
 
@@ -799,7 +820,7 @@ test("the board prints no flow titles and a flow with no items is only its butto
   const empty = await mount($, "terminal", 40);
   const text = drawnText(await empty.drawn());
   expect(text.split("No open items.")).toHaveLength(2);
-  expect(text.indexOf("No open items.")).toBeLessThan(text.indexOf("✓ development"));
+  expect(text.indexOf("No open items.")).toBeLessThan(text.indexOf(`${SHOWN} development`));
 });
 
 test("every flow is visible by default; a toggle hides its items and persists per project root", async ($, on) => {
@@ -819,16 +840,21 @@ test("every flow is visible by default; a toggle hides its items and persists pe
   expect(drawnText(tree)).toContain("K1");
   expect(drawnText(tree)).toContain("T1");
   expect((await ui.find({ type: "Button", key: "filter:development" }))?.text).toBe(
-    "✓ development",
+    `${SHOWN} development`,
   );
 
   await ui.press({ key: "filter:development" });
   tree = await ui.drawn();
   expect(drawnText(tree)).not.toContain("K1");
   expect(drawnText(tree)).toContain("T1");
-  expect((await ui.find({ type: "Button", key: "filter:development" }))?.text).toBe(
-    "✗ development",
-  );
+  const hiddenButton = await ui.find({ type: "Button", key: "filter:development" });
+  expect(hiddenButton?.text).toBe(`${HIDDEN} development`);
+  // A hidden flow: a red crossed circle, the dim name unchanged, and the name of the action.
+  const hiddenParts = filterParts(hiddenButton, "development");
+  expect(hiddenParts.mark?.children).toEqual([HIDDEN]);
+  expect(hiddenParts.mark?.props.color).toBe("red");
+  expect(hiddenParts.name?.props.dimColor).toBe(true);
+  expect(hiddenButton?.props.label).toBe("Show development");
   expect(w.store["hidden-flows-v1"]).toEqual({ [ROOT]: ["development"] });
   await ui.unmount();
 
@@ -837,7 +863,7 @@ test("every flow is visible by default; a toggle hides its items and persists pe
   await start($, w);
   const other = await mount($, "terminal", 40);
   expect((await other.find({ type: "Button", key: "filter:development" }))?.text).toBe(
-    "✓ development",
+    `${SHOWN} development`,
   );
   expect(drawnText(await other.drawn())).toContain("K1");
 
@@ -866,7 +892,7 @@ test("an invalid stored filter list reads as none; hiding every flow shows how t
 
   await ui.press({ key: "filter:development" });
   const tree = await ui.drawn();
-  expect(drawnText(tree)).toContain("All flows are hidden; press a ✗ flow below to show it.");
+  expect(drawnText(tree)).toContain("All flows are hidden; press one below to show it.");
   expect(w.store["hidden-flows-v1"]).toEqual({ [ROOT]: ["development"] });
 });
 
@@ -1070,8 +1096,8 @@ test("no items says so, and the tree validates in dock and inline on terminal an
       const tree = await ui.drawn();
       const text = drawnText(tree);
       expect(text).toContain("No open items.");
-      expect(text).toContain("✓ development");
-      expect(text.indexOf("No open items.")).toBeLessThan(text.indexOf("✓ development"));
+      expect(text).toContain(`${SHOWN} development`);
+      expect(text.indexOf("No open items.")).toBeLessThan(text.indexOf(`${SHOWN} development`));
       expect(textNodes(tree).map((node) => drawnText(node))).not.toContain("development");
       expect(tree).toBeDefined();
       await ui.unmount();
