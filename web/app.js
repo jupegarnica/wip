@@ -1240,12 +1240,10 @@ async function loadProject() {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
     const health = await res.json();
-    const name = String(health.project || "")
-      .split(/[\\/]/)
-      .pop();
+    const name = String(health.name || "");
     if (name) {
-      titleEl.textContent = `wip · ${name}`;
-      document.title = `wip · ${name}`;
+      titleEl.textContent = name;
+      document.title = name;
     }
   } catch (_) {
     // keep the default title
