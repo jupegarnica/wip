@@ -2,13 +2,13 @@
 
 [← Back to the README](../README.md)
 
-`@garndev/wip` is not published to the npm registry yet: the first release is pending (see [Releasing](releasing.md)).
-Until then, build the package from this repository (see [CLAUDE.md](../CLAUDE.md)) and install its tarball the same
-way.
+`@garndev/wip` is published on the npm registry; the current version is at the top of the
+[CHANGELOG](../CHANGELOG.md). The macOS and Linux binaries are in the GitHub Releases (Windows has none yet), or you
+can build the package from this repository (see [CLAUDE.md](../CLAUDE.md)) and install its tarball the same way.
 
 **Requirements:** Claude Code's `claude` CLI, Node 22.13 or later and npm, on any OS Node supports. Without Node: a
-standalone binary you build from this repository (Bun needed for the build only) for `darwin-arm64`, `darwin-x64`,
-`linux-x64` (a CPU with AVX2), `linux-arm64` or `windows-x64` (experimental).
+release binary for `darwin-arm64`, `darwin-x64`, `linux-x64` and `linux-arm64`. Windows has no release binary yet;
+`windows-x64` is experimental and only buildable from source.
 
 ## Before installing: is `wip` already taken?
 
@@ -38,9 +38,26 @@ platform packages. On Node 22 the bundled `node:sqlite` is still flagged experim
 
 `wip init` is described in [Start a project: `wip init`](init.md).
 
-## Without Node: a binary built from source
+## Without Node: a release binary
 
-The GitHub Release carries no binaries. From a clone of this repository, with Bun:
+Each GitHub Release carries one archive per target, `wip-<version>-<os>-<arch>.tar.gz`, and a single `SHA256SUMS` for
+all four. Replace `0.2.1` with the version you want:
+
+```sh
+mkdir -p ~/wip-bin && cd ~/wip-bin
+gh release download v0.2.1 --pattern 'wip-0.2.1-darwin-arm64.tar.gz' --pattern SHA256SUMS
+shasum -a 256 -c SHA256SUMS                 # Linux: sha256sum -c SHA256SUMS
+tar -xzf wip-0.2.1-darwin-arm64.tar.gz
+install wip ~/.local/bin/wip
+```
+
+Pick the archive for your machine: `wip-<version>-darwin-arm64.tar.gz` or `darwin-x64` on macOS, `linux-x64` or
+`linux-arm64` on Linux. Each archive holds only the `wip` executable. The Linux binaries are compiled on the latest
+Ubuntu image and are not tested on older distributions. The binary needs neither Node nor Bun to run. On macOS it is
+signed ad hoc and not notarized: a copy downloaded with a browser gets the quarantine flag, which
+`xattr -d com.apple.quarantine <path>` removes. On macOS it uses the system SQLite, which must be 3.37 or later.
+
+Windows has no release binary. `windows-x64` is experimental and can only be built from source:
 
 ```sh
 bun install --frozen-lockfile
@@ -49,10 +66,8 @@ install dist/bin/<os>-<arch>/wip ~/.local/bin/wip
 ```
 
 `--targets` also takes a list (`darwin-arm64,linux-x64,…`) or `all` to cross-compile for another machine; the
-archives and `SHA256SUMS` land in `dist/release/`. The binary needs neither Node nor Bun to run. On macOS it is signed
-ad hoc and not notarized: a copy downloaded with a browser gets the quarantine flag, which
-`xattr -d com.apple.quarantine <path>` removes. On macOS it uses the system SQLite, which must be 3.37 or later.
-The contributor flow around the build (targets, build metadata, local installs) is in [CLAUDE.md](../CLAUDE.md).
+archives and `SHA256SUMS` land in `dist/release/`. The contributor flow around the build (targets, build metadata,
+local installs) is in [CLAUDE.md](../CLAUDE.md).
 
 ## Upgrade
 
