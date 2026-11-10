@@ -11,7 +11,7 @@ import {
   webServersDir,
   writeWebServer,
 } from "../../src/web/pidfile.ts";
-import { APP, DEFAULT_PORT, type IHealth, PORT_TRIES } from "../../src/web/server.ts";
+import { APP, DEFAULT_PORT, type IHealth, PORT_TRIES, projectName } from "../../src/web/server.ts";
 import { scratch } from "../helpers/project.ts";
 
 function project(name: string): IRoot {
@@ -33,6 +33,7 @@ const health = (port: number, pid: number, project: string): IHealth => ({
   pid,
   port,
   project,
+  name: projectName(project),
   version: "0.1.0",
   lan: null,
   local: true,
@@ -57,6 +58,17 @@ function deps(
     accepts: async (port) => accepting.includes(port),
   };
 }
+
+describe("wip web · projectName", () => {
+  test("the last path segment, POSIX or Windows, or the whole path for a root", () => {
+    expect(projectName("/home/ana/garn-dev/wip")).toBe("wip");
+    expect(projectName("/home/ana/wip/")).toBe("wip");
+    expect(projectName("C:\\Users\\ana\\wip")).toBe("wip");
+    expect(projectName("/")).toBe("/");
+    expect(projectName("C:\\")).toBe("C:");
+    expect(projectName("/tmp/my project")).toBe("my project");
+  });
+});
 
 describe("wip web · registry (.wip/web/<port>.json)", () => {
   test("the defaults: 33333 and twenty tries", () => {
