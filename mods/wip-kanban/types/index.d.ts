@@ -40,11 +40,18 @@ export type TKanbanSnapshot = {
   lastGoodAt: number | null;
 };
 
+/** The last `wip web status --json` read: this project's Local URL, or null while none answers. */
+export type TKanbanWeb = {
+  url: string | null;
+  at: number | null;
+};
+
 declare module "claude-code" {
   interface PluginState {
     "wip-kanban": {
       snapshot: Shaped<TKanbanSnapshot>;
       hiddenFlows: Shaped<string[]>;
+      web: Shaped<TKanbanWeb>;
     };
   }
 }

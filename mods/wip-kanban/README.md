@@ -4,9 +4,11 @@ A read-only Kanban of the project's open [wip](https://github.com/jupegarnica/wi
 Claude Code. Every row is `<id> <phase>`; its column follows the phase's place in the flow's declared order, and
 its colour follows the same stage ramp the wip web paints. Clicking a row opens that item's panel in the wip web.
 
-The mod never changes wip: it reads `wip state --json` once at the start and once every five seconds, one process
-at a time, with a four-second timeout. A failed read keeps the last board on screen and shows the reason; a first
-read that fails shows only the reason.
+The mod never changes wip's items or state: it reads `wip state --json` once at the start and once every five
+seconds, one process at a time, with a four-second timeout. A failed read keeps the last board on screen and shows
+the reason; a first read that fails shows only the reason. To link a row, it also asks this project's server where
+it listens with `wip web status --json`, at the start and then about every fifteen seconds; that command may remove
+a stale `.wip/web` entry, and nothing else in wip changes.
 
 ## Install
 
@@ -67,15 +69,21 @@ next session.
 - A row with `signals.attention` takes the stage's solid colour as its background with the contrasting text; any
   other row uses its flow's colour at full opacity (the phase's alpha is not applied), so a late phase stays
   legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
-- Clicking a row opens `webUrl` with `?item=<flow>/<id>`; the web shows that item's panel. The board works without
-  the server, but the link needs `wip web` running at that URL (terminal link opening may need Cmd/Ctrl).
+- Clicking a row opens this project's running `wip web`, found with `wip web status --json` (polled about every
+  15 s), at `?item=<flow>/<id>`; the web shows that item's panel. When no server of this project runs, the row uses
+  `webUrl` (default `http://localhost:33333/`) instead, so two projects on different ports each link to their own.
+  The board works without the server, but the link needs `wip web` running (terminal link opening may need
+  Cmd/Ctrl).
 
 ## Configuration
 
 `claude plugin configure wip-kanban@skills-dir` (or the plugins menu) sets:
 
-- `webUrl` — default `http://localhost:33333/`, the first port `wip web` tries. If the server uses another port,
-  change it here. Only `http:` and `https:` URLs are accepted; an invalid one leaves the IDs as plain text.
+- `webUrl` — default `http://localhost:33333/`, the first port `wip web` tries. It is the base only while no
+  server of this project runs: a live server always wins, whatever port it listens on (`--port`, `WIP_WEB_PORT` or
+  the next free one). Use it for a remote or proxied URL, or for the port while no server answers. Only `http:` and
+  `https:` URLs are accepted; an invalid one leaves the IDs as plain text. `wip web status` may clean a stale
+  `.wip/web` entry; wip's items and state are untouched.
 - `colorScheme` — `dark` (default) or `light`: which theme's solid colours and contrasting text the attention rows
   use, and which amber fallback a stageless attention row takes. Non-attention rows use the flow tone in both
   schemes. The pane API does not expose the active theme, so this choice is explicit.
