@@ -20,6 +20,9 @@ const ERROR_MAX = 200;
 const DEFAULT_WEB_URL = "http://localhost:33333/";
 /** Reading `wip web status` on every tick would cost a process every five seconds; every third is about 15 s. */
 const WEB_REFRESH_TICKS = 3;
+/** The flow filter's glyphs: a fisheye when the flow is shown, a crossed circle when it is hidden. */
+const SHOWN_MARK = "\u{25C9}";
+const HIDDEN_MARK = "\u{2298}";
 
 /** The fallback of a row without a stage that also needs attention: the web's amber background. */
 const ATTENTION_LIGHT = { background: "#FFF1D6", text: "#111111" } as const;
@@ -463,7 +466,7 @@ export const register: Register = (on, options) => {
             })}
           </Box>
         ))}
-        {allHidden && <Text dimColor>All flows are hidden; press a ✗ flow below to show it.</Text>}
+        {allHidden && <Text dimColor>All flows are hidden; press one below to show it.</Text>}
         {!allHidden && !anyItems && !noReadYet && <Text dimColor>No open items.</Text>}
         {!linkable && (
           <Text color="yellow">webUrl is not a valid http(s) URL; items are not links.</Text>
@@ -477,20 +480,25 @@ export const register: Register = (on, options) => {
             columnGap={1}
             width={width}
           >
-            {state.flows.map((f) => (
-              <Button
-                key={`filter:${f.name}`}
-                plain
-                dimColor
-                onPress={() => {
-                  const root = sessionRoot;
-                  if (root !== null) void toggle($, root, f.name);
-                }}
-              >
-                {hidden.includes(f.name) ? "✗ " : "✓ "}
-                {f.name}
-              </Button>
-            ))}
+            {state.flows.map((f) => {
+              const isHidden = hidden.includes(f.name);
+              return (
+                <Button
+                  key={`filter:${f.name}`}
+                  plain
+                  label={isHidden ? `Show ${f.name}` : `Hide ${f.name}`}
+                  onPress={() => {
+                    const root = sessionRoot;
+                    if (root !== null) void toggle($, root, f.name);
+                  }}
+                >
+                  <Text color={isHidden ? "red" : "green"}>
+                    {isHidden ? HIDDEN_MARK : SHOWN_MARK}
+                  </Text>
+                  <Text dimColor>{` ${f.name}`}</Text>
+                </Button>
+              );
+            })}
           </Box>
         )}
       </Box>
