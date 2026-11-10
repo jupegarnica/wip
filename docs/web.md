@@ -15,7 +15,8 @@ wip web log -n 20  # the last lines of its log; --follow keeps printing
 A read-only kanban of the project, served from the binary with nothing external: one board per flow (columns by
 `stage` or by phase; each stage in one blue, more transparent stage after stage, with readable text in the light and
 dark themes, and no colour for a phase without a stage), «Your turn», open gates, running agents, the history with archived items, each item's runs,
-gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). Each flow can be collapsed
+gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). The boards follow the
+project's flow order (`.wip/config.json`; see [Flows](flows.md#the-order-of-the-flows-on-the-board)). Each flow can be collapsed
 from its header, which keeps showing its open items and how many wait on you; the browser remembers the choice
 (`localStorage`), and History keeps its `Flow` filter. Requests with a foreign
 `Host` header are rejected. Without `--port`, running it again for the same project reports the running one and

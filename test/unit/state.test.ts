@@ -1,5 +1,7 @@
 import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
 import { minimalFlow, putFlow } from "../helpers/defs.ts";
 import { itemInPlan, itemsProject, ok, rows, useProject, wipJson } from "../helpers/items.ts";
@@ -72,6 +74,16 @@ describe("wip state (F-EST-16)", () => {
       open_gates: [{ phase: "plan", question: "Approve the plan?" }],
       signals: { attention: true, incoherent: [] },
     });
+  });
+
+  test("flow_order puts the configured flows first in data.board.flows", () => {
+    const p = fourItems();
+    writeFileSync(
+      join(p.dir, ".wip", "config.json"),
+      `${JSON.stringify({ defs_dir: ".claude", flow_order: ["valid", "minimal"] }, null, 2)}\n`,
+    );
+    const board = ok(p, ["state"]).data?.board as { flows: { name: string }[] };
+    expect(board.flows.map((f) => f.name)).toEqual(["valid", "minimal"]);
   });
 
   test("incoherent carries the invariants the stored item breaks", () => {

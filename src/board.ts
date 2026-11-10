@@ -147,11 +147,25 @@ export function flowColumns(flow: IFlow | null, extraPhases: readonly string[] =
 }
 
 /**
- * Every enabled flow, plus any flow an item names, sorted by name: its declared phases and its columns.
- * `flowColumns` also gets the phases the items use, so an unknown one is a colourless extra column.
+ * `names` in the project's flow order first (`order`, first occurrence wins), then the rest compared as
+ * `.sort()` does today. A name in `order` that is not in `names` is ignored.
+ */
+export function orderFlowNames(names: readonly string[], order: readonly string[]): string[] {
+  const first = order.filter((name, i) => names.includes(name) && order.indexOf(name) === i);
+  const rest = names.filter((name) => !order.includes(name)).sort();
+  return [...first, ...rest];
+}
+
+/**
+ * Every enabled flow, plus any flow an item names: the project's order first, then alphabetical, with its
+ * declared phases and its columns. `flowColumns` also gets the phases the items use, so an unknown one is a
+ * colourless extra column.
  */
 export function boardFlows(flows: IFlowSet, items: readonly IBoardPhase[]): IBoardFlow[] {
-  const names = [...new Set([...flows.entries.keys(), ...items.map((i) => i.flow)])].sort();
+  const names = orderFlowNames(
+    [...new Set([...flows.entries.keys(), ...items.map((i) => i.flow)])],
+    flows.order,
+  );
   return names.map((name) => {
     const flow = flows.entries.get(name)?.flow ?? null;
     const used = [...new Set(items.filter((i) => i.flow === name).map((i) => i.phase))];

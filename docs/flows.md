@@ -69,5 +69,20 @@ other command keeps using the last valid version with a `flow_invalid` warning u
 changes): its items leave `wip state`, `wip check`, the polls and the board, and every write on them exits 3.
 `wip show <ID>` still shows them with a `flow_disabled` warning. `wip flow enable <flow>` brings it back; `wip flow lint` lists the disabled flows.
 
+## The order of the flows on the board
+
+Both `wip web` and the Kanban mod list the flows in the project's order, kept as `flow_order` in
+`.wip/config.json`:
+
+```json
+{ "defs_dir": ".claude", "flow_order": ["tasks", "development"] }
+```
+
+`wip flow order tasks development` sets it, first = first on the board; `wip flow order` prints it, and
+`wip flow order --reset` removes the key, back to alphabetical. Every flow the list does not name comes after the
+named ones, alphabetically. A name that is not a flow is ignored, and `wip flow order` warns about it. A disabled
+flow keeps its place while it is off. A malformed `flow_order` never blocks a command: it warns
+(`flow_order_invalid`) and leaves the board alphabetical until it is fixed or reset.
+
 The commands are in [Commands](commands.md); `wip init` writes the shipped `tasks` flow, as described in
 [Start a project: `wip init`](init.md).

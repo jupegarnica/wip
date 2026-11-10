@@ -20,6 +20,7 @@
 | `wip check [<ID>]`                              | the invariants (exit 1 on findings) and the warnings                          |
 | `wip flow lint [<flow>]`                        | validate the flows; lists the disabled ones as `DISABLED <flow>`              |
 | `wip flow disable\|enable <flow>`               | hide a flow and freeze its items, or bring it back                            |
+| `wip flow order [<flow> …\|--reset]`            | choose the order of the flows on the board (`.wip/config.json`)               |
 | `wip poll due\|record\|seen`                    | the flows' scheduled checks: what is due, record a pass, what a pass saw      |
 | `wip cron add\|list\|done\|cancel\|snooze`      | scheduled reminders and fixed-time poll passes, kept across sessions          |
 | `wip web [status\|stop\|log]`                   | the kanban: serve it, check it, stop it, read its log                         |
