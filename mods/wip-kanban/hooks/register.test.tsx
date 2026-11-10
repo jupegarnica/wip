@@ -17,6 +17,8 @@ interface IWorld {
   config: string | null;
   env: Record<string, string>;
   reply: () => Promise<IRunReply>;
+  /** The answer of `wip web status --json`; exit 1 means no server of this project runs. */
+  status: () => Promise<IRunReply>;
   calls: { argv: string[]; init?: { cwd?: string; timeoutMs?: number } }[];
   opens: TJson[];
   /** The `isPlaced` of each `ui.open`, in order; absent means placed. */
@@ -32,6 +34,11 @@ function world(overrides: Partial<IWorld> = {}): IWorld {
     config: null,
     env: {},
     reply: async () => ({ exitCode: 0, stdout: stateJson(), stderr: "" }),
+    status: async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "wip web is not running for /projects/demo",
+    }),
     calls: [],
     opens: [],
     openReplies: [],
@@ -97,6 +104,18 @@ function stateJson(
   });
 }
 
+/** A `wip web status --json` answer for a running server on `port`. */
+function running(port: number): IRunReply {
+  return {
+    exitCode: 0,
+    stdout: JSON.stringify({
+      ok: true,
+      data: { state: "running", url: `http://localhost:${port}/` },
+    }),
+    stderr: "",
+  };
+}
+
 /** The hooks beneath the plugin: the engine's own answers for every call it makes. */
 function bottom(on: On, w: IWorld): void {
   on("command.register", (_$, e) => {
@@ -125,7 +144,7 @@ function bottom(on: On, w: IWorld): void {
   on("process.run", async (_$, e) => {
     w.calls.push({ argv: [...e.argv], init: e.init });
     try {
-      return { value: await w.reply() };
+      return { value: await (e.argv[1] === "web" ? w.status() : w.reply()) };
     } catch (err) {
       return { deny: err instanceof Error ? err.message : String(err) };
     }
@@ -248,6 +267,7 @@ test("the session opens the pane, registers the command and loads the first boar
   expect(w.opens[0]).not.toHaveProperty("closeOnEscape");
   expect(w.calls).toEqual([
     { argv: ["wip", "state", "--json"], init: { cwd: ROOT, timeoutMs: 4000 } },
+    { argv: ["wip", "web", "status", "--json"], init: { cwd: ROOT, timeoutMs: 4000 } },
   ]);
 
   const ui = await mount($, "terminal", 40);
@@ -368,13 +388,14 @@ test("one read at a time: a tick during a held read is skipped, the next tick af
   bottom(on, w);
   const clock = mock.clock(on);
   await start($, w);
-  expect(w.calls).toHaveLength(1);
+  const stateCalls = () => w.calls.filter((call) => call.argv[1] === "state");
+  expect(stateCalls()).toHaveLength(1);
 
   held = true;
   await clock.advance(5000);
-  expect(w.calls).toHaveLength(2);
+  expect(stateCalls()).toHaveLength(2);
   await clock.advance(5000);
-  expect(w.calls).toHaveLength(2);
+  expect(stateCalls()).toHaveLength(2);
 
   (release as ((reply: IRunReply) => void) | null)?.({
     exitCode: 0,
@@ -384,7 +405,7 @@ test("one read at a time: a tick during a held read is skipped, the next tick af
   await clock.settle();
   held = false;
   await clock.advance(5000);
-  expect(w.calls).toHaveLength(3);
+  expect(stateCalls()).toHaveLength(3);
 });
 
 test("a first failure shows only the reason; a later one keeps the rows; a success clears it", async ($, on) => {
@@ -907,6 +928,135 @@ test(
     expect(drawnText(await ui.drawn())).toContain("K1 plan");
   },
 );
+
+test("a running wip web wins over webUrl: rows link to this project's Local URL", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "kanban-mod", flow: "development", phase: "plan" }]),
+      stderr: "",
+    }),
+    status: async () => running(34002),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+  const ui = await mount($, "terminal", 40);
+  const link = await ui.find({ type: "Link" });
+  expect(link?.props.href).toBe("http://localhost:34002/?item=development%2Fkanban-mod");
+});
+
+test(
+  "a custom webUrl is only the fallback: a running server wins, no server leaves its host",
+  { options: { webUrl: "https://wip.example.com/" } },
+  async ($, on) => {
+    const w = world({
+      reply: async () => ({
+        exitCode: 0,
+        stdout: stateJson([{ id: "kanban-mod", flow: "development", phase: "plan" }]),
+        stderr: "",
+      }),
+      status: async () => running(34002),
+    });
+    bottom(on, w);
+    mock.clock(on);
+    await start($, w);
+    const live = await mount($, "terminal", 40);
+    expect((await live.find({ type: "Link" }))?.props.href).toBe(
+      "http://localhost:34002/?item=development%2Fkanban-mod",
+    );
+    await live.unmount();
+
+    w.status = async () => ({
+      exitCode: 1,
+      stdout: "",
+      stderr: "wip web is not running for /projects/demo",
+    });
+    await start($, w);
+    const fallback = await mount($, "terminal", 40);
+    expect((await fallback.find({ type: "Link" }))?.props.href).toBe(
+      "https://wip.example.com/?item=development%2Fkanban-mod",
+    );
+  },
+);
+
+test("the link follows a server restart: the next poll after 15 s takes the new port", async ($, on) => {
+  let port = 34002;
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "K1", flow: "development", phase: "plan" }]),
+      stderr: "",
+    }),
+    status: async () => running(port),
+  });
+  bottom(on, w);
+  const clock = mock.clock(on);
+  await start($, w);
+  const first = await mount($, "terminal", 40);
+  expect((await first.find({ type: "Link" }))?.props.href).toBe(
+    "http://localhost:34002/?item=development%2FK1",
+  );
+  await first.unmount();
+
+  port = 34003;
+  await clock.advance(15000);
+  const second = await mount($, "terminal", 40);
+  expect((await second.find({ type: "Link" }))?.props.href).toBe(
+    "http://localhost:34003/?item=development%2FK1",
+  );
+});
+
+test("a failed web status keeps the rows, links to the fallback and shows no error", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "K1", flow: "development", phase: "plan" }]),
+      stderr: "",
+    }),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  const cases: (() => Promise<IRunReply>)[] = [
+    async () => ({ exitCode: 2, stdout: "usage: wip web status", stderr: "" }),
+    async () => {
+      throw new Error("process run timed out after 4000 ms");
+    },
+    async () => ({ exitCode: 0, stdout: "not json", stderr: "" }),
+  ];
+  for (const status of cases) {
+    w.status = status;
+    await start($, w);
+    const ui = await mount($, "terminal", 40);
+    const tree = await ui.drawn();
+    expect((await ui.find({ type: "Link" }))?.props.href).toBe(
+      "http://localhost:33333/?item=development%2FK1",
+    );
+    expect(drawnText(tree)).toContain("K1 plan");
+    expect(drawnText(tree)).not.toContain("wip state failed");
+    expect(drawnText(tree)).not.toContain("webUrl is not a valid");
+    await ui.unmount();
+  }
+});
+
+test("wip web status uses the same resolved wip_bin as wip state", async ($, on) => {
+  const w = world({
+    config: JSON.stringify({ wip_bin: "/opt/wip/bin/wip" }),
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "K1", flow: "development", phase: "plan" }]),
+      stderr: "",
+    }),
+    status: async () => running(34002),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+  expect(w.calls.map((call) => call.argv)).toEqual([
+    ["/opt/wip/bin/wip", "state", "--json"],
+    ["/opt/wip/bin/wip", "web", "status", "--json"],
+  ]);
+});
 
 test("no items says so, and the tree validates in dock and inline on terminal and desktop", async ($, on) => {
   const w = world();

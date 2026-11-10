@@ -1,7 +1,13 @@
 import type { EngineInterface, Register } from "claude-code";
 import { atom, read, update } from "claude-code";
 
-import type { TKanbanColumn, TKanbanFlow, TKanbanItem, TKanbanSnapshot } from "../types";
+import type {
+  TKanbanColumn,
+  TKanbanFlow,
+  TKanbanItem,
+  TKanbanSnapshot,
+  TKanbanWeb,
+} from "../types";
 
 const PANE_ID = "wip-kanban";
 const PANE_TITLE = "wip Kanban";
@@ -11,6 +17,9 @@ const HIDDEN_KEY = "hidden-flows-v1";
 const TICK_MS = 5000;
 const TIMEOUT_MS = 4000;
 const ERROR_MAX = 200;
+const DEFAULT_WEB_URL = "http://localhost:33333/";
+/** Reading `wip web status` on every tick would cost a process every five seconds; every third is about 15 s. */
+const WEB_REFRESH_TICKS = 3;
 
 /** The fallback of a row without a stage that also needs attention: the web's amber background. */
 const ATTENTION_LIGHT = { background: "#FFF1D6", text: "#111111" } as const;
@@ -24,11 +33,18 @@ const snapshot = atom({ plugin: "wip-kanban", key: "snapshot" } as const, EMPTY,
 const hiddenFlows = atom({ plugin: "wip-kanban", key: "hiddenFlows" } as const, [] as string[], {
   shape: "hidden-flows-1",
 });
+const web = atom(
+  { plugin: "wip-kanban", key: "web" } as const,
+  { url: null, at: null } as TKanbanWeb,
+  { shape: "web-1" },
+);
 
 /** The project the session runs in: the key of the hidden flows in `$.store`. */
 let sessionRoot: string | null = null;
 /** One read at a time: a tick that finds the previous one running is skipped. */
 let inFlight = false;
+/** One `wip web status` at a time, apart from the board read: neither waits for the other. */
+let webInFlight = false;
 /** Whether the pane the engine opened unasked was left unplaced, waiting for a person to ask for it. */
 let paneUnplaced = false;
 
@@ -187,6 +203,58 @@ async function refresh($: EngineInterface, root: string): Promise<void> {
   }
 }
 
+/** The Local URL of a `wip web status --json` answer; anything else (exit 1 included) is no live server. */
+function statusUrl(stdout: string): string | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(stdout);
+  } catch {
+    return null;
+  }
+  if (!isRecord(body) || body.ok !== true) return null;
+  const data = body.data;
+  if (!isRecord(data) || data.state !== "running") return null;
+  if (typeof data.url !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(data.url);
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+  return data.url;
+}
+
+/**
+ * One read of `wip web status --json`: this project's running server replaces the stored URL, and any other
+ * outcome clears it so the pane falls back to the configured `webUrl`. It never shows an error: the board works
+ * without the server.
+ */
+async function refreshWeb($: EngineInterface, root: string): Promise<void> {
+  if (webInFlight) return;
+  webInFlight = true;
+  try {
+    const resolved = await resolveWip($, root);
+    if ("error" in resolved) {
+      await update($, web, () => ({ url: null, at: null }));
+      return;
+    }
+    let url: string | null = null;
+    try {
+      const result = await $.process.run([resolved.bin, "web", "status", "--json"], {
+        cwd: root,
+        timeoutMs: TIMEOUT_MS,
+      });
+      if (result.exitCode === 0) url = statusUrl(result.stdout);
+    } catch {
+      url = null;
+    }
+    await update($, web, () => ({ url, at: Date.now() }));
+  } finally {
+    webInFlight = false;
+  }
+}
+
 /** The hidden flows of `root` in a stored value; anything invalid reads as none. */
 function hiddenFor(raw: unknown, root: string): string[] {
   if (!isRecord(raw)) return [];
@@ -283,7 +351,7 @@ function rowOf(
 
 export const register: Register = (on, options) => {
   const scheme = options.colorScheme === "light" ? "light" : "dark";
-  const webUrl = typeof options.webUrl === "string" ? options.webUrl : "http://localhost:33333/";
+  const configuredWebUrl = typeof options.webUrl === "string" ? options.webUrl : DEFAULT_WEB_URL;
 
   on("session.start", async ($, e, next) => {
     await $.command.register({
@@ -303,8 +371,11 @@ export const register: Register = (on, options) => {
     });
     paneUnplaced = opened?.isPlaced === false;
     await refresh($, root);
+    await refreshWeb($, root);
+    let ticks = 0;
     $.clock.every(TICK_MS, () => {
       void refresh($, root);
+      if (ticks++ % WEB_REFRESH_TICKS === 0) void refreshWeb($, root);
     });
     return next(e);
   });
@@ -337,6 +408,7 @@ export const register: Register = (on, options) => {
       });
       paneUnplaced = opened?.isPlaced === false;
       if (!inFlight) void refresh($, root);
+      if (!webInFlight) void refreshWeb($, root);
       return { text: "wip Kanban opened." };
     }
     if (arg === "off") {
@@ -349,9 +421,11 @@ export const register: Register = (on, options) => {
   on("ui.render", { component: "Pane", requestId: PANE_ID }, async ($, e) => {
     const { Box, Text, Button, Link } = $.ui.resolve(e);
     const state = await read($, snapshot);
+    const live = await read($, web);
     const hidden = await read($, hiddenFlows);
     const width = Math.max(1, e.props.bodyColumns);
-    const linkable = itemHref(webUrl, "x", "y") !== null;
+    const base = live.url ?? configuredWebUrl;
+    const linkable = itemHref(base, "x", "y") !== null;
     const visible = state.flows.filter((f) => !hidden.includes(f.name));
     const rows = visible.map((flow) => ({
       flow,
@@ -367,7 +441,7 @@ export const register: Register = (on, options) => {
         {rows.map(({ flow, items }) => (
           <Box key={`flow:${flow.name}`} flexDirection="column">
             {items.map((item) => {
-              const href = itemHref(webUrl, item.flow, item.id);
+              const href = itemHref(base, item.flow, item.id);
               const row = rowOf(item, flow, width, scheme);
               const indent = " ".repeat(row.offset);
               if (href === null) {
