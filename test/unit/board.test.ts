@@ -5,6 +5,7 @@ import {
   flowColumns,
   type IColumn,
   NO_PAINT,
+  orderFlowNames,
   paintOf,
   STAGE_ALPHA_FIRST,
   STAGE_ALPHA_LAST,
@@ -28,6 +29,7 @@ function flow(name: string, text: string): IFlow {
 
 function flowSet(
   entries: readonly { name: string; text: string; source?: TFlowSource }[],
+  order: readonly string[] = [],
 ): IFlowSet {
   const map = new Map<string, IFlowEntry>();
   for (const e of entries) {
@@ -40,7 +42,13 @@ function flowSet(
       stored: null,
     });
   }
-  return { entries: map, warnings: [], disabled: new Map(), defsDir: ".claude" };
+  return {
+    entries: map,
+    warnings: [],
+    disabled: new Map(),
+    defsDir: ".claude",
+    order: [...order],
+  };
 }
 
 const THREE_STAGES = [
@@ -176,6 +184,20 @@ describe("the board model (data.board)", () => {
     expect(board.find((f) => f.name === "ghost")?.columns.map((c) => c.key)).toEqual([
       "phase:todo",
     ]);
+  });
+
+  test("boardFlows puts the project's flow order first, then the rest alphabetically", () => {
+    const flows = flowSet(
+      [
+        { name: "alpha", text: NO_STAGES },
+        { name: "development", text: NO_STAGES },
+        { name: "tasks", text: NO_STAGES },
+      ],
+      ["tasks", "development", "ghost"],
+    );
+    expect(boardFlows(flows, []).map((f) => f.name)).toEqual(["tasks", "development", "alpha"]);
+    expect(orderFlowNames(["c", "b", "a"], ["b", "ghost", "b"])).toEqual(["b", "a", "c"]);
+    expect(orderFlowNames(["c", "b", "a"], [])).toEqual(["a", "b", "c"]);
   });
 
   test("a phase only an item uses is a colourless extra column, outside phases", () => {

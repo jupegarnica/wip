@@ -180,10 +180,15 @@ export const COMMANDS: readonly ICommandSpec[] = [
   {
     name: "flow",
     summary:
-      "Validate, disable and enable the flows, the skills <defs>/skills/wip-flow-<flow>/ (lint exits 1 on findings)",
-    usage: ["wip flow lint [<flow>]", "wip flow disable <flow>", "wip flow enable <flow>"],
+      "Validate, disable and enable the flows, and choose their order on the board (the skills <defs>/skills/wip-flow-<flow>/, lint exits 1 on findings)",
+    usage: [
+      "wip flow lint [<flow>]",
+      "wip flow disable <flow>",
+      "wip flow enable <flow>",
+      "wip flow order [<flow> … | --reset]",
+    ],
     options: [],
-    flags: [],
+    flags: ["reset"],
   },
   {
     name: "poll",

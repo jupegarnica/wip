@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { iso } from "../clock.ts";
+import { readFlowOrder } from "../config.ts";
 import type { IWarning } from "../context.ts";
 import type { TDatabase } from "../db.ts";
 import { FLOW_SKILL_PREFIX, flowPath, type IRoot } from "../env.ts";
@@ -28,6 +29,11 @@ export interface IFlowSet {
   disabled: Map<string, IFlow>;
   /** The project's definitions folder, relative: it names the files in messages. */
   defsDir: string;
+  /**
+   * The board's flow order: `flow_order` in `.wip/config.json`, first = first; the flows it does not name
+   * follow alphabetically. Empty when the key is absent or malformed.
+   */
+  order: string[];
 }
 
 export interface ILoadOptions {
@@ -137,6 +143,8 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
   const entries = new Map<string, IFlowEntry>();
   const warnings: IWarning[] = [];
   const disabled = new Map<string, IFlow>();
+  const { order, problem } = readFlowOrder(root.project);
+  if (problem) warnings.push({ code: "flow_order_invalid", message: problem });
   for (const row of stored.values()) {
     if (row.disabled === 1) disabled.set(row.name, (JSON.parse(row.json) as IStoredJson).flow);
   }
@@ -186,7 +194,7 @@ export function loadFlows(root: IRoot, db: TDatabase | null, options: ILoadOptio
     entries.set(name, entry);
     warnings.push(fallback(entry, row, "flow_missing"));
   }
-  return { entries, warnings, disabled, defsDir: root.defsDir };
+  return { entries, warnings, disabled, defsDir: root.defsDir, order };
 }
 
 export const disabledMessage = (name: string): string =>

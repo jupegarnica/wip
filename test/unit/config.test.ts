@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { configPath, readConfig, writeConfig } from "../../src/config.ts";
+import { configPath, readConfig, readFlowOrder, writeConfig } from "../../src/config.ts";
 
 let project: string;
 beforeEach(() => {
@@ -50,4 +50,40 @@ test("a legacy harness key is ignored by readConfig and dropped by writeConfig",
   expect(readConfig(project)).toEqual({ defs_dir: ".agents", wip_bin: null });
   writeConfig(project, { defs_dir: ".agents", wip_bin: null });
   expect(raw()).toEqual({ defs_dir: ".agents" });
+});
+
+test("flow_order is absent by default, and an empty array or null is the same as absent", () => {
+  expect(readFlowOrder(project)).toEqual({ order: [], problem: null });
+  put({ defs_dir: ".claude", flow_order: [] });
+  expect(readFlowOrder(project)).toEqual({ order: [], problem: null });
+  put({ defs_dir: ".claude", flow_order: null });
+  expect(readFlowOrder(project)).toEqual({ order: [], problem: null });
+});
+
+test("flow_order round-trips through writeConfig, and null removes the key", () => {
+  writeConfig(project, { flow_order: ["tasks", "development"] });
+  expect(readFlowOrder(project)).toEqual({ order: ["tasks", "development"], problem: null });
+  writeConfig(project, { flow_order: null });
+  expect(readFlowOrder(project).order).toEqual([]);
+  expect(Object.keys(raw())).not.toContain("flow_order");
+});
+
+test("a malformed flow_order is not an error: an empty order plus a problem", () => {
+  for (const bad of ["tasks", [""], [1], ["a", "a"], {}]) {
+    put({ defs_dir: ".claude", flow_order: bad });
+    const read = readFlowOrder(project);
+    expect(read.order).toEqual([]);
+    expect(read.problem).toContain("flow_order");
+  }
+});
+
+test("writeConfig keeps flow_order and the other keys of the config", () => {
+  put({ defs_dir: ".claude", wip_bin: "node_modules/.bin/wip", flow_order: ["tasks"] });
+  writeConfig(project, { start: ["claude"] });
+  expect(raw()).toEqual({
+    defs_dir: ".claude",
+    wip_bin: "node_modules/.bin/wip",
+    flow_order: ["tasks"],
+    start: ["claude"],
+  });
 });
