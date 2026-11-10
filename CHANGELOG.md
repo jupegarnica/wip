@@ -4,6 +4,11 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.2.1 (unreleased)
+
+- `wip web`: an artifact's preview in the item panel keeps its scroll across the 5 s refreshes, and the panel no
+  longer repaints when only an open gate's wait time moves.
+
 ## 0.2.0 (2026-11-09)
 
 First version.

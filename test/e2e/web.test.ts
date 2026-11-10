@@ -524,6 +524,19 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
     expect(body.field_links).toEqual([]);
   });
 
+  test("with an open gate, two polls 5 s apart differ only in totals.user_wait_seconds", async () => {
+    const p = board();
+    at("2026-10-30T12:00:00Z");
+    await serve(p);
+    const first = await getJson("/api/item/valid/T1");
+    tick(5, "2026-10-30T12:00:00Z");
+    const second = await getJson("/api/item/valid/T1");
+    expect(second.totals.user_wait_seconds - first.totals.user_wait_seconds).toBe(5);
+    delete first.totals.user_wait_seconds;
+    delete second.totals.user_wait_seconds;
+    expect(second).toEqual(first);
+  });
+
   test("an unknown item, another flow or a bad segment is 404", async () => {
     const p = board();
     await serve(p);
@@ -962,6 +975,22 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(body).toContain('url.searchParams.delete("item")');
     expect(app).toContain("setItemParam(ref)");
     expect(app).toContain("setItemParam(null)");
+  });
+
+  test("the item panel keeps the preview scroll and ignores the clock-derived total", () => {
+    const app = WEB["app.js"] as string;
+    for (const needle of [
+      "function capturePanelScroll",
+      "function restorePanelScroll",
+      "function panelKey",
+      "user_wait_seconds: 0",
+      "function updatePanelTotals",
+      'dataset.panel = "totals"',
+      "pre.scrollTop = scroll.viewer",
+    ]) {
+      expect(app).toContain(needle);
+    }
+    expect(app).not.toContain("innerHTML");
   });
 
   test("the page files and @garndev/markdown are served as embedded, with their types", async () => {

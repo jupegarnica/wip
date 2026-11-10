@@ -1,7 +1,9 @@
 // wip web: polls /api/kanban every 5 s and repaints only when the text changed; the item panel polls
 // /api/item/<flow>/<ID> while it is open, and the History view polls /api/history while it is shown. The DOM is built
 // with textContent only: nothing from the server becomes HTML. The one exception is the .md preview, built in
-// markdown.js (WipMd): the highlighter's HTML is parsed inert and only whitelisted div/span are rebuilt.
+// markdown.js (WipMd): the highlighter's HTML is parsed inert and only whitelisted div/span are rebuilt. The panel
+// compares a stable key that ignores the clock-derived total, so an open gate's wait only repaints Totals, and the
+// preview keeps its own scroll across a repaint.
 
 const POLL_MS = 5000;
 const TIMEOUT_MS = 5000;
@@ -56,7 +58,8 @@ let prevCards = new Map();
 let timer = null;
 let inFlight = false;
 let openRef = null; // { flow, id } of the item in the panel
-let panelText = null;
+let panelText = null; // stable key: the item body with totals.user_wait_seconds zeroed
+let panelRaw = null; // last body, to repaint Totals only when the wait moved
 let panelTimer = null;
 let viewer = null; // { name, text, md?, lineStarts?, refs?, notice? } of the artifact shown in the panel
 const hist = { flow: "", q: "", include: initialInclude(), offset: 0 };
@@ -696,11 +699,18 @@ function panelState(data) {
 
 function panelTotals(t) {
   const tot = section("Totals");
+  tot.dataset.panel = "totals";
   const agents = duration(t.agent_seconds) || "0s";
   const waiting = duration(t.user_wait_seconds) || "0s";
   tot.appendChild(el("p", "big", `agents ${agents} · waiting on you ${waiting}`));
   tot.appendChild(el("p", "muted", `${t.runs} runs (${t.running} running) · ${t.gates} gates`));
   return tot;
+}
+
+// The only section that moves when nothing but the clock changed: swap it without touching the rest of the panel.
+function updatePanelTotals(totals) {
+  const old = panelBody.querySelector('[data-panel="totals"]');
+  if (old) old.replaceWith(panelTotals(totals));
 }
 
 function panelLinks(data) {
@@ -824,7 +834,25 @@ function panelLog(data) {
   return log;
 }
 
+// The preview scrolls inside its own <pre> (max-height: 50vh, app.css); the panel repaint replaces it.
+function capturePanelScroll() {
+  const pre = panelBody.querySelector(".arts .viewer pre");
+  return { panel: panelBody.scrollTop, viewer: pre ? pre.scrollTop : 0 };
+}
+
+function restorePanelScroll(scroll) {
+  panelBody.scrollTop = scroll.panel;
+  const pre = panelBody.querySelector(".arts .viewer pre");
+  if (pre) pre.scrollTop = scroll.viewer;
+}
+
+// The only clock-derived field of the item view: an open gate's wait grows on every poll and must not repaint.
+function panelKey(data) {
+  return JSON.stringify({ ...data, totals: { ...data.totals, user_wait_seconds: 0 } });
+}
+
 function renderPanel(data) {
+  const scroll = capturePanelScroll();
   panelTitle.replaceChildren();
   panelTitle.appendChild(idWithLinks({ id: data.item.id, links: data.links }));
   panelTitle.appendChild(el("span", "muted", ` · ${data.item.flow}`));
@@ -837,6 +865,7 @@ function renderPanel(data) {
   frag.appendChild(panelGates(data));
   frag.appendChild(panelLog(data));
   panelBody.replaceChildren(frag);
+  restorePanelScroll(scroll);
 }
 
 // The preview box inside the artifact's row (li[data-art]); any other preview box goes first.
@@ -878,11 +907,17 @@ function setViewerNotice(notice) {
   if (!viewer) return;
   const shown = viewer;
   shown.notice = notice;
+  const scroll = capturePanelScroll();
   paintViewer();
+  restorePanelScroll(scroll);
   setTimeout(() => {
     if (shown.notice !== notice) return;
     shown.notice = null;
-    if (viewer === shown) paintViewer();
+    if (viewer === shown) {
+      const later = capturePanelScroll();
+      paintViewer();
+      restorePanelScroll(later);
+    }
   }, WipMd.NOTICE_MS);
 }
 
@@ -902,14 +937,18 @@ async function loadPanel() {
     if (!sameRef(ref, openRef)) return;
     if (res.ok) {
       const text = await res.text();
-      if (text !== panelText) {
-        const scroll = panelBody.scrollTop;
-        renderPanel(JSON.parse(text));
-        panelBody.scrollTop = scroll;
-        panelText = text;
+      const data = JSON.parse(text);
+      const key = panelKey(data);
+      if (key !== panelText) {
+        renderPanel(data);
+        panelText = key;
+      } else if (text !== panelRaw) {
+        updatePanelTotals(data.totals);
       }
+      panelRaw = text;
     } else {
       panelText = null;
+      panelRaw = null;
       panelTitle.textContent = ref.id;
       const why =
         res.status === 404 ? `No item ${ref.id} in ${ref.flow}.` : `HTTP error ${res.status}`;
@@ -947,6 +986,7 @@ function openPanel(flow, id) {
   if (!sameRef(ref, openRef)) {
     viewer = null;
     panelText = null;
+    panelRaw = null;
     panelTitle.textContent = id;
     panelBody.replaceChildren(el("p", "muted", "loading…"));
   }
