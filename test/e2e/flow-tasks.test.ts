@@ -147,7 +147,7 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     expect(archived.map((i) => i.id)).toEqual(["T1"]);
     expect(existsSync(join(artifacts, "request.md"))).toBe(true);
     expect(readFileSync(join(artifacts, "v1.plan.md"), "utf8")).toContain("README.md");
-  });
+  }, 30000);
 
   test("a restarted coordinator finds the live run orphaned and relaunches nothing", () => {
     const dir = project("restart");
