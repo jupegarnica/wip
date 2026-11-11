@@ -9,8 +9,10 @@ import {
   type ISelectOption,
   inputStep,
   keysOf,
+  multiSelectStep,
   optionsError,
   redraw,
+  renderMultiSelect,
   renderSelect,
   resolveOption,
   screenRows,
@@ -52,6 +54,34 @@ function fake(answers: (string | null)[]): IAsker & { said: string[]; asked: str
         if (a === "") return (spec.options[spec.initial] as ISelectOption).value;
         const i = resolveOption(a, spec.options);
         if (i >= 0) return (spec.options[i] as ISelectOption).value;
+        said.push(optionsError(spec.options));
+      }
+    },
+    multiSelect: async (spec) => {
+      asked.push(
+        `${spec.question} [${spec.options.map((o) => o.value).join("|")}] @${spec.initial.join(",")}`,
+      );
+      for (;;) {
+        const a = next();
+        if (a === null) return null;
+        const picked: string[] = [];
+        let ok = true;
+        if (a.trim() !== "") {
+          for (const token of a.split(",")) {
+            const i = resolveOption(token.trim(), spec.options);
+            if (i < 0) {
+              ok = false;
+              break;
+            }
+            const value = (spec.options[i] as ISelectOption).value;
+            if (!picked.includes(value)) picked.push(value);
+          }
+        } else {
+          picked.push(...spec.initial);
+        }
+        if (ok && picked.length >= (spec.min ?? 1)) {
+          return spec.options.filter((o) => picked.includes(o.value)).map((o) => o.value);
+        }
         said.push(optionsError(spec.options));
       }
     },
@@ -145,6 +175,46 @@ describe("select and input keys", () => {
     expect(refused.state.error ?? "").toContain("not an option");
     expect(refused.state.buffer).toBe("");
   });
+  const MST = { cursor: 0, checked: ["alpha"], buffer: "", error: null };
+  test("multi-select: arrows move, Space toggles, at least one stays checked, Enter returns the checks", () => {
+    expect(multiSelectStep(MST, "\x1b[B", OPTIONS)).toEqual({
+      state: { cursor: 1, checked: ["alpha"], buffer: "", error: null },
+    });
+    const on = multiSelectStep({ ...MST, cursor: 1 }, " ", OPTIONS) as { state: typeof MST };
+    expect(on.state.checked).toEqual(["alpha", "beta"]);
+    const off = multiSelectStep(on.state, " ", OPTIONS) as { state: typeof MST };
+    expect(off.state.checked).toEqual(["alpha"]);
+    const last = multiSelectStep(MST, " ", OPTIONS) as { state: typeof MST };
+    expect(String(last.state.error)).toBe("keep at least 1 checked");
+    expect(multiSelectStep({ ...MST, checked: ["alpha", "beta"] }, "\r", OPTIONS)).toEqual({
+      done: ["alpha", "beta"],
+    });
+  });
+  test("multi-select: typing names or numbers replaces the selection; junk is refused", () => {
+    const typed = (text: string) => {
+      let st = MST;
+      for (const c of text) st = (multiSelectStep(st, c, OPTIONS) as { state: typeof MST }).state;
+      return st;
+    };
+    expect(multiSelectStep(typed("2"), "\r", OPTIONS)).toEqual({ done: ["beta"] });
+    expect(multiSelectStep(typed("alpha,beta"), "\r", OPTIONS)).toEqual({
+      done: ["alpha", "beta"],
+    });
+    const refused = multiSelectStep(typed("nope"), "\r", OPTIONS) as { state: typeof MST };
+    expect(refused.state.error ?? "").toContain("not an option");
+    expect(multiSelectStep(MST, "\x03", OPTIONS)).toEqual({ abort: true });
+  });
+  test("multi-select renders the checks, the cursor and the toggle hint", () => {
+    const lines = renderMultiSelect(
+      { question: "Flows?", options: OPTIONS, initial: ["beta"] },
+      { cursor: 0, checked: ["beta"], buffer: "", error: null },
+      PLAIN,
+    ).join("\n");
+    expect(lines).toContain("[ ] 1) alpha");
+    expect(lines).toContain("[x] 2) beta");
+    expect(lines).toContain("Space toggle");
+    expect(lines).not.toContain("\x1b");
+  });
   test("Ctrl+C and Ctrl+D abort; input edits and confirms", () => {
     expect(selectStep(st, "\x03", OPTIONS)).toEqual({ abort: true });
     expect(inputStep("ab", "\x03")).toEqual({ abort: true });
@@ -189,10 +259,10 @@ describe("promptInit", () => {
 
   test("the first question is scope; Enter keeps local and adds no --global", async () => {
     const dir = tmp();
-    const asker = fake(["", "", "", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", "", "", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.asked[0]).toBe("Where do the agents and skills live? [local|global] @0");
-    expect(asker.said.join("\n")).toContain("1/4 Scope");
+    expect(asker.said.join("\n")).toContain("1/5 Scope");
     expect(asker.said.join("\n")).toMatch(/scope\s+local/);
     expect(out.argv).not.toContain("--global");
   });
@@ -200,7 +270,7 @@ describe("promptInit", () => {
   test("the wizard asks no model and init writes the templates' models", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, Kanban (no), Write
-    const asker = fake(["", "", "", "", "no", ""]);
+    const asker = fake(["", "", "", "", "", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.asked.join("\n")).not.toContain("Model of");
     expect(out.argv).not.toContain("--models");
@@ -215,7 +285,7 @@ describe("promptInit", () => {
   test("Enter takes every default and the default start; no in Kanban keeps argv to those", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, Kanban (no), Write.
-    const asker = fake(["", "", "", "", "no", ""]);
+    const asker = fake(["", "", "", "", "", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.asked.join("\n")).not.toContain("Model of");
     expect(out.argv).toEqual([
@@ -227,9 +297,67 @@ describe("promptInit", () => {
     ]);
   });
 
+  test("the Flows step is 2/5 with all four checked; Enter keeps all and adds no --flows", async () => {
+    const dir = tmp();
+    // scope, flows, start, .wip/, defs, Kanban (no), Write.
+    const asker = fake(["", "", "", "", "", "no", ""]);
+    const out = await promptInit(["init"], dir, env, asker);
+    expect(asker.asked).toContain(
+      "Which flows should wip write? [development|ideas|reports|tasks] @development,ideas,reports,tasks",
+    );
+    expect(asker.said.join("\n")).toContain("2/5 Flows");
+    expect(asker.said.join("\n")).toMatch(/flows\s+development, ideas, reports, tasks/);
+    expect(out.argv).not.toContain("--flows");
+    expect(wip(dir, out.argv as string[]).code).toBe(0);
+    expect(
+      readdirSync(join(dir, ".claude", "skills"))
+        .filter((n) => n.startsWith("wip-flow-"))
+        .sort(),
+    ).toEqual(["wip-flow-development", "wip-flow-ideas", "wip-flow-reports", "wip-flow-tasks"]);
+  });
+
+  test("a smaller selection adds --flows and the run writes only those flows", async () => {
+    const dir = tmp();
+    // scope, flows (tasks), start, .wip/, defs, Kanban (no), Write.
+    const asker = fake(["", "tasks", "", "", "", "no", ""]);
+    const out = await promptInit(["init"], dir, env, asker);
+    expect(asker.said.join("\n")).toMatch(/flows\s+tasks/);
+    expect(out.argv).toContain("--flows");
+    expect(out.argv).toContain("tasks");
+    const res = wip(dir, out.argv as string[]);
+    expect(res.code).toBe(0);
+    expect(
+      readdirSync(join(dir, ".claude", "skills"))
+        .filter((n) => n.startsWith("wip-flow-"))
+        .sort(),
+    ).toEqual(["wip-flow-tasks"]);
+    expect(res.stdout).toContain("seeded item onboarding");
+  });
+
+  test("--flows skips the Flows step and is not duplicated", async () => {
+    const dir = tmp();
+    // scope, start, .wip/, defs, Kanban (yes), file, Write.
+    const asker = fake(["", "", "", "", "", "", ""]);
+    const out = await promptInit(["init", "--flows", "ideas"], dir, env, asker);
+    expect(asker.asked.join("\n")).not.toContain("Which flows");
+    expect(asker.said.join("\n")).toContain("from --flows ideas");
+    expect(asker.said.join("\n")).toMatch(/flows\s+ideas/);
+    expect((out.argv as string[]).filter((a) => a === "--flows")).toHaveLength(1);
+  });
+
+  test("an unknown --flows value is not asked and reaches the command's usage error", async () => {
+    const dir = tmp();
+    const asker = fake([]);
+    const out = await promptInit(["init", "--flows", "nope"], dir, env, asker);
+    expect(asker.asked).toEqual([]);
+    expect(out).toEqual({ argv: ["init", "--flows", "nope"], code: 0 });
+    expect(wip(dir, ["init", "--flows", "nope"]).code).toBe(2);
+    expect(readdirSync(dir)).toEqual([]);
+  });
+
   test("a bad start command asks again", async () => {
     const dir = tmp();
-    const asker = fake(["", "claude {nope}", "claude --agent wip", "", "", "no", ""]);
+    const asker = fake(["", "", "claude {nope}", "claude --agent wip", "", "", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.said.join("\n")).toContain("unknown variable {nope}");
     expect(out.argv).toContain("claude --agent wip");
@@ -241,7 +369,7 @@ describe("promptInit", () => {
     const file = join(dir, ".claude", "agents", "thinker.md");
     writeFileSync(file, readFileSync(file, "utf8").replace(/^model: .*$/m, "model: sonnet"));
     // start, defs, Kanban (no), Write.
-    const asker = fake(["", "", "no", ""]);
+    const asker = fake(["", "", "", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.asked.join("\n")).not.toContain("Model of");
     expect((out.argv as string[]).join(" ")).not.toContain("--models");
@@ -253,7 +381,7 @@ describe("promptInit", () => {
       const dir = tmp();
       const home = tmp();
       // scope (global), start, .wip/, Kanban, file, Write.
-      const asker = fake([pick, "", "", "", "", ""]);
+      const asker = fake([pick, "", "", "", "", "", ""]);
       const out = await promptInit(["init"], dir, { PATH: "", HOME: home }, asker);
       expect(out.argv?.[1]).toBe("--global");
       const said = asker.said.join("\n");
@@ -269,7 +397,7 @@ describe("promptInit", () => {
     const dir = tmp();
     const home = tmp();
     // start, .wip/, Kanban, file, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(["init", "--global"], dir, { PATH: "", HOME: home }, asker);
     expect(asker.asked.join("\n")).not.toContain("Where do the agents and skills live");
     expect(asker.said.join("\n")).toContain("from --global");
@@ -280,7 +408,7 @@ describe("promptInit", () => {
     const dir = tmp();
     expect(wip(dir, ["init", "--yes"]).code).toBe(0);
     // start, defs, Kanban, file, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.asked.join("\n")).not.toContain("Where do the agents and skills live");
     expect(asker.said.join("\n")).toContain("scope kept: local");
@@ -291,7 +419,7 @@ describe("promptInit", () => {
     const genv = { PATH: "", HOME: home };
     expect(run(["init", "--yes", "--global"], { cwd: dirG, env: genv }).code).toBe(0);
     // start, .wip/, Kanban, file, Write.
-    const askerG = fake(["", "", "", "", ""]);
+    const askerG = fake(["", "", "", "", "", ""]);
     const outG = await promptInit(["init"], dirG, genv, askerG);
     expect(askerG.asked.join("\n")).not.toContain("Where do the agents and skills live");
     expect(askerG.said.join("\n")).toContain("scope kept: global");
@@ -310,20 +438,20 @@ describe("promptInit", () => {
   test("the Git step asks .wip/ and the definitions, default yes and no", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, Kanban (no), Write.
-    const asker = fake(["", "", "", "", "no", ""]);
+    const asker = fake(["", "", "", "", "", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
-    expect(asker.said.join("\n")).toContain("3/4 Git");
+    expect(asker.said.join("\n")).toContain("4/5 Git");
     expect(asker.said.join("\n")).toMatch(/gitignore\s+wip/);
     expect(out.argv?.slice(-2)).toEqual(["--gitignore", "wip"]);
   });
 
   test("no to .wip/ and yes to defs gives --gitignore defs; both no gives none", async () => {
-    const a = fake(["", "", "n", "y", "no", ""]);
+    const a = fake(["", "", "", "n", "y", "no", ""]);
     expect((await promptInit(["init"], tmp(), env, a)).argv?.slice(-2)).toEqual([
       "--gitignore",
       "defs",
     ]);
-    const b = fake(["", "", "n", "n", "no", ""]);
+    const b = fake(["", "", "", "n", "n", "no", ""]);
     expect((await promptInit(["init"], tmp(), env, b)).argv?.slice(-2)).toEqual([
       "--gitignore",
       "none",
@@ -334,13 +462,13 @@ describe("promptInit", () => {
     const dir = tmp();
     expect(wip(dir, ["init", "--yes"]).code).toBe(0);
     // start, defs, Kanban, file, Write.
-    const a = fake(["", "", "", "", ""]);
+    const a = fake(["", "", "", "", "", ""]);
     const out = await promptInit(["init"], dir, env, a);
     expect(a.said.join("\n")).toContain(".wip/ already ignored");
     expect(out.argv).not.toContain("--gitignore");
 
     // scope, start, Kanban, file, Write.
-    const b = fake(["", "", "", "", ""]);
+    const b = fake(["", "", "", "", "", ""]);
     const outB = await promptInit(["init", "--gitignore", "none"], tmp(), env, b);
     expect(b.said.join("\n")).toContain("from --gitignore none");
     expect(b.asked.join("\n")).not.toContain("Ignore .wip/");
@@ -348,7 +476,7 @@ describe("promptInit", () => {
 
     const home = tmp();
     // start, .wip/, Kanban, file, Write.
-    const c = fake(["", "", "", "", ""]);
+    const c = fake(["", "", "", "", "", ""]);
     await promptInit(["init", "--global"], tmp(), { PATH: "", HOME: home }, c);
     expect(c.asked.join("\n")).not.toContain("Also ignore the wip definitions");
   });
@@ -362,7 +490,7 @@ describe("promptInit", () => {
       `${JSON.stringify({ defs_dir: ".agents" }, null, 2)}\n`,
     );
     // start, defs, Kanban, file, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     const said = asker.said.join("\n");
     expect(said).toContain("this project uses .agents/");
@@ -389,7 +517,7 @@ describe("promptInit", () => {
       `${JSON.stringify({ defs_dir: "~/.agents" }, null, 2)}\n`,
     );
     // start, .wip/, Kanban, file, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     await promptInit(["init"], dir, genv, asker);
     expect(asker.said.join("\n")).toContain(
       `this project uses ${join(home, ".agents")}/; wip now writes ${join(home, ".claude")}/`,
@@ -400,13 +528,13 @@ describe("promptInit", () => {
     const dir = tmp();
     expect(wip(dir, ["init", "--yes"]).code).toBe(0);
     // start, defs, Kanban, file, Write.
-    const same = fake(["", "", "", "", ""]);
+    const same = fake(["", "", "", "", "", ""]);
     await promptInit(["init"], dir, env, same);
     expect(same.said.join("\n")).not.toContain("needs `wip init --force`");
     expect(same.said.join("\n")).not.toContain("switch from");
 
     // scope, start, .wip/, defs, Kanban, file, Write.
-    const fresh = fake(["", "", "", "", "", "", ""]);
+    const fresh = fake(["", "", "", "", "", "", "", ""]);
     await promptInit(["init"], tmp(), env, fresh);
     expect(fresh.said.join("\n")).not.toContain("needs `wip init --force`");
     expect(fresh.said.join("\n")).not.toContain("switch from");
@@ -415,7 +543,7 @@ describe("promptInit", () => {
   test("declining the summary writes nothing", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, Kanban (no), Write (no).
-    const out = await promptInit(["init"], dir, env, fake(["", "", "", "", "no", "n"]));
+    const out = await promptInit(["init"], dir, env, fake(["", "", "", "", "", "no", "n"]));
     expect(out).toEqual({ argv: null, code: 0 });
     expect(readdirSync(dir)).toEqual([]);
   });
@@ -470,12 +598,12 @@ describe("wip init flags without a terminal", () => {
   });
 });
 
-describe("the Kanban step (4/4)", () => {
+describe("the Kanban step (5/5)", () => {
   const env = { PATH: "" };
   const said = (asker: { said: string[] }) => asker.said.join("\n");
   const asked = (asker: { asked: string[] }) => asker.asked.join("\n");
-  /** scope, start, .wip/, defs, then the Kanban step and the Write. */
-  const fresh = (kanbanAnswers: (string | null)[]) => fake(["", "", "", "", ...kanbanAnswers]);
+  /** scope, flows, start, .wip/, defs, then the Kanban step and the Write. */
+  const fresh = (kanbanAnswers: (string | null)[]) => fake(["", "", "", "", "", ...kanbanAnswers]);
 
   test("the first question is exact, `yes` is the default and Enter installs it", async () => {
     const dir = tmp();
@@ -487,7 +615,7 @@ describe("the Kanban step (4/4)", () => {
       "Where does the enabledPlugins entry go? [settings.json|settings.local.json] @0",
     );
     expect(said(asker)).toContain("default: yes");
-    expect(said(asker)).toContain("4/4 Kanban");
+    expect(said(asker)).toContain("5/5 Kanban");
     expect(said(asker)).toContain(
       "optional: a read-only board of the open items, shown by Claude Code",
     );
@@ -537,7 +665,7 @@ describe("the Kanban step (4/4)", () => {
     const project = tmp();
     expect(wip(project, ["init", "--yes", "--kanban"]).code).toBe(0);
     // start, defs, yes (install), Enter (settings.json), Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(["init"], project, env, asker);
     expect(asked(asker)).not.toContain("Where do the agents and skills live");
     expect(asked(asker)).toContain("Install the wip Kanban mod for Claude Code? [no|yes] @1");
@@ -549,7 +677,7 @@ describe("the Kanban step (4/4)", () => {
       wip(local, ["init", "--yes", "--kanban", "--kanban-settings-file", "settings.local.json"])
         .code,
     ).toBe(0);
-    const localAsker = fake(["", "", "", "", ""]);
+    const localAsker = fake(["", "", "", "", "", ""]);
     const localOut = await promptInit(["init"], local, env, localAsker);
     expect(asked(localAsker)).toContain("Install the wip Kanban mod for Claude Code? [no|yes] @1");
     expect(asked(localAsker)).toContain(
@@ -570,7 +698,7 @@ describe("the Kanban step (4/4)", () => {
       `${JSON.stringify({ enabledPlugins: { "wip-kanban@skills-dir": false } })}\n`,
     );
     // start, defs, Kanban (no), Write.
-    const asker = fake(["", "", "no", ""]);
+    const asker = fake(["", "", "", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(said(asker)).toContain("the plugin is disabled in .claude/settings.json");
     expect(asked(asker)).toContain("Install the wip Kanban mod for Claude Code? [no|yes] @0");
@@ -580,7 +708,7 @@ describe("the Kanban step (4/4)", () => {
     expect(wip(plain, ["init", "--yes", "--kanban"]).code).toBe(0);
     rmSync(join(plain, ".claude", "settings.json"));
     // start, defs, Kanban (yes), file (settings.json), Write.
-    const plainAsk = fake(["", "", "", "", ""]);
+    const plainAsk = fake(["", "", "", "", "", ""]);
     const plainOut = await promptInit(["init"], plain, env, plainAsk);
     expect(said(plainAsk)).toContain("choosing yes adds the enabledPlugins entry");
     expect(asked(plainAsk)).toContain("Install the wip Kanban mod for Claude Code? [no|yes] @1");
@@ -591,7 +719,7 @@ describe("the Kanban step (4/4)", () => {
   test("--kanban skips the first question and still asks the file", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, file, Write.
-    const asker = fake(["", "", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", "", ""]);
     const out = await promptInit(["init", "--kanban"], dir, env, asker);
     expect(asked(asker)).not.toContain("Install the wip Kanban mod for Claude Code?");
     expect(asked(asker)).toContain("Where does the enabledPlugins entry go?");
@@ -603,7 +731,7 @@ describe("the Kanban step (4/4)", () => {
   test("--kanban --force skips both questions and writes the default settings.json", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(["init", "--kanban", "--force"], dir, env, asker);
     expect(asked(asker)).not.toContain("Install the wip Kanban mod for Claude Code?");
     expect(asked(asker)).not.toContain("Where does the enabledPlugins entry go?");
@@ -614,7 +742,7 @@ describe("the Kanban step (4/4)", () => {
 
   test("--kanban --force still honours an explicit --kanban-settings-file", async () => {
     // scope, start, .wip/, defs, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(
       ["init", "--kanban", "--force", "--kanban-settings-file", "settings.local.json"],
       tmp(),
@@ -629,7 +757,7 @@ describe("the Kanban step (4/4)", () => {
   test("--kanban-settings-file skips the second question and is not duplicated", async () => {
     const dir = tmp();
     // scope, start, .wip/, defs, Write.
-    const asker = fake(["", "", "", "", ""]);
+    const asker = fake(["", "", "", "", "", ""]);
     const out = await promptInit(
       ["init", "--kanban", "--kanban-settings-file", "settings.local.json"],
       dir,
@@ -672,13 +800,13 @@ describe("the Kanban step (4/4)", () => {
     const dir = tmp();
     expect(wip(dir, ["init", "--yes", "--kanban"]).code).toBe(0);
     // start, defs, Kanban (no), Write.
-    const asker = fake(["", "", "no", ""]);
+    const asker = fake(["", "", "", "no", ""]);
     await promptInit(["init", "--force"], dir, env, asker);
     expect(said(asker)).toContain("--force refreshes the copy even when the answer is no");
 
     const home = tmp();
     // start, .wip/, Kanban (no), Write.
-    const globalAsker = fake(["", "", "no", ""]);
+    const globalAsker = fake(["", "", "", "no", ""]);
     await promptInit(["init", "--global"], tmp(), { PATH: "", HOME: home }, globalAsker);
     expect(said(globalAsker)).toContain("the mod is installed in this project anyway");
   });

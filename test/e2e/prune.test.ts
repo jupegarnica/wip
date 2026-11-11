@@ -196,7 +196,7 @@ function makeProject(dir: string): void {
       .replace(/^# tasks/m, "# notes"),
   );
   for (const [flow, id] of ITEMS) {
-    ok(["phase", id, "intake", "--flow", flow], {}, dir);
+    ok(["phase", id, "todo", "--flow", flow], {}, dir);
     fill(dir, flow, id);
     // A symlink in tmp/ to a file outside the item: never followed, never removed.
     symlinkSync(
@@ -554,7 +554,7 @@ describe("wip archive prunes by default (e2e)", () => {
   test("12 archive prunes by default", () => {
     const out = wip(["archive", "N1"]);
     expect(out.code).toBe(0);
-    expect(out.stdout).toMatch(/N1 · archived in intake · pruned 2\.\d MB \(trash\)/);
+    expect(out.stdout).toMatch(/N1 · archived in todo · pruned 2\.\d MB \(trash\)/);
     for (const f of PRUNED) expect(existsSync(join(N1(), f))).toBe(false);
     for (const f of STAYS) expect(existsSync(join(N1(), f))).toBe(true);
     expect(existsSync(join(N1(), "prune.md"))).toBe(true);
@@ -590,7 +590,7 @@ describe("wip archive prunes by default (e2e)", () => {
     const out = wip(["archive", "N1"], { FAKE_TRASH_FAIL: "1" });
     expect(out.code).toBe(0);
     expect(out.stdout).toMatch(
-      /N1 · archived in intake · not pruned: 2\.\d MB moved to \.wip\/tmp, the trash failed/,
+      /N1 · archived in todo · not pruned: 2\.\d MB moved to \.wip\/tmp, the trash failed/,
     );
     expect(out.stdout).not.toContain("(trash)");
     const all = out.stdout + out.stderr;

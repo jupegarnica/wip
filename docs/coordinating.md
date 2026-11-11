@@ -16,5 +16,11 @@ takes the first free port from 33333 and opens the browser. You get one line wit
 only when the start fails. When a later `wip web status` finds the kanban down or its log with errors, the
 coordinator tells you; it starts it again or stops it only when you ask.
 
+While the seeded `onboarding` item is open and still not started, the closing message of every session also says in
+one line that the flows and agents are yours to change — edit one, disable one you do not use, or create a new flow
+or agent by asking — with «Your own flows and agents» in the guide as the detail. The line stops being added once
+the onboarding starts, and a project initialised without `tasks` has no onboarding item and no line. The commands
+are in [Flows](flows.md).
+
 The subagents it launches are in [The four generic agents and their models](agents-and-models.md), and the phases and
 gates it follows are in [Flows](flows.md).

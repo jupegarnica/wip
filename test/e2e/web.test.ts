@@ -281,9 +281,9 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
     );
     const columns = flowColumns(parseFlow("tasks", text).flow);
     expect(columns.map((c) => [c.label, c.phases, c.alpha])).toEqual([
-      ["preparation", ["intake", "research", "plan"], 1],
-      ["execution", ["execute", "check"], 0.63],
-      ["review", ["review", "deliver", "done"], 0.25],
+      ["todo", ["todo"], 1],
+      ["doing", ["doing"], 0.63],
+      ["done", ["done"], 0.25],
     ]);
   });
 

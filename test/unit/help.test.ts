@@ -140,6 +140,7 @@ describe("wip help init", () => {
     const out = bare(["init", "--help"]);
     expect(out.stdout).toContain("[--kanban]");
     expect(out.stdout).toContain("[--kanban-settings-file settings.json|settings.local.json]");
+    expect(out.stdout).toContain("[--flows <names>]");
   });
 
   test("it says --yes installs the Kanban mod with the wizard's defaults", () => {
@@ -149,9 +150,15 @@ describe("wip help init", () => {
     expect(out.stdout).not.toContain("installs nothing");
   });
 
-  test("init help describes four steps and no --models", () => {
+  test("init help describes five steps, the four flows and no --models", () => {
     const out = bare(["help", "init"]);
-    expect(out.stdout).toContain("four steps");
+    expect(out.stdout).toContain("five steps");
+    expect(out.stdout).toContain("the flows to write");
+    expect(out.stdout).toContain("step 4/5");
+    expect(out.stdout).toContain("fifth step");
+    expect(out.stdout).toContain("`development`, `ideas`, `reports` and `tasks`");
+    expect(out.stdout).toContain("--yes` without `--flows` writes all four");
+    expect(out.stdout).not.toContain("four steps");
     expect(out.stdout).not.toContain("--models");
     expect(out.stdout).not.toContain("the model of fast");
     expect(out.stdout).toContain("never asks for or writes a model");

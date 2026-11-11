@@ -14,6 +14,15 @@ export interface ISelectSpec {
   initial: number;
 }
 
+export interface IMultiSelectSpec {
+  question: string;
+  options: readonly ISelectOption[];
+  /** Values checked at the start; Enter takes them. */
+  initial: readonly string[];
+  /** How many must stay checked; 1 when missing. */
+  min?: number;
+}
+
 export interface IInputSpec {
   label: string;
   /** What Enter takes; `null` is no default (an empty answer is returned as ""). */
@@ -27,6 +36,8 @@ export interface IAsker {
   style: IStyle;
   /** A closed list: the answer is the `value` of one option. */
   select(spec: ISelectSpec): Promise<string | null>;
+  /** A closed list with independent checks: the values checked, in the options' order. */
+  multiSelect(spec: IMultiSelectSpec): Promise<string[] | null>;
   /** Free text; an empty answer takes `def`. */
   input(spec: IInputSpec): Promise<string | null>;
   say(line: string): void;
@@ -104,6 +115,74 @@ export function selectStep(
   return { state: st };
 }
 
+export interface IMultiSelectState {
+  cursor: number;
+  checked: readonly string[];
+  buffer: string;
+  error: string | null;
+}
+
+/** The checked values, in the order the options list them. */
+function inOptionOrder(options: readonly ISelectOption[], values: readonly string[]): string[] {
+  return options.filter((o) => values.includes(o.value)).map((o) => o.value);
+}
+
+function minError(min: number): string {
+  return `keep at least ${min} checked`;
+}
+
+/** Resolves a typed comma-separated list of names or numbers; `null` when one does not name an option. */
+function typedSelection(text: string, options: readonly ISelectOption[]): string[] | null {
+  const picked: string[] = [];
+  for (const token of text.split(/[,\s]+/).filter((t) => t !== "")) {
+    const i = resolveOption(token, options);
+    if (i < 0) return null;
+    const value = (options[i] as ISelectOption).value;
+    if (!picked.includes(value)) picked.push(value);
+  }
+  return picked;
+}
+
+export function multiSelectStep(
+  st: IMultiSelectState,
+  key: string,
+  options: readonly ISelectOption[],
+  min = 1,
+): TStep<IMultiSelectState, string[]> {
+  const n = options.length;
+  if (key === "\x03" || (key === "\x04" && st.buffer === "")) return { abort: true };
+  if (UP.includes(key))
+    return {
+      state: { cursor: (st.cursor + n - 1) % n, checked: st.checked, buffer: "", error: null },
+    };
+  if (DOWN.includes(key))
+    return { state: { cursor: (st.cursor + 1) % n, checked: st.checked, buffer: "", error: null } };
+  if (key === " ") {
+    const value = (options[st.cursor] as ISelectOption).value;
+    if (st.checked.includes(value)) {
+      if (st.checked.length <= min) return { state: { ...st, buffer: "", error: minError(min) } };
+      return {
+        state: { ...st, checked: st.checked.filter((v) => v !== value), buffer: "", error: null },
+      };
+    }
+    return { state: { ...st, checked: [...st.checked, value], buffer: "", error: null } };
+  }
+  if (key === "\r" || key === "\n") {
+    const typed = st.buffer.trim() === "" ? st.checked : typedSelection(st.buffer, options);
+    if (typed === null) return { state: { ...st, buffer: "", error: optionsError(options) } };
+    const selected = inOptionOrder(options, typed);
+    if (selected.length < min) return { state: { ...st, buffer: "", error: minError(min) } };
+    return { done: selected };
+  }
+  if (key === "\x7f" || key === "\b")
+    return { state: { ...st, buffer: st.buffer.slice(0, -1), error: null } };
+  if (key === "\x15") return { state: { ...st, buffer: "", error: null } };
+  if (key.length === 1 && key >= " ") {
+    return { state: { ...st, buffer: st.buffer + key, error: null } };
+  }
+  return { state: st };
+}
+
 export function inputStep(buffer: string, key: string): TStep<string, string> {
   if (key === "\x03" || (key === "\x04" && buffer === "")) return { abort: true };
   if (key === "\r" || key === "\n") return { done: buffer };
@@ -131,6 +210,29 @@ export function renderSelect(spec: ISelectSpec, st: ISelectState, s: IStyle): st
     st.error
       ? `  ${s.red(st.error)}`
       : `  ${s.dim(`↑/↓ move · 1-${spec.options.length} or type · Enter confirm`)}${typed}`,
+  );
+  return lines;
+}
+
+export function renderMultiSelect(
+  spec: IMultiSelectSpec,
+  st: IMultiSelectState,
+  s: IStyle,
+): string[] {
+  const lines = [`${s.cyan("?")} ${s.bold(spec.question)}`];
+  spec.options.forEach((o, i) => {
+    const on = i === st.cursor;
+    const mark = on ? s.cyan("❯") : " ";
+    const check = st.checked.includes(o.value) ? s.green("[x]") : s.dim("[ ]");
+    const label = `${i + 1}) ${o.label}`;
+    const hint = o.hint ? `  ${s.dim(o.hint)}` : "";
+    lines.push(`  ${mark} ${check} ${on ? s.cyan(s.bold(label)) : label}${hint}`);
+  });
+  const typed = st.buffer === "" ? "" : `  ${s.cyan("›")} ${st.buffer}`;
+  lines.push(
+    st.error
+      ? `  ${s.red(st.error)}`
+      : `  ${s.dim("↑/↓ move · Space toggle · Enter confirm · or type names")}${typed}`,
   );
   return lines;
 }
@@ -244,6 +346,16 @@ export function terminalAsker(): IAsker {
           (i) =>
             `${style.green("✔")} ${style.bold(spec.question)} ${style.cyan((spec.options[i] as ISelectOption).value)}`,
         ).then((i) => (i === null ? null : (spec.options[i] as ISelectOption).value)),
+      multiSelect: (spec) =>
+        drive<IMultiSelectState, string[]>(
+          stdin,
+          out,
+          { cursor: 0, checked: spec.initial, buffer: "", error: null },
+          (st) => renderMultiSelect(spec, st, style),
+          (st, key) => multiSelectStep(st, key, spec.options, spec.min ?? 1),
+          (values) =>
+            `${style.green("✔")} ${style.bold(spec.question)} ${style.cyan(values.join(", "))}`,
+        ),
       input: (spec) =>
         drive<string, string>(
           stdin,
@@ -288,6 +400,22 @@ export function terminalAsker(): IAsker {
         say(`  ${optionsError(spec.options)}`);
       }
     },
+    multiSelect: async (spec) => {
+      const min = spec.min ?? 1;
+      say(spec.question);
+      spec.options.forEach((o, i) => {
+        const check = spec.initial.includes(o.value) ? "[x]" : "[ ]";
+        say(`  ${check} ${i + 1}) ${o.label}${o.hint ? `  (${o.hint})` : ""}`);
+      });
+      for (;;) {
+        const a = await ask(`  flows [${spec.initial.join(", ")}] `);
+        if (a === null) return null;
+        if (a.trim() === "") return inOptionOrder(spec.options, spec.initial);
+        const picked = typedSelection(a, spec.options);
+        if (picked !== null && picked.length >= min) return inOptionOrder(spec.options, picked);
+        say(`  ${optionsError(spec.options)}`);
+      }
+    },
     input: async (spec) => {
       const shown = spec.show ?? spec.def;
       const a = await ask(`${spec.label}${shown ? ` [${shown}]` : ""} `);
@@ -320,6 +448,11 @@ export async function askText(
 /** A closed list; returns the `value` of the chosen option. */
 export async function askSelect(asker: IAsker, spec: ISelectSpec): Promise<string> {
   return need(asker.select(spec));
+}
+
+/** A closed list with independent checks; returns the values checked, in the options' order. */
+export async function askMultiSelect(asker: IAsker, spec: IMultiSelectSpec): Promise<string[]> {
+  return need(asker.multiSelect(spec));
 }
 
 export async function askYesNo(asker: IAsker, label: string, def: boolean): Promise<boolean> {

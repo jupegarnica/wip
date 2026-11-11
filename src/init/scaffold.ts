@@ -36,6 +36,8 @@ export interface IScaffoldOptions {
   ignoreWip?: boolean;
   /** Also write the definitions' own paths into `.gitignore` (local scope only; the default is not to). */
   ignoreDefs?: boolean;
+  /** What to write; `TEMPLATES` when missing (a selection keeps every non-flow template and only some flows). */
+  templates?: Readonly<Record<string, string>>;
 }
 
 const GITIGNORE_ENTRY = `${WIP_DIR}/`;
@@ -44,8 +46,12 @@ const BACKUPS_DIR = `${WIP_DIR}/backups/defs`;
 const genericKeys = new Set<string>(GENERIC_AGENTS.map((name) => `agents/${name}.md`));
 
 /** Files at a template's path without a `wip:` mark: another tool's, never written over, not even with `--force`. */
-export function foreignFiles(defsRoot: string, defsDir: string): string[] {
-  return Object.keys(TEMPLATES)
+export function foreignFiles(
+  defsRoot: string,
+  defsDir: string,
+  templates: Readonly<Record<string, string>> = TEMPLATES,
+): string[] {
+  return Object.keys(templates)
     .sort()
     .filter((key) => {
       const file = join(defsRoot, key);
@@ -57,9 +63,12 @@ export function foreignFiles(defsRoot: string, defsDir: string): string[] {
 const DEFS_HEADER = "# wip definitions";
 
 /** The `.gitignore` entries of the templates under `defsDir` (relative, no `~/`): agent files and one folder per skill. */
-export function defsIgnoreEntries(defsDir: string): string[] {
+export function defsIgnoreEntries(
+  defsDir: string,
+  templates: Readonly<Record<string, string>> = TEMPLATES,
+): string[] {
   const out = new Set<string>();
-  for (const key of Object.keys(TEMPLATES).sort()) {
+  for (const key of Object.keys(templates).sort()) {
     const m = /^(skills\/[^/]+)\//.exec(key);
     out.add(m ? `${defsDir}/${m[1]}/` : `${defsDir}/${key}`);
   }
@@ -151,11 +160,12 @@ export function scaffold(project: string, options: IScaffoldOptions): IScaffold 
   mkdirSync(wip, { recursive: true });
   const gitignore =
     options.ignoreWip === false ? "skipped" : ensureGitignore(project, [GITIGNORE_ENTRY]);
-  const files = Object.keys(TEMPLATES)
+  const templates = options.templates ?? TEMPLATES;
+  const files = Object.keys(templates)
     .sort()
-    .map((key) => placeTemplate(project, key, TEMPLATES[key] as string, options));
+    .map((key) => placeTemplate(project, key, templates[key] as string, options));
   const gitignoreDefs = options.ignoreDefs
-    ? ensureGitignore(project, defsIgnoreEntries(options.defsDir), DEFS_HEADER)
+    ? ensureGitignore(project, defsIgnoreEntries(options.defsDir, templates), DEFS_HEADER)
     : "skipped";
   return { wipDir, gitignore, gitignoreDefs, files };
 }

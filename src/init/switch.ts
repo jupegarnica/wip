@@ -32,9 +32,13 @@ export function definitionKeys(root: string): string[] {
  * templates are not custom (init writes them into the new folder), and a file the new folder already has is not left
  * behind.
  */
-export function leftBehind(oldRoot: string, newRoot: string): string[] {
+export function leftBehind(
+  oldRoot: string,
+  newRoot: string,
+  templates: Readonly<Record<string, string>> = TEMPLATES,
+): string[] {
   return definitionKeys(oldRoot).filter(
-    (key) => !Object.hasOwn(TEMPLATES, key) && !existsSync(join(newRoot, key)),
+    (key) => !Object.hasOwn(templates, key) && !existsSync(join(newRoot, key)),
   );
 }
 
@@ -52,6 +56,7 @@ export interface IUncoveredFlow {
 export function uncoveredFlows(
   live: ReadonlyMap<string, readonly ILiveItem[]>,
   newRoot: string,
+  templates: Readonly<Record<string, string>> = TEMPLATES,
 ): IUncoveredFlow[] {
   const out: IUncoveredFlow[] = [];
   for (const flow of [...live.keys()].sort((a, b) => a.localeCompare(b))) {
@@ -59,7 +64,7 @@ export function uncoveredFlows(
     const first = items[0];
     if (first === undefined) continue;
     const key = `skills/${FLOW_SKILL_PREFIX}${flow}/SKILL.md`;
-    if (Object.hasOwn(TEMPLATES, key) || existsSync(join(newRoot, key))) continue;
+    if (Object.hasOwn(templates, key) || existsSync(join(newRoot, key))) continue;
     out.push({ flow, id: first.id, more: items.length - 1 });
   }
   return out;
