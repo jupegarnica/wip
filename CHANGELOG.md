@@ -6,6 +6,11 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.2.2 (unreleased)
 
+- `wip flow order [<flow> … | --reset]` chooses the order of the flows on the board (`flow_order` in
+  `.wip/config.json`), shared by `wip web` and the Kanban mod; flows the list does not name follow alphabetically,
+  and with no `flow_order` nothing changes. A malformed value only warns (`flow_order_invalid`) and leaves the board
+  alphabetical.
+
 ## 0.2.1 (2026-11-10)
 
 - The GitHub Release carries standalone binaries for macOS (`darwin-arm64`, `darwin-x64`) and Linux (`linux-x64`,

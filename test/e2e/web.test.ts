@@ -212,6 +212,18 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
     expect(a1).toMatchObject({ column: "phase:todo", stage: null, alpha: null, color: "" });
   });
 
+  test("flow_order puts the project's flows first on the board, then the rest alphabetically", async () => {
+    const p = board();
+    putFlow(p.dir, "empty", minimalFlow());
+    writeFileSync(
+      join(p.dir, ".wip", "config.json"),
+      `${JSON.stringify({ defs_dir: ".claude", flow_order: ["valid", "empty"] }, null, 2)}\n`,
+    );
+    await serve(p);
+    const body = await getJson("/api/kanban");
+    expect(body.flows.map((f: TJson) => f.name)).toEqual(["valid", "empty", "minimal"]);
+  });
+
   test("data.board.flows is the same model /api/kanban serves", async () => {
     const p = board();
     await serve(p);
@@ -664,6 +676,17 @@ describe("wip web · history (F-WEB-04)", () => {
       const res = await get(`/api/history?${bad}`);
       expect({ bad, status: res.status }).toEqual({ bad, status: 400 });
     }
+  });
+
+  test("flow_order orders the Flow filter the same way as the board", async () => {
+    const p = board();
+    writeFileSync(
+      join(p.dir, ".wip", "config.json"),
+      `${JSON.stringify({ defs_dir: ".claude", flow_order: ["valid", "minimal"] }, null, 2)}\n`,
+    );
+    await serve(p);
+    const all = await getJson("/api/history?include=active,archived,discarded");
+    expect(all.flows).toEqual(["valid", "minimal"]);
   });
 
   test("an item archived in any terminal phase is archived; archived elsewhere is discarded", async () => {
