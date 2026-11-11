@@ -21,11 +21,13 @@ export interface IWipConfig {
   wip_bin: string | null;
 }
 
-/** What `writeConfig` may change: `undefined` leaves a key alone; `null` removes `wip_bin` and `start`. */
+/** What `writeConfig` may change: `undefined` leaves a key alone; `null` removes `wip_bin`, `start` and `flow_order`. */
 export interface IConfigPatch {
   defs_dir?: string;
   wip_bin?: string | null;
   start?: string[] | null;
+  /** The board's flow order, first = first on the board; `null` removes it and stays alphabetical. */
+  flow_order?: string[] | null;
 }
 
 /** The variables a `start` template may use; anything else in braces is an error. */
@@ -158,6 +160,35 @@ export function readStart(project: string): string[] | null {
 }
 
 /**
+ * The board's flow order from `.wip/config.json`: first = first on the board. Absent or `null` means
+ * alphabetical. A malformed value is not an error: it returns an empty order and a `problem` for the
+ * caller to report, so a presentation preference never blocks a command or `wip flow order --reset`.
+ */
+export function readFlowOrder(project: string): { order: string[]; problem: string | null } {
+  const raw = readRaw(project);
+  if (raw === null || raw.flow_order === undefined || raw.flow_order === null) {
+    return { order: [], problem: null };
+  }
+  const value = raw.flow_order;
+  const valid =
+    Array.isArray(value) && value.every((name) => typeof name === "string" && name !== "");
+  if (!valid) {
+    return {
+      order: [],
+      problem: `${WIP_DIR}/${CONFIG_FILE} has a flow_order that is not an array of non-empty flow names; the board stays alphabetical (fix it or run \`wip flow order --reset\`)`,
+    };
+  }
+  const order = value as string[];
+  if (new Set(order).size !== order.length) {
+    return {
+      order: [],
+      problem: `${WIP_DIR}/${CONFIG_FILE} has a flow_order with repeated names; the board stays alphabetical (fix it or run \`wip flow order --reset\`)`,
+    };
+  }
+  return { order, problem: null };
+}
+
+/**
  * Writes the config merged with `patch`: keys wip does not know (such as `start`) are kept, and the file is
  * replaced atomically through a temporary file in `.wip/`. A legacy `harness` key is dropped.
  */
@@ -169,8 +200,9 @@ export function writeConfig(project: string, patch: IConfigPatch): void {
   delete merged.harness;
   for (const [key, value] of Object.entries(patch)) {
     if (value === undefined) continue;
-    if (value === null && (key === "wip_bin" || key === "start")) delete merged[key];
-    else merged[key] = value;
+    if (value === null && (key === "wip_bin" || key === "start" || key === "flow_order")) {
+      delete merged[key];
+    } else merged[key] = value;
   }
   const file = configPath(project);
   const tmp = join(project, WIP_DIR, `${CONFIG_FILE}.${process.pid}.tmp`);

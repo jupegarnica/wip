@@ -57,13 +57,14 @@ describe("wip help", () => {
     });
   }
 
-  test("`wip flow --help` lists lint, disable and enable", () => {
+  test("`wip flow --help` lists lint, disable, enable and order", () => {
     const out = bare(["flow", "--help"]);
     expect(out.code).toBe(EXIT.OK);
     for (const line of [
       "wip flow lint [<flow>]",
       "wip flow disable <flow>",
       "wip flow enable <flow>",
+      "wip flow order [<flow> … | --reset]",
     ]) {
       expect(out.stdout).toContain(line);
     }

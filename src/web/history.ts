@@ -1,4 +1,4 @@
-import { flowColumns, type IStagePaint, paintOf } from "../board.ts";
+import { flowColumns, type IStagePaint, orderFlowNames, paintOf } from "../board.ts";
 import type { TDatabase } from "../db.ts";
 import type { IFlow } from "../flow/parse.ts";
 import { FLOW_NAME_RE } from "../flow/parse.ts";
@@ -40,7 +40,7 @@ export interface IHistoryPage {
   total: number;
   offset: number;
   limit: number;
-  /** Flows with at least one item, sorted: the page's flow filter. */
+  /** Flows with at least one item: the project's order first, then alphabetical; the page's flow filter. */
   flows: string[];
   items: IHistoryItem[];
 }
@@ -95,7 +95,7 @@ export function historyData(
     total: matching.length,
     offset,
     limit,
-    flows: [...new Set(all.map((h) => h.flow))].sort(),
+    flows: orderFlowNames([...new Set(all.map((h) => h.flow))], flows.order),
     items: matching.slice(offset, offset + limit),
   };
 }
