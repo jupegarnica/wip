@@ -23,8 +23,15 @@ const HISTORY_KEY = "wip-web.history";
 const HISTORY_INCLUDE = ["active", "archived", "discarded"];
 const HISTORY_DEFAULT = { active: true, archived: true, discarded: false };
 const COLLAPSE_KEY = "wip-web.collapsed";
+const TAB_NOTICE_OPEN = "This project is open in another tab.";
+const TAB_NOTICE_MOVED = "This project moved to another tab.";
+const TAB_NOTICE_LOCKED = "This project is locked in another tab.";
+const LOCK_STATE = "wip-web.tabLocked"; // the padlock travels in this tab's history entry
+const LOCK_TITLE_OPEN =
+  "Unlocked: another tab can take this project over and close this one. Click to lock.";
+const LOCK_TITLE_LOCKED =
+  "Locked: this tab refuses the takeover and is not closed automatically. Click to unlock.";
 
-const titleEl = document.getElementById("title");
 const board = document.getElementById("board");
 const statusEl = document.getElementById("status");
 const viewButtons = document.querySelectorAll("[data-view]");
@@ -48,6 +55,9 @@ const historyDiscarded = document.getElementById("history-discarded");
 const historyCount = document.getElementById("history-count");
 const historyPrev = document.getElementById("history-prev");
 const historyNext = document.getElementById("history-next");
+const tabNotice = document.getElementById("tab-notice");
+const tabLock = document.getElementById("tab-lock");
+const itemTabs = WipItemTabs.create({ onTakeOver: handOver });
 
 let view = initialView();
 let lastData = null;
@@ -960,12 +970,65 @@ async function loadPanel() {
   if (sameRef(ref, openRef)) panelTimer = setTimeout(loadPanel, POLL_MS);
 }
 
+// La dueña cedió el origen: intenta cerrarse; si el navegador lo rechaza, queda el aviso.
+function handOver() {
+  try {
+    window.close();
+  } catch (_) {
+    // el navegador lo rechazó; el aviso de abajo se queda
+  }
+  setTimeout(() => showTabNotice(TAB_NOTICE_MOVED), 0);
+}
+
+function showTabNotice(text) {
+  tabNotice.textContent = text;
+  tabNotice.hidden = false;
+}
+
+// The padlock only blocks the automatic close of a takeover; closing the tab by hand is always possible.
+function paintLock() {
+  const locked = itemTabs.isLocked();
+  tabLock.setAttribute("aria-pressed", locked ? "true" : "false");
+  tabLock.title = locked ? LOCK_TITLE_LOCKED : LOCK_TITLE_OPEN;
+}
+
+// The padlock is per tab: this tab's history entry carries it across a reload, a new tab starts without it,
+// and no storage shared between tabs is touched. Only the owner consults it (tabs.js).
+function readLockState() {
+  try {
+    return window.history.state?.[LOCK_STATE] === true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeLockState(locked) {
+  try {
+    const prev = window.history.state;
+    const state = prev && typeof prev === "object" ? { ...prev } : {};
+    state[LOCK_STATE] = locked;
+    const url = new URL(window.location.href);
+    window.history.replaceState(state, "", url.pathname + url.search + url.hash);
+  } catch (_) {
+    // history is unavailable: the padlock lives in memory until the page reloads
+  }
+}
+
+// Every URL rewrite passes the current state back: a null state would drop the padlock.
+function replaceUrl(url) {
+  try {
+    window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+  } catch (_) {
+    // keep the URL
+  }
+}
+
 function setItemParam(ref) {
   try {
     const url = new URL(window.location.href);
     if (ref) url.searchParams.set("item", refKey(ref.flow, ref.id));
     else url.searchParams.delete("item");
-    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    replaceUrl(url);
   } catch (_) {
     // keep the URL
   }
@@ -980,7 +1043,7 @@ function markOpenCard() {
   }
 }
 
-function openPanel(flow, id) {
+function openPanel(flow, id, { focus = true } = {}) {
   if (!flow || !id) return;
   const ref = { flow, id };
   if (!sameRef(ref, openRef)) {
@@ -996,7 +1059,7 @@ function openPanel(flow, id) {
   setItemParam(ref);
   markOpenCard();
   loadPanel();
-  panelClose.focus();
+  if (focus) panelClose.focus();
 }
 
 function closePanel() {
@@ -1256,7 +1319,7 @@ function setViewParam() {
     const url = new URL(window.location.href);
     if (view === "grouped") url.searchParams.delete("view");
     else url.searchParams.set("view", view);
-    window.history.replaceState(null, "", url.pathname + url.search + url.hash);
+    replaceUrl(url);
   } catch (_) {
     // keep the URL
   }
@@ -1292,10 +1355,7 @@ async function loadProject() {
     });
     const health = await res.json();
     const name = String(health.name || "");
-    if (name) {
-      titleEl.textContent = name;
-      document.title = name;
-    }
+    if (name) document.title = name;
   } catch (_) {
     // keep the default title
   }
@@ -1309,8 +1369,44 @@ document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "visible") poll();
 });
 setInterval(paintStatus, 1000);
+tabLock.addEventListener("click", () => {
+  itemTabs.setLocked(!itemTabs.isLocked());
+  writeLockState(itemTabs.isLocked());
+  paintLock();
+});
+// setViewParam() already ran and kept history.state: read it after it so every load exercises replaceUrl().
+itemTabs.setLocked(readLockState());
+paintLock();
 loadProject();
 poll();
-// ?item=<flow>/<ID> opens its panel, so a panel can be linked.
-const linked = (new URLSearchParams(window.location.search).get("item") || "").split("/");
-if (linked.length === 2) openPanel(linked[0], linked[1]);
+
+// One tab per origin in `localhost`: a new page with `?item=` asks for the handover; without an item it only closes.
+async function start() {
+  const linked = (new URLSearchParams(window.location.search).get("item") || "").split("/");
+  const wanted =
+    linked.length === 2 && linked[0] && linked[1] ? { flow: linked[0], id: linked[1] } : null;
+  if (await itemTabs.claim()) {
+    if (wanted) openPanel(wanted.flow, wanted.id);
+    return;
+  }
+  if (!wanted) {
+    // The board alone has nothing to hand over: close it if the browser lets us, or show the notice.
+    try {
+      window.close();
+    } catch (_) {
+      // the browser refused it; the notice below stays
+    }
+    setTimeout(() => showTabNotice(TAB_NOTICE_OPEN), 0);
+    return;
+  }
+  const outcome = await itemTabs.takeOver();
+  if (outcome === "owner") {
+    openPanel(wanted.flow, wanted.id);
+    return;
+  }
+  // Locked owner or no handover: show the item here without the focus, and never close this tab.
+  openPanel(wanted.flow, wanted.id, { focus: false });
+  showTabNotice(outcome === "locked" ? TAB_NOTICE_LOCKED : TAB_NOTICE_OPEN);
+}
+
+start();

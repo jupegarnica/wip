@@ -103,6 +103,17 @@ body {
     system-ui,
     sans-serif;
 }
+.tab-notice {
+  flex-shrink: 0; /* body is a flex column */
+  padding: 8px 16px;
+  font-size: 14px;
+  color: var(--warn);
+  background: var(--gate-bg);
+  border-bottom: 1px solid var(--gate-border);
+}
+.tab-notice[hidden] {
+  display: none;
+}
 .top {
   position: static;
   flex-shrink: 0;
@@ -114,8 +125,16 @@ body {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
+}
+/* The padlock and the poll status lead the header where the project title used to be; the name is the tab title. */
+.top-start {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
 }
 /* Open gates: above «Your turn», one line each; the section is hidden without gates. */
 .gates {
@@ -319,17 +338,15 @@ ol.env-list {
 .btn:focus-visible,
 .linkish:focus-visible,
 .flow-toggle:focus-visible,
-.card:focus-visible {
+.card:focus-visible,
+.tab-lock:focus-visible {
   outline: 2px solid var(--ok);
   outline-offset: 1px;
-}
-.top h1 {
-  margin: 0;
-  font-size: 18px;
 }
 .status {
   font-size: 13px;
   font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
 }
 .status--ok {
   color: var(--ok);
@@ -343,6 +360,33 @@ ol.env-list {
 }
 .status--wait {
   color: var(--muted);
+}
+/* The padlock is per page and shows in every view, in the header's top-left. */
+.tab-lock {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+}
+.tab-lock:hover {
+  color: var(--text);
+}
+.tab-lock[aria-pressed="true"] {
+  color: var(--warn);
+  background: var(--gate-bg);
+  border-color: var(--gate-border);
+}
+.tab-lock[aria-pressed="false"] .lock-closed,
+.tab-lock[aria-pressed="true"] .lock-open {
+  display: none;
 }
 .views {
   display: inline-flex;

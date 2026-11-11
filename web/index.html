@@ -8,19 +8,33 @@
   <link rel="stylesheet" href="/lib/garndev-markdown/tokens.css">
   <link rel="stylesheet" href="/app.css">
   <script src="/markdown.js" defer></script>
+  <script src="/tabs.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
+  <div id="tab-notice" class="tab-notice" role="status" aria-live="polite" hidden></div>
   <header class="top">
     <div class="top-row">
-      <!-- biome-ignore lint/a11y/useHeadingContent: filled from /health by app.js -->
-      <h1 id="title"></h1>
+      <div class="top-start">
+        <button type="button" id="tab-lock" class="tab-lock" aria-pressed="false" aria-label="Keep this tab open" title="Unlocked: another tab can take this project over and close this one. Click to lock.">
+          <svg class="tab-lock-icon" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false">
+            <g class="lock-open">
+              <path d="M4.5 7V4.6a3.4 3.4 0 0 1 6.6-1.1" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            </g>
+            <g class="lock-closed">
+              <path d="M4.5 7V4.6a3.5 3.5 0 0 1 7 0V7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+              <rect x="3" y="7" width="10" height="7" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+            </g>
+          </svg>
+        </button>
+        <span id="status" class="status status--wait" role="status" aria-live="polite">loading…</span>
+      </div>
       <fieldset class="views" aria-label="View">
         <button type="button" data-view="grouped" aria-pressed="true" title="Open items: one column per stage">Grouped</button>
         <button type="button" data-view="expanded" aria-pressed="false" title="Open items: one column per phase, with every detail">Expanded</button>
         <button type="button" data-view="history" aria-pressed="false" title="Every item of every flow, open and archived">History</button>
       </fieldset>
-      <span id="status" class="status status--wait" role="status" aria-live="polite">loading…</span>
     </div>
     <section id="gates" class="gates" aria-label="Open gates" hidden><h2>✋ Open gates</h2><ul id="gates-list" class="gates-list"></ul></section>
     <section id="env" class="env" aria-label="Your turn">
