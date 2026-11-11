@@ -179,6 +179,11 @@ export function buildInfoDefine(info: IGitInfo & { built_at: string }): string {
   return JSON.stringify(JSON.stringify(info));
 }
 
+/** The value of `--define WIP_INSTALL=…`: what `wip upgrade` may replace, and `version --json` reports. */
+export function installDefine(kind: "npm" | "binary"): string {
+  return `WIP_INSTALL="${kind}"`;
+}
+
 /** Compiles the standalone binary for `target` into `<out>/bin/<os>-<arch>/`; returns its path. */
 function buildBinary(target: ITarget, out: string, define: string): string {
   const dir = join(out, "bin", targetKey(target));
@@ -193,6 +198,8 @@ function buildBinary(target: ITarget, out: string, define: string): string {
     `--target=bun-${targetKey(target)}`,
     "--define",
     `WIP_BUILD_INFO=${define}`,
+    "--define",
+    installDefine("binary"),
     BINARY_ENTRY,
     "--outfile",
     binary,
@@ -267,6 +274,8 @@ function buildPackage(out: string, root: IPackageJson, binName: string, define: 
     "--format=esm",
     "--define",
     `WIP_BUILD_INFO=${define}`,
+    "--define",
+    installDefine("npm"),
     "--outfile",
     join(dir, "dist", "wip.mjs"),
   ]);

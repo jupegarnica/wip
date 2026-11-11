@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wip upgrade --json",
+  "type": "object",
+  "required": ["ok", "item", "events", "warnings", "message", "data"],
+  "additionalProperties": false,
+  "properties": {
+    "ok": { "type": "boolean" },
+    "item": { "type": "null" },
+    "events": { "type": "array", "items": { "type": "object" } },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code", "message"],
+        "properties": { "code": { "type": "string" }, "message": { "type": "string" } }
+      }
+    },
+    "message": { "type": ["string", "null"] },
+    "data": {
+      "type": "object",
+      "required": [
+        "project",
+        "install",
+        "channel",
+        "target",
+        "update",
+        "check",
+        "dry_run",
+        "action",
+        "npm",
+        "rollback",
+        "kanban",
+        "pinned"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "project": { "type": ["string", "null"] },
+        "install": {
+          "type": "object",
+          "required": ["kind", "root", "prefix", "bin", "version"],
+          "additionalProperties": false,
+          "properties": {
+            "kind": { "enum": ["source", "npm", "binary"] },
+            "root": { "type": ["string", "null"] },
+            "prefix": { "type": ["string", "null"] },
+            "bin": { "type": ["string", "null"] },
+            "version": { "type": "string" }
+          }
+        },
+        "channel": { "enum": ["latest", "next"] },
+        "target": { "type": ["string", "null"] },
+        "update": { "type": ["boolean", "null"] },
+        "check": { "type": "boolean" },
+        "dry_run": { "type": "boolean" },
+        "action": {
+          "enum": ["upgraded", "current", "available", "would-upgrade", "skipped", "failed"]
+        },
+        "npm": {
+          "type": ["object", "null"],
+          "required": ["command", "code"],
+          "additionalProperties": false,
+          "properties": {
+            "command": { "type": "array", "items": { "type": "string" } },
+            "code": { "type": ["integer", "null"] }
+          }
+        },
+        "rollback": {
+          "type": ["object", "null"],
+          "required": ["version", "command", "code"],
+          "additionalProperties": false,
+          "properties": {
+            "version": { "type": "string" },
+            "command": { "type": "array", "items": { "type": "string" } },
+            "code": { "type": ["integer", "null"] }
+          }
+        },
+        "kanban": {
+          "type": ["object", "null"],
+          "required": ["action", "path", "backup", "removed", "settings", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "action": { "enum": ["updated", "installed", "exists", "skipped", "failed"] },
+            "path": { "type": "string" },
+            "backup": { "type": ["string", "null"] },
+            "removed": { "type": "array", "items": { "type": "string" } },
+            "settings": {
+              "type": ["object", "null"],
+              "required": ["file", "action"],
+              "additionalProperties": false,
+              "properties": {
+                "file": { "type": "string" },
+                "action": { "enum": ["created", "added", "updated", "exists"] }
+              }
+            },
+            "reason": { "enum": ["no-project", "not-owned", null] }
+          }
+        },
+        "pinned": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

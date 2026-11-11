@@ -6,6 +6,11 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.2.2 (unreleased)
 
+- `wip upgrade` updates the npm-installed CLI from a dist-tag (`latest`, or `next` with `--channel`), verifies the
+  new version by running it and rolls back a mismatch, then refreshes the current project's Kanban mod with the
+  installed CLI's own embedded copy; `--check` and `--dry-run` write nothing and `--kanban` installs and enables the
+  mod. It never opens a database, edits `wip_bin` or touches the definitions folder, and `version --json` gains
+  `install` (`source`, `npm` or `binary`).
 - `wip flow order [<flow> … | --reset]` chooses the order of the flows on the board (`flow_order` in
   `.wip/config.json`), shared by `wip web` and the Kanban mod; flows the list does not name follow alphabetically,
   and with no `flow_order` nothing changes. A malformed value only warns (`flow_order_invalid`) and leaves the board
