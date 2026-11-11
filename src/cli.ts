@@ -26,12 +26,14 @@ import { setCmd } from "./commands/set.ts";
 import { showCmd } from "./commands/show.ts";
 import { canLaunchBare, startCmd, startLaunch } from "./commands/start.ts";
 import { stateCmd } from "./commands/state.ts";
+import { upgradeCmd } from "./commands/upgrade.ts";
 import { waitCmd } from "./commands/wait.ts";
 import { webMain } from "./commands/web.ts";
 import { envelope, type ICtx, type IHandler, type IResult, newResult } from "./context.ts";
 import { type IOpenOptions, openDb, openForRead, type TDatabase } from "./db.ts";
 import { findRoot, type IRoot, type TEnv } from "./env.ts";
 import { EXIT, type TExitCode, usage, WipError } from "./errors.ts";
+import { INSTALL_KIND } from "./install.ts";
 
 export const VERSION: string = pkg.version;
 
@@ -39,7 +41,7 @@ const versionCmd: IHandler = {
   db: "none",
   run: (ctx) => {
     ctx.result.lines.push(formatBuildInfo(BUILD_INFO));
-    ctx.result.data = { ...BUILD_INFO };
+    ctx.result.data = { ...BUILD_INFO, install: INSTALL_KIND };
   },
 };
 
@@ -61,6 +63,7 @@ export const HANDLERS: Readonly<Record<string, IHandler>> = {
   show: showCmd,
   start: startCmd,
   state: stateCmd,
+  upgrade: upgradeCmd,
   version: versionCmd,
   wait: waitCmd,
   web: {

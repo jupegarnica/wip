@@ -8,6 +8,7 @@ import { scratch } from "../helpers/project.ts";
 
 const V1 = [
   "init",
+  "upgrade",
   "phase",
   "poll",
   "cron",
@@ -106,6 +107,20 @@ describe("<cmd> --help", () => {
     const result = Bun.spawnSync([process.execPath, cli, "gate", "--help"]);
     expect(result.exitCode).toBe(EXIT.OK);
     expect(result.stdout.toString()).toContain("wip gate open <ID>");
+  });
+});
+
+describe("wip help upgrade", () => {
+  test("it names the channel, the safe modes, the mod flags and the npm-only rule", () => {
+    const out = bare(["help", "upgrade"]);
+    expect(out.stdout).toContain("--channel latest|next");
+    expect(out.stdout).toContain("--check");
+    expect(out.stdout).toContain("--dry-run");
+    expect(out.stdout).toContain("--kanban");
+    expect(out.stdout).toContain("--no-kanban");
+    expect(out.stdout).toContain("npm only");
+    expect(out.stdout).toContain(".wip/backups/kanban/");
+    expect(out.stdout).not.toContain("--apply-mod");
   });
 });
 

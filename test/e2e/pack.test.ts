@@ -1,5 +1,5 @@
 import { beforeAll, describe, expect, test } from "bun:test";
-import { existsSync, readFileSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
 import { EXIT } from "../../src/errors.ts";
@@ -107,6 +107,10 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
     expect(version.code).toBe(EXIT.OK);
     expect(version.stdout).toMatch(VERSION_LINE);
     expect(version.stderr).toBe("");
+    const info = JSON.parse(exec([wip, "version", "--json"], dir).stdout) as {
+      data: { install: string };
+    };
+    expect(info.data.install).toBe("npm");
     const help = exec([wip, "help"], dir);
     expect(help.code).toBe(EXIT.OK);
     expect(help.stdout).toContain("web");
@@ -135,9 +139,10 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
       expect(version.code).toBe(EXIT.OK);
       expect(version.stdout).toMatch(VERSION_LINE);
       const info = JSON.parse(exec([binary, "version", "--json"], project, env).stdout) as {
-        data: { source: boolean; built_at: unknown };
+        data: { source: boolean; built_at: unknown; install: string };
       };
       expect(info.data.source).toBe(false);
+      expect(info.data.install).toBe("binary");
       expect(typeof info.data.built_at).toBe("string");
       expect(exec([binary, "init"], project, env).code).toBe(EXIT.OK);
       expect(exec([binary, "flow", "lint"], project, env).code).toBe(EXIT.OK);
@@ -195,6 +200,34 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
         readFileSync(join(project, ".claude", "settings.local.json"), "utf8"),
       ) as { enabledPlugins: Record<string, boolean> };
       expect(settings.enabledPlugins[ID]).toBe(true);
+    } finally {
+      rmSync(realpathSync(project), { recursive: true, force: true });
+    }
+  });
+
+  test("upgrade --apply-mod refreshes the installed package's copy with no network", () => {
+    const wip = installedWip(prefix);
+    const project = scratch("pack-upgrade");
+    try {
+      expect(exec([wip, "init", "--yes", "--kanban"], project).code).toBe(EXIT.OK);
+      const file = join(project, ".claude", "skills", "wip-kanban", "README.md");
+      const settings = join(project, ".claude", "settings.json");
+      const before = readFileSync(settings, "utf8");
+      writeFileSync(file, "edited by hand\n");
+      const out = exec([wip, "upgrade", "--apply-mod", "--json"], project);
+      expect(out.code).toBe(EXIT.OK);
+      const body = JSON.parse(out.stdout) as {
+        data: { kanban: { action: string; backup: string | null } };
+      };
+      expect(body.data.kanban.action).toBe("updated");
+      expect(readFileSync(file, "utf8")).toBe(KANBAN_MOD["README.md"] as string);
+      expect(body.data.kanban.backup).toContain(".wip/backups/kanban/wip-kanban.");
+      expect(readFileSync(settings, "utf8")).toBe(before);
+      const again = exec([wip, "upgrade", "--apply-mod", "--json"], project);
+      expect(again.code).toBe(EXIT.OK);
+      expect(
+        (JSON.parse(again.stdout) as { data: { kanban: { action: string } } }).data.kanban.action,
+      ).toBe("exists");
     } finally {
       rmSync(realpathSync(project), { recursive: true, force: true });
     }

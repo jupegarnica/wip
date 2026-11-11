@@ -102,10 +102,13 @@ next session.
 
 ## Update, disable and remove
 
-- Update after installing a new wip: run `wip init --force` (or `wip init --kanban --force`) in the project. With
-  `--force` the whole folder is replaced: managed files go back to the embedded text, your own extra files are
-  removed, and the previous folder is copied first to `.wip/backups/kanban/wip-kanban.<stamp>/`. The generated
-  `.claude-plugin/types/` is kept. A second `--force` with nothing changed says `exists` and writes nothing.
+- Update after installing a new wip: run `wip upgrade` in the project. It updates the npm CLI and then refreshes this
+  copy with the installed CLI's embedded files (by default only a copy wip owns; `--kanban` installs it and enables
+  it where missing). `wip init --force` (or `wip init --kanban --force`) remains the broader refresh: it also writes
+  the definitions. Either way the whole folder is replaced after copying the previous one to
+  `.wip/backups/kanban/wip-kanban.<stamp>/`: managed files go back to the embedded text, your own extra files are
+  removed, and the generated `.claude-plugin/types/` is kept. A second run with nothing changed says `exists` and
+  writes nothing.
 - `--force` without `--kanban` refreshes the copy and touches neither settings file, so a plugin you disabled
   stays disabled. Only `--kanban` writes `true` (with a backup of the settings file).
 - Disable without deleting, with the scope of the file that holds the entry:
