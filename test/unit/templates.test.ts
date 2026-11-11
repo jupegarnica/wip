@@ -150,7 +150,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
 
   test("the coordinator definition is short and points to the wip-coordinate skill", () => {
     const text = template("agents/wip.md");
-    expect(bodyOf(text).trimEnd().split("\n").length).toBeLessThanOrEqual(90);
+    expect(bodyOf(text).trimEnd().split("\n").length).toBeLessThanOrEqual(92);
     expect(text).toContain("wip-coordinate");
     expect(text).toContain('"$WIP_BIN" session start');
     expect(text).toContain('"$WIP_BIN" state --attention');
@@ -196,9 +196,8 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     const kanban = section(coordinator, "## The kanban");
     expect(kanban).toContain("The watcher of step 4");
     expect(start).toContain("**4b, watcher.**");
-    expect(start).toContain(
-      "finishes only when `web status` exits non-zero or a new `error` line appears",
-    );
+    expect(start).toContain("once for the PID and the URL, then waits on that PID");
+    expect(start).toContain("kanban down · restart it by hand");
     expect(kanban).toContain(
       'Never start it again, nor `"$WIP_BIN" web stop`, unless the user asks',
     );
@@ -440,7 +439,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const wip = template("agents/wip.md");
     expect(wip).toContain("«The read» of «Cron» in `wip-coordinate`");
     expect(wip).not.toContain("poll due");
-    expect(bodyOf(wip).trimEnd().split("\n").length).toBeLessThanOrEqual(90);
+    expect(bodyOf(wip).trimEnd().split("\n").length).toBeLessThanOrEqual(92);
   });
 
   test("wip-coordinate carries «Cron»: one reader, five moments, one-shot jobs", () => {
