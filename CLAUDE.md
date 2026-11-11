@@ -94,7 +94,7 @@ The root `package.json` (`@garndev/wip-dev`) is private and never published; onl
 
 **Definitions folder.** `.wip/config.json` stores `defs_dir` (`.claude`, or `~/…` for `init --global`, resolved against `HOME`/`USERPROFILE`). Everything reads definitions from there. `src/init/*` scaffolds it, never overwrites files, and never moves or deletes definitions; `init --force` migrates a legacy folder of the same scope to `.claude` and leaves the old one as it is.
 
-**Interactive init.** `wip init` is a synchronous handler fed by flags (`--yes`, `--start`, `--start-default`, `--no-start`); the questions live outside `run()`, like `wip start`'s launch: `src/cli.ts` calls `promptInit` (`src/commands/init.ts`, questions in `src/init/ask.ts`, helpers in `src/init/prompt.ts`) only on a terminal without `--yes`/`--json`, which turns the answers into those flags before `run()`. The `model:` lines come from the templates under `templates/agents/`; init writes them as they are and never asks for or writes a model.
+**Interactive init.** `wip init` is a synchronous handler fed by flags (`--yes`, `--flows`, `--start`, `--start-default`, `--no-start`); the questions live outside `run()`, like `wip start`'s launch: `src/cli.ts` calls `promptInit` (`src/commands/init.ts`, questions in `src/init/ask.ts`, helpers in `src/init/prompt.ts`) only on a terminal without `--yes`/`--json`, which turns the answers into those flags before `run()`. The wizard has five steps (scope, flows, start, Git, Kanban); `--flows <names>` selects a subset of the four shipped flows and the wizard skips that step. The `model:` lines come from the templates under `templates/agents/`; init writes them as they are and never asks for or writes a model.
 
 **Pinned binary.** `.wip/config.json` may hold `wip_bin` (absolute, `~/…` or project-relative path); the coordinator runs that executable instead of the global `wip`, so projects can use different versions. `init` preserves it.
 
@@ -104,7 +104,7 @@ The root `package.json` (`@garndev/wip-dev`) is private and never published; onl
 
 ## Two copies of the definitions
 
-`templates/` is the **source** of what `wip init` ships (flow `tasks`, the four generic agents, coordinator skills). `.claude/agents` and `.claude/skills` in this repo are this project's own dogfooded definitions (used with `claude --agent wip`) and include flows that are not templates (`dev`, `ideas`). Changing a shipped template does not update `.claude/`, and vice versa; `templates/` is excluded from biome and `test/fixtures/` holds deliberately broken flows and agents used by lint/parse tests.
+`templates/` is the **source** of what `wip init` ships (the flows `development`, `ideas`, `reports` and `tasks`, the four generic agents, coordinator skills). `.claude/agents` and `.claude/skills` in this repo are this project's own dogfooded definitions (used with `claude --agent wip`). The shipped flows and `wip-coordinate` are the exception to the rule that the two copies never sync: they must be byte-identical in both, and the sync test in `test/unit/templates.test.ts` fails when they drift. Any other template change does not update `.claude/`, and a project-only flow or agent belongs outside `templates/`; `templates/` is excluded from biome and `test/fixtures/` holds deliberately broken flows and agents used by lint/parse tests.
 
 ## Testing notes
 

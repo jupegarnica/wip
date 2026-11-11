@@ -51,24 +51,20 @@ function artifactDir(dir: string, id: string): string {
   return String(item?.artifact_dir);
 }
 
-describe("the tasks flow from intake to done with CLI commands only (§1.6)", () => {
-  test("a simulated coordinator takes T1 through research, plan, execute, a red check, review and deliver", () => {
+describe("the tasks flow from todo to done with CLI commands only (§1.6)", () => {
+  test("a simulated coordinator takes T1 through the plan, the work and the result review", () => {
     const dir = project("t1");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
 
     step(dir, ["session", "start", "--id", "s1"]);
-    step(dir, ["phase", "T1", "intake", "--flow", "tasks"]);
+    step(dir, ["phase", "T1", "todo", "--flow", "tasks"]);
     step(dir, ["set", "T1", "title=Add a README"]);
     const artifacts = artifactDir(dir, "T1");
     expect(artifacts).toBe(join(dir, ".wip", "items", "tasks", "T1"));
     writeFileSync(join(artifacts, "request.md"), "## What\n\nA README.\n\n## Context\n\nNone.\n");
 
-    step(dir, ["phase", "T1", "research"]);
-    runSubagent(dir, "T1", "thinker", "h0");
-
-    step(dir, ["phase", "T1", "plan"]);
-    step(dir, ["agent", "start", "T1", "thinker", "--phase", "plan", "--handle", "h1"]);
+    step(dir, ["agent", "start", "T1", "thinker", "--handle", "h1"]);
     writeFileSync(join(artifacts, "v1.plan.md"), "# Plan\n\n1. Write README.md.\n");
     step(dir, ["agent", "stop", "T1", "h1", "--status", "done", "--summary", "v1.plan.md"]);
     step(dir, [
@@ -80,27 +76,17 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
       "--detail",
       join(artifacts, "v1.plan.md"),
     ]);
-    step(dir, ["gate", "close", "T1", "--answer", "approved v1.plan.md", "--next", "execute"]);
+    step(dir, ["gate", "close", "T1", "--answer", "approved v1.plan.md", "--next", "doing"]);
 
-    step(dir, ["phase", "T1", "execute"]);
+    step(dir, ["phase", "T1", "doing"]);
     runSubagent(dir, "T1", "efficient", "h2");
+    writeFileSync(
+      join(artifacts, "execute-report.md"),
+      "# Execute report\n\nEach criterion passes.\n",
+    );
 
-    step(dir, ["phase", "T1", "check"]);
-    // `fast` is not the phase's `agent:` (efficient): the coordinator may pick another generic.
-    runSubagent(dir, "T1", "fast", "h3");
-    // Red check: back to execute without a gate.
-    step(dir, ["phase", "T1", "execute"]);
-    runSubagent(dir, "T1", "efficient", "h4");
-    step(dir, ["phase", "T1", "check"]);
-    runSubagent(dir, "T1", "fast", "h5");
-
-    step(dir, ["phase", "T1", "review"]);
     step(dir, ["gate", "open", "T1", "--question", "Approve the result of T1?"]);
-    step(dir, ["gate", "close", "T1", "--answer", "Approve and open the pull request"]);
-    step(dir, ["phase", "T1", "deliver"]);
-    runSubagent(dir, "T1", "efficient", "h6");
-    step(dir, ["gate", "open", "T1", "--question", "Publish v1.deliver.md?"]);
-    step(dir, ["gate", "close", "T1", "--answer", "approved v1.deliver.md"]);
+    step(dir, ["gate", "close", "T1", "--answer", "approved", "--next", "done"]);
     step(dir, ["phase", "T1", "done"]);
     step(dir, ["archive", "T1"]);
 
@@ -110,36 +96,19 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     expect(item.status).toBe("archived");
 
     const runs = rowsOf(shown, "agent_runs");
-    expect(runs.map((r) => r.agent)).toEqual([
-      "thinker",
-      "thinker",
-      "efficient",
-      "fast",
-      "efficient",
-      "fast",
-      "efficient",
-    ]);
-    expect(runs.map((r) => r.phase)).toEqual([
-      "research",
-      "plan",
-      "execute",
-      "check",
-      "execute",
-      "check",
-      "deliver",
-    ]);
+    expect(runs.map((r) => r.agent)).toEqual(["thinker", "efficient"]);
+    expect(runs.map((r) => r.phase)).toEqual(["todo", "doing"]);
     expect(runs.every((r) => r.status === "done")).toBe(true);
 
     const gates = rowsOf(shown, "gates");
     expect(gates.map((g) => [g.phase, g.answer])).toEqual([
-      ["plan", "approved v1.plan.md"],
-      ["review", "Approve and open the pull request"],
-      ["deliver", "approved v1.deliver.md"],
+      ["todo", "approved v1.plan.md"],
+      ["doing", "approved"],
     ]);
 
     const totals = shown.data?.totals as Record<string, number>;
     const runSeconds = runs.reduce((sum, r) => sum + Number(r.duration_s), 0);
-    expect(totals).toMatchObject({ runs: 7, running: 0, gates: 3, agent_seconds: runSeconds });
+    expect(totals).toMatchObject({ runs: 2, running: 0, gates: 2, agent_seconds: runSeconds });
     expect(totals.user_wait_seconds).toBeGreaterThanOrEqual(0);
 
     expect(rowsOf(wipOkIn(dir, ["state"]), "items").map((i) => i.id)).toEqual(["onboarding"]);
@@ -153,8 +122,7 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     const dir = project("restart");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     step(dir, ["session", "start", "--id", "s1"]);
-    step(dir, ["phase", "T2", "intake", "--flow", "tasks"]);
-    step(dir, ["phase", "T2", "plan"]);
+    step(dir, ["phase", "T2", "todo", "--flow", "tasks"]);
     step(dir, ["agent", "start", "T2", "thinker", "--handle", "h1"]);
 
     step(dir, ["session", "start", "--id", "s2"]);
@@ -165,30 +133,19 @@ describe("the tasks flow from intake to done with CLI commands only (§1.6)", ()
     expect(shown.data?.totals).toMatchObject({ runs: 1, running: 0 });
   });
 
-  test("intake goes straight to plan when the request is clear; the flow allows no shortcut past check", () => {
+  test("a dropped request goes from todo to done; doing goes back to the plan", () => {
     const dir = project("direct");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
-    step(dir, ["phase", "T3", "intake", "--flow", "tasks"]);
-    step(dir, ["phase", "T3", "plan"]);
-    step(dir, ["phase", "T3", "execute"]);
-    expect(wipJsonIn(dir, ["phase", "T3", "review"]).code).toBe(EXIT.REJECTED);
-    step(dir, ["phase", "T3", "check"]);
-    step(dir, ["phase", "T3", "review"]);
+    step(dir, ["phase", "T3", "todo", "--flow", "tasks"]);
     step(dir, ["phase", "T3", "done"]);
     expect(wipOkIn(dir, ["show", "T3"]).item).toMatchObject({ phase: "done" });
-  });
-});
 
-describe("from_any in the tasks flow", () => {
-  test("plan is reachable from check without --force", () => {
-    const dir = project("from-any");
-    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
-    step(dir, ["phase", "T4", "intake", "--flow", "tasks"]);
-    step(dir, ["phase", "T4", "plan"]);
-    step(dir, ["phase", "T4", "execute"]);
-    step(dir, ["phase", "T4", "check"]);
-    step(dir, ["phase", "T4", "plan"]);
-    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "plan" });
+    step(dir, ["phase", "T4", "todo", "--flow", "tasks"]);
+    step(dir, ["phase", "T4", "doing"]);
+    step(dir, ["phase", "T4", "todo"]);
+    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "todo" });
+    step(dir, ["phase", "T4", "done"]);
+    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "done" });
   });
 });
 
@@ -215,7 +172,7 @@ describe("the guided onboarding (F-NEW-08)", () => {
       [
         "onboarding",
         "tasks",
-        "intake",
+        "todo",
         "user",
         "Get to know wip",
         "tell the coordinator when you want to start the onboarding",
@@ -240,7 +197,7 @@ describe("the guided onboarding (F-NEW-08)", () => {
     step(dir, ["log", "onboarding", "read it", "--kind", "milestone:guide-read"]);
     step(dir, ["wait", "onboarding", "user", "--next", "close the onboarding at its gate"]);
     const question = "Close the onboarding?";
-    step(dir, ["gate", "open", "onboarding", "intake", "--question", question, "--detail", guide]);
+    step(dir, ["gate", "open", "onboarding", "todo", "--question", question, "--detail", guide]);
     const waiting = rowsOf(wipOkIn(dir, ["state", "--attention"]), "items");
     expect(waiting.map((i) => i.id)).toEqual(["onboarding"]);
     const kanban = (await (await fetch(`http://127.0.0.1:${web.port}/api/kanban`)).json()) as {
@@ -261,7 +218,7 @@ describe("the guided onboarding (F-NEW-08)", () => {
       "--next",
       "answer: how do I add a flow?",
     ]);
-    step(dir, ["gate", "open", "onboarding", "intake", "--question", question, "--detail", guide]);
+    step(dir, ["gate", "open", "onboarding", "todo", "--question", question, "--detail", guide]);
     step(dir, ["gate", "close", "onboarding", "--answer", "yes", "--decision", "approved"]);
     step(dir, ["phase", "onboarding", "done"]);
     step(dir, ["archive", "onboarding"]);

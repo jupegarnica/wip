@@ -8,12 +8,14 @@ import {
   START_VARIABLES,
   validateStart,
 } from "../config.ts";
+import { DEFAULT_FLOWS, flowNames } from "../embedded/templates.ts";
 import { shownDefsDir, type TEnv } from "../env.ts";
 import { isSettingsFile, type TSettingsFile } from "./claude-settings.ts";
 import { joinCommand, splitCommand } from "./command.ts";
 import { savedStart } from "./current.ts";
+import { parseFlows } from "./flows.ts";
 import { type IKanbanState, KANBAN_DIR, kanbanAskDefaults, kanbanState } from "./kanban.ts";
-import { askSelect, askText, askYesNo, type IAsker } from "./prompt.ts";
+import { askMultiSelect, askSelect, askText, askYesNo, type IAsker } from "./prompt.ts";
 import { isIgnored } from "./scaffold.ts";
 import { box } from "./style.ts";
 
@@ -23,7 +25,15 @@ export interface IAskInput {
   env: TEnv;
 }
 
-const STEPS = 4;
+const STEPS = 5;
+
+/** One line on what each shipped flow is for, in the wizard's Flows step. */
+const FLOW_HINTS: Record<string, string> = {
+  development: "worktree, build, QA, release",
+  ideas: "shape before building",
+  reports: "search and report, one-off or recurring",
+  tasks: "task with a clear outcome; seeds onboarding",
+};
 
 /** The answer that leaves no start command, as the start step reads it. */
 const SKIP = "skip";
@@ -45,8 +55,8 @@ function header(asker: IAsker, n: number, title: string, note?: string): void {
 }
 
 /**
- * Asks what the flags left open, in the order scope, start, Git and Kanban, and returns the extra arguments to give
- * the non-interactive init (`--global`, `--start`, `--no-start`, `--gitignore`, `--kanban`,
+ * Asks what the flags left open, in the order scope, flows, start, Git and Kanban, and returns the extra arguments
+ * to give the non-interactive init (`--global`, `--flows`, `--start`, `--no-start`, `--gitignore`, `--kanban`,
  * `--kanban-settings-file`), or `null` when the user declines the summary. Nothing is written here: every answer is
  * asked before the first write. Throws `Aborted` on Ctrl+C.
  */
@@ -111,9 +121,28 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     );
   }
 
+  header(asker, 2, "Flows", "what wip writes into the definitions folder; Space toggles");
+  let flows: string[];
+  if (args.opts.flows !== undefined) {
+    flows = parseFlows(args.opts.flows);
+    asker.say(`  ${s.dim(`from --flows ${flows.join(", ")}`)}`);
+  } else {
+    flows = await askMultiSelect(asker, {
+      question: "Which flows should wip write?",
+      options: flowNames().map((name) => ({
+        value: name,
+        label: name,
+        hint: FLOW_HINTS[name],
+      })),
+      initial: DEFAULT_FLOWS,
+    });
+    // The non-interactive default is all four; only a different selection is passed on.
+    if (flows.join(",") !== DEFAULT_FLOWS.join(",")) extra.push("--flows", flows.join(","));
+  }
+
   header(
     asker,
-    2,
+    3,
     "Start command",
     `what \`wip start\` runs; variables ${START_VARIABLES.map((v) => `{${v}}`).join(" ")}; leave empty for none`,
   );
@@ -134,7 +163,7 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     }
   }
 
-  header(asker, 3, "Git", "what goes into .gitignore");
+  header(asker, 4, "Git", "what goes into .gitignore");
   let gitShown: string;
   if (args.opts.gitignore !== undefined) {
     asker.say(`  ${s.dim(`from --gitignore ${args.opts.gitignore}`)}`);
@@ -162,7 +191,7 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
     if (gitShown !== "wip" || !isIgnored(project, ".wip/")) extra.push("--gitignore", gitShown);
   }
 
-  header(asker, 4, "Kanban", "optional: a read-only board of the open items, shown by Claude Code");
+  header(asker, 5, "Kanban", "optional: a read-only board of the open items, shown by Claude Code");
   let state: IKanbanState | null = null;
   try {
     state = kanbanState(project);
@@ -245,6 +274,7 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
   const rows = [
     row("scope", global ? "global" : "local"),
     row("defs", `${shownDefs}/${switchFrom === null ? "" : ` (switch from ${switchFrom}/)`}`),
+    row("flows", flows.join(", ")),
     row("start", startShown),
     row("gitignore", gitShown),
     row(

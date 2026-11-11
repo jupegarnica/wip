@@ -26,12 +26,12 @@ Flows and agents are Markdown files in the repository, so they are readable, dif
 
 - **Durable per-project state.** Items, phases, runs, gates and history in `.wip/`, found by walking up from any
   directory.
-- **Flows as Markdown.** Phases, gates, agents and write scopes; the shipped `tasks` flow covers code, research,
-  documents and decisions.
+- **Flows as Markdown.** Phases, gates, agents and write scopes; `wip init` ships four flows — `development`, `ideas`,
+  `reports` and `tasks` — covering code, research, documents and decisions.
 - **One coordinator, four subagents.** `fast`, `efficient`, `thinker` and `wise` share one contract and differ in how
   much they investigate and decide.
 - **A read-only kanban.** `wip web` serves it from the binary; `wip init` also installs an optional pane for Claude
-  Code by default (the wizard's fourth step), and `wip init --kanban` installs it from scripts.
+  Code by default (the wizard's fifth step), and `wip init --kanban` installs it from scripts.
 - **Scheduled checks without a daemon.** Flows declare polls; `wip cron` keeps reminders and fixed-time passes, and
   the coordinator arms them when a session starts.
 - **Auditable by default.** Every item keeps its runs, gates and history; archiving prunes safely to the system
@@ -66,8 +66,8 @@ cd my-project
 wip init
 ```
 
-The wizard asks four things: the scope (local or `~/.claude/`), the `wip start` command, what goes into
-`.gitignore`, and whether to install the Kanban mod for Claude Code. See
+The wizard asks five things: the scope (local or `~/.claude/`), the flows to write, the `wip start` command, what
+goes into `.gitignore`, and whether to install the Kanban mod for Claude Code. See
 [docs/init.md](https://github.com/jupegarnica/wip/blob/main/docs/init.md).
 
 ### 3. Start the coordinator

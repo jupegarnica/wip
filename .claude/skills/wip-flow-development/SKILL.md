@@ -1,6 +1,7 @@
 ---
 name: wip-flow-development
 description: "wip flow `development`, for the coordinator: phases, gates and subagents of an item that is a small piece of work, from the backlog and the plan approved by the user, through a build in its own worktree and branch, a QA plan prepared and run, the user's review, the commit, the release that closes the worktree and publishes the build, and the close. Read it before every phase of an item of this flow."
+wip: flow
 ---
 
 # development
@@ -83,7 +84,7 @@ phases:
 - `qa-exec` uses `efficient` (or `fast` when the steps are mechanical): it runs the cases the plan lists and writes `qa-report.md`.
 - `human-review` has no subagent: the coordinator presents the test plan and waits on the user.
 - `commit` uses `efficient`: it commits the reviewed work on the item's branch.
-- `release` uses `efficient`: it merges the branch, builds the package, installs it globally and removes the worktree, after the user approves the gate.
+- `release` uses `efficient`: it merges the branch, runs the project's build and release steps and removes the worktree, after the user approves the gate.
 
 Every launch passes `Writes:` with the phase's `writes` value, and `Inputs:` with the exact path of each artifact the phase reads.
 
@@ -129,12 +130,11 @@ Inputs: `build.md` and the branch from `branch`. The subagent commits the review
 
 Gate `ask`: the coordinator shows the branch, the commit and the exact commands before anything runs. After the user approves, the subagent:
 
-1. merges `wip/<ID>` into `main` from the main working tree;
-2. builds and packs the package from `main` (`bun run build`);
-3. installs it globally (the repository's `npm install -g` of the packed package), without touching the existing `wip2`;
-4. removes the worktree with `git worktree remove`.
+1. merges `wip/<ID>` into the base branch the plan names, from the main working tree;
+2. runs the project's build and release steps as the plan says (build, package, publish or install);
+3. removes the worktree with `git worktree remove`.
 
-It writes `release.md` in `ARTIFACT_DIR` with the merge, the build output, the installed version and the removal. A merge conflict, a failed build or a failed install returns `blocked` and the worktree stays. When it returns `done`, move to `close`.
+It writes `release.md` in `ARTIFACT_DIR` with the merge, the build output, what was published or installed and the removal. A merge conflict, a failed build or a failed release returns `blocked` and the worktree stays. When it returns `done`, move to `close`.
 
 ### close
 
