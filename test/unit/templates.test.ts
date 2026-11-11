@@ -1,13 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { hasWipMark, parseFrontmatter, readAgent } from "../../src/agents.ts";
 import { COMMANDS } from "../../src/commands/help.ts";
 import {
   COORDINATOR_AGENT,
   DEFAULT_FLOW,
+  DEFAULT_FLOWS,
+  flowNames,
+  flowOfKey,
   GENERIC_AGENTS,
   RESERVED_AGENTS,
+  selectTemplates,
   TEMPLATES,
 } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
@@ -53,6 +57,10 @@ const GENERIC_COLORS: Record<string, string> = {
 };
 const RUNTIME_SECTION = "## Runtime interface";
 const PROTOCOL_SKILL = "wip-subagent-protocol";
+/** What `flow lint` prints after init with every shipped flow, in the registry's alphabetical order. */
+const LINT_ALL = `${DEFAULT_FLOWS.map((name) => `OK ${name}`).join("\n")}\n`;
+/** The coordinator's body stays short: the v2 onboarding line takes it from 90 to at most 95. */
+const MAX_BODY_LINES = 95;
 
 let p: IProject | null = null;
 
@@ -150,7 +158,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
 
   test("the coordinator definition is short and points to the wip-coordinate skill", () => {
     const text = template("agents/wip.md");
-    expect(bodyOf(text).trimEnd().split("\n").length).toBeLessThanOrEqual(92);
+    expect(bodyOf(text).trimEnd().split("\n").length).toBeLessThanOrEqual(MAX_BODY_LINES);
     expect(text).toContain("wip-coordinate");
     expect(text).toContain('"$WIP_BIN" session start');
     expect(text).toContain('"$WIP_BIN" state --attention');
@@ -333,6 +341,9 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const skills = entries("skills/").filter(([key]) => key.endsWith("/SKILL.md"));
     expect(skills.map(([key]) => key).sort()).toEqual([
       "skills/wip-coordinate/SKILL.md",
+      "skills/wip-flow-development/SKILL.md",
+      "skills/wip-flow-ideas/SKILL.md",
+      "skills/wip-flow-reports/SKILL.md",
       "skills/wip-flow-tasks/SKILL.md",
       "skills/wip-new-agent/SKILL.md",
       "skills/wip-new-flow/SKILL.md",
@@ -439,7 +450,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const wip = template("agents/wip.md");
     expect(wip).toContain("«The read» of «Cron» in `wip-coordinate`");
     expect(wip).not.toContain("poll due");
-    expect(bodyOf(wip).trimEnd().split("\n").length).toBeLessThanOrEqual(92);
+    expect(bodyOf(wip).trimEnd().split("\n").length).toBeLessThanOrEqual(MAX_BODY_LINES);
   });
 
   test("wip-coordinate carries «Cron»: one reader, five moments, one-shot jobs", () => {
@@ -575,7 +586,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     });
     expect(result.problems).toEqual([]);
     expect(frontmatter("skills/wip-new-flow/example.md").name).toBe("wip-flow-review");
-    expect(project.wip(["flow", "lint"]).stdout).toBe(`OK ${DEFAULT_FLOW}\n`);
+    expect(project.wip(["flow", "lint"]).stdout).toBe(LINT_ALL);
   });
 });
 
@@ -587,12 +598,12 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     const out = project.wip(["flow", "lint"]);
     expect(out.stderr).toBe("");
     expect(out.code).toBe(EXIT.OK);
-    expect(out.stdout).toContain("OK tasks");
-    expect(template(FLOW_KEY)).toContain('`"$WIP_BIN" phase <ID> intake --flow tasks`');
+    expect(out.stdout).toBe(LINT_ALL);
+    expect(template(FLOW_KEY)).toContain('`"$WIP_BIN" phase <ID> todo --flow tasks`');
     expect(String(frontmatter(FLOW_KEY).description)).toContain("for the coordinator");
   });
 
-  test("three stages of generic phases, each with its gate, agent, writes and next", () => {
+  test("three phases, one per stage, each with its gate, agent, writes and next", () => {
     const { flow, problems } = parseFlow(DEFAULT_FLOW, template(FLOW_KEY));
     expect(problems).toEqual([]);
     if (!flow) throw new Error("no flow");
@@ -606,31 +617,17 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       ph.fromAny,
     ]);
     expect(shape).toEqual([
-      ["preparation", "intake", "none", null, "artifacts", ["research", "done"], false],
-      ["preparation", "research", "auto", "thinker", "artifacts", ["plan"], false],
-      ["preparation", "plan", "ask", "thinker", "artifacts", ["execute"], true],
-      ["execution", "execute", "auto", "efficient", "project", ["check"], false],
-      ["execution", "check", "auto", "efficient", "artifacts", ["execute", "review"], false],
-      ["review", "review", "ask", null, "artifacts", ["execute", "deliver", "done"], false],
-      ["review", "deliver", "ask", "efficient", "artifacts", ["done"], false],
-      ["review", "done", "none", null, "artifacts", [], false],
+      ["todo", "todo", "ask", "thinker", "artifacts", ["doing", "done"], true],
+      ["doing", "doing", "ask", "efficient", "project", ["done"], false],
+      ["done", "done", "none", null, "artifacts", [], false],
     ]);
-    expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual([
-      "user",
-      "agent",
-      "agent",
-      "agent",
-      "agent",
-      "user",
-      "agent",
-      "none",
-    ]);
+    expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual(["user", "agent", "none"]);
     expect(flow.phases.at(-1)?.kind).toBe("terminal");
     expect(Object.keys(flow.fields)).toEqual(["title"]);
     expect(flow.seed).toEqual([
       {
         id: "onboarding",
-        phase: "intake",
+        phase: "todo",
         title: "Get to know wip",
         next: "tell the coordinator when you want to start the onboarding",
         files: ["guide.md"],
@@ -646,7 +643,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     const steps = [
       "with the artifact\n`guide.md`",
       "with no subagent",
-      "the first suggestion of its `🟪 NEXT · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.",
+      "the first suggestion of its `🟪 NEXT · …` line\n   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it beyond the\n   one line that «Start of every session» adds while it is still not started.",
       "**Step 1 · the guide.**",
       "«The kanban» in\n   `<defs>/agents/wip.md`",
       '`"$WIP_BIN" wait onboarding user --next "read the guide and find this task on the kanban"`',
@@ -654,7 +651,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       "from `guide.md` and `<defs>/`, never from memory",
       '`"$WIP_BIN" wait onboarding user --next "close the onboarding at its gate"`',
       "**Step 3 · the gate.**",
-      '`"$WIP_BIN" gate open onboarding intake --question "Close the onboarding?" --detail <guide.md path>`',
+      '`"$WIP_BIN" gate open onboarding todo --question "Close the onboarding?" --detail <guide.md path>`',
       '`"$WIP_BIN" phase onboarding done`, `"$WIP_BIN" archive onboarding`',
       "«try a task: ask for your first one»",
       "**Proactive:**",
@@ -667,6 +664,17 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     }
     expect(own).not.toMatch(/(?<![$"])wip agent start/);
     expect(own).not.toContain("launch");
+
+    const flat = (text: string) => text.replace(/\s+/g, " ");
+    const guideLine =
+      "the flows and agents are yours to change — edit one, disable one you do not use, or create a new flow or agent by asking; «Your own flows and agents» in the guide says how.";
+    const startLine =
+      "If it is still not started (its `next` is the seeded one), add one line to that message: edit a flow or an agent, disable a flow you do not use, or create a new flow or agent by asking you; «Your own flows and agents» in the guide says how. Only while it is not started.";
+    expect(flat(own)).toContain(guideLine);
+    const templateStart = flat(section(template("agents/wip.md"), "## Start of every session"));
+    expect(templateStart).toContain(startLine);
+    const dogfood = readFileSync(join(import.meta.dir, "../../.claude/agents/wip.md"), "utf8");
+    expect(flat(section(dogfood, "## Start of every session"))).toContain(startLine);
   });
 
   test("no template keeps the feature tour", () => {
@@ -704,6 +712,17 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       "`?item=<flow>/<ID>`",
       "`?view=history`",
       "«Close the onboarding?»",
+      "Edit a flow or an agent",
+      "Disable a flow you do not use",
+      "Create a new flow or agent",
+      '`"$WIP_BIN" flow disable <flow>`',
+      '`"$WIP_BIN" flow enable <flow>`',
+      "`.wip/backups/defs/`",
+      "`wip-new-flow`",
+      "`wip-new-agent`",
+      "`development`",
+      "`ideas`",
+      "`reports`",
     ];
     for (const name of names) {
       expect({ name, found: guide.includes(name) }).toEqual({ name, found: true });
@@ -717,34 +736,96 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       lintFlow({ name: DEFAULT_FLOW, text, agentsDir, skill: true, liveItems: [] }).problems;
     expect(lint(template(FLOW_KEY))).toEqual([]);
     const split = template(FLOW_KEY).replace(
-      "  - name: check\n    stage: execution",
-      "  - name: check\n    stage: preparation",
+      "  - name: done\n    stage: done",
+      "  - name: done\n    stage: todo",
     );
     expect(split).not.toBe(template(FLOW_KEY));
-    expect(lint(split)).toEqual([
-      "stages must be contiguous in phase order: preparation → execution → preparation → review",
-    ]);
+    expect(lint(split)).toEqual(["stages must be contiguous in phase order: todo → doing → todo"]);
   });
 
   test("## Subagents and a ### section for every phase are filled; there is no phase table", () => {
     const text = template(FLOW_KEY);
-    const phases = ["intake", "research", "plan", "execute", "check", "review", "deliver", "done"];
+    const phases = ["todo", "doing", "done"];
     const sections = extractSections(text, phases);
     expect((sections.subagents ?? "").length).toBeGreaterThan(200);
     for (const phase of phases) {
       expect((sections.phaseNotes[phase] ?? "").length).toBeGreaterThan(80);
     }
-    for (const phase of ["research", "plan", "execute", "check", "deliver"]) {
+    for (const phase of ["todo", "doing"]) {
       expect(sections.subagents).toContain(`\`${phase}\` uses`);
     }
-    expect(sections.phaseNotes.plan).toContain(
+    expect(sections.phaseNotes.todo).toContain(
       "the deliverable (code, a report, a document, a decision)",
     );
-    expect(sections.phaseNotes.check).toContain(
+    expect(sections.phaseNotes.doing).toContain(
       "each question of an investigation has an answer and",
     );
     expect(text).not.toContain("verify");
     expect(text.split("\n").some((line) => line.startsWith("|"))).toBe(false);
+  });
+});
+
+describe("the shipped flows (F-NEW-03)", () => {
+  test("init ships four flows, all selected by default, and tasks stays the seeder", () => {
+    expect(flowNames()).toEqual([...DEFAULT_FLOWS]);
+    expect(DEFAULT_FLOW).toBe("tasks");
+    for (const name of DEFAULT_FLOWS) {
+      const key = `skills/wip-flow-${name}/SKILL.md`;
+      expect(frontmatter(key).wip).toBe("flow");
+      expect(frontmatter(key).name).toBe(`wip-flow-${name}`);
+      expect(parseFlow(name, template(key)).problems).toEqual([]);
+    }
+  });
+
+  test("every shipped flow passes lint with the shipped agents", () => {
+    const project = initProject();
+    const agentsDir = join(project.dir, ".claude", "agents");
+    for (const name of DEFAULT_FLOWS) {
+      const { problems } = lintFlow({
+        name,
+        text: template(`skills/wip-flow-${name}/SKILL.md`),
+        agentsDir,
+        skill: true,
+        liveItems: [],
+      });
+      expect({ name, problems }).toEqual({ name, problems: [] });
+    }
+    expect(project.wip(["flow", "lint"]).stdout).toBe(LINT_ALL);
+  });
+
+  test("selectTemplates keeps every non-flow template and only the selected flows' folders", () => {
+    const onlyTasks = Object.keys(selectTemplates(["tasks"])).sort();
+    expect(onlyTasks).toEqual(
+      Object.keys(TEMPLATES)
+        .filter((key) => {
+          const flow = flowOfKey(key);
+          return flow === null || flow === "tasks";
+        })
+        .sort(),
+    );
+    expect(onlyTasks.some((key) => key.startsWith("skills/wip-flow-ideas/"))).toBe(false);
+    expect(Object.keys(selectTemplates(DEFAULT_FLOWS)).sort()).toEqual(
+      Object.keys(TEMPLATES).sort(),
+    );
+  });
+});
+
+describe("the templates and the dogfood copies", () => {
+  test("the shipped flows and wip-coordinate are byte-identical in templates/ and .claude/", () => {
+    const repo = join(import.meta.dir, "../..");
+    const shipped = Object.keys(TEMPLATES).filter(
+      (key) => key.startsWith("skills/wip-flow-") || key === "skills/wip-coordinate/SKILL.md",
+    );
+    for (const key of shipped) {
+      expect({ key, text: readFileSync(join(repo, ".claude", key), "utf8") }).toEqual({
+        key,
+        text: template(key),
+      });
+    }
+    // Agents stay out: the dogfood efficient runs `opus` and the template ships `sonnet`.
+    expect(readFileSync(join(repo, ".claude/agents/efficient.md"), "utf8")).not.toBe(
+      TEMPLATES["agents/efficient.md"],
+    );
   });
 });
 

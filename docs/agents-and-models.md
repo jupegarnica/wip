@@ -18,10 +18,11 @@ The model of each generic agent and of the coordinator (marked `wip: coordinator
 and each template under `templates/agents/` carries one: `haiku` (`fast`), `sonnet` (`efficient`), `opus` (`thinker`),
 `fable` (`wise`) and `inherit` (the coordinator). `wip init` writes the template as it is and never asks for or
 writes a model; `wip init --yes` fills no `model:` either and takes the default of each wizard step, the Kanban one
-included (see [The Kanban mod](init.md#the-kanban-mod---kanban)). In a terminal `wip init` asks in four steps: the scope
+included (see [The Kanban mod](init.md#the-kanban-mod---kanban)). In a terminal `wip init` asks in five steps: the scope
 (`local`, the default, in the project, or `global`, in your home folder like `--global`; `--global` skips it and an
-initialised project keeps its scope, shown as `scope kept`), the `wip start` command, what goes into `.gitignore` and
-the Kanban mod (`yes`, the default, or `no`), shows a summary and writes nothing until you confirm (Enter takes the
+initialised project keeps its scope, shown as `scope kept`), the flows to write (all four checked, Space toggles,
+`--flows` skips it), the `wip start` command, what goes into `.gitignore` and the Kanban mod (`yes`, the default, or
+`no`), shows a summary and writes nothing until you confirm (Enter takes the
 default, Ctrl+C writes nothing). Colours appear only on a terminal without `NO_COLOR`. `--start '<command>'`,
 `--start-default` and `--no-start` answer that one question each. Without a terminal (scripts, CI) init asks nothing
 and only `start` can stay unset, as before: `wip check` then reports `start_unset` (exit code unchanged) and the

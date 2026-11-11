@@ -19,7 +19,17 @@ wip init --global                 # definitions in ~/.claude/, shared by every -
 | `<defs>/skills/wip-coordinate/`                  | how the coordinator runs a flow: cycle, launch prompt, gates, agent choice, changing a model, runtime interface                                                                                                                                                                                                                                                                                        |
 | `<defs>/skills/wip-new-flow/` · `wip-new-agent/` | how the coordinator creates or changes a flow or an agent; `wip-new-flow/example.md` is a reference flow                                                                                                                                                                                                                                                                                               |
 | `<defs>/skills/wip-subagent-protocol/`           | the contract every subagent follows; the coordinator never applies it to itself                                                                                                                                                                                                                                                                                                                        |
-| `<defs>/skills/wip-flow-tasks/`                  | the default flow, `tasks`, in three stages: preparation, execution and review (see [Flows](flows.md))                                                                                                                                                                                                                                                                                                  |
+| `<defs>/skills/wip-flow-development/`            | the `development` flow: a small piece of work in a worktree and branch, with a plan, a build, QA, the user's review, one commit and one release (see [Flows](flows.md))                                                                                                                                                                                                                                |
+| `<defs>/skills/wip-flow-ideas/`                  | the `ideas` flow: shapes an idea in rounds of questions and answers before anything is built                                                                                                                                                                                                                                                                                                           |
+| `<defs>/skills/wip-flow-reports/`                | the `reports` flow: a search or a report, one-off or recurring, from the questions and sources to the written report                                                                                                                                                                                                                                                                                   |
+| `<defs>/skills/wip-flow-tasks/`                  | the `tasks` flow: any task with a clear outcome, in three stages (`todo`, `doing` and `done`, one phase each); it seeds `onboarding`                                                                                                                                                                                                                                                                   |
+
+These four flows are the default set. In a terminal the wizard has five steps: scope, the flows to write, the start
+command, what goes into `.gitignore` and the Kanban mod. The Flows step shows all four checked; Space toggles one,
+Enter confirms and at least one stays checked. `--flows development,ideas,reports,tasks` selects a subset for scripts
+(trimmed, duplicates removed, only names init ships; an unknown or empty value exits 2 and writes nothing), and
+`--yes` without `--flows` writes all four. A run only adds the selected flows: it never deletes a deselected or custom
+flow.
 
 It never overwrites: a second run says `exists` for each file and changes nothing. `--force` rewrites the files that
 carry a `wip:` mark in their frontmatter (every file `wip init` writes), copying each one first to
@@ -28,20 +38,23 @@ only in the backup. A file at one of those paths without a `wip:` mark is anothe
 writing anything and names it, also with `--force`.
 
 `wip init` also creates the items a flow lists under `seed` in its block, and copies each seed's `files` from the
-flow's skill folder into the item's artifact directory. The `tasks` flow seeds one, `onboarding` («Get to know wip»),
-in `intake` and waiting on you, with the artifact `guide.md`: everything you can do with wip, the kanban included.
-On the first start the coordinator only tells you, in its `🟪 NEXT` line, that you have an onboarding task. When
-you want to start, it gives you the links to the guide (`view/item/tasks/onboarding/artifact/guide.md` on the
-kanban) and to the item's panel, answers your questions from the guide, and closes the item at a real gate («Close
-the onboarding?») in `done`, archived. An ID that already exists, open or archived, is never touched: a second init
+flow's skill folder into the item's artifact directory. The `tasks` flow, when the run writes it, seeds one,
+`onboarding` («Get to know wip»), in `todo` and waiting on you, with the artifact `guide.md`: everything you can do
+with wip, the kanban included; a project initialised without `tasks` has no onboarding item. On the first start the
+coordinator tells you, in its `🟪 NEXT` line, that you have an onboarding task, and adds one line that the flows and
+agents are yours to change (edit one, disable one you do not use, create one by asking). When you want to start, it
+gives you the links to the guide (`view/item/tasks/onboarding/artifact/guide.md` on the kanban) and to the item's
+panel, answers your questions from the guide (its «Your own flows and agents» section says how to change them), and
+closes the item at a real gate («Close the onboarding?») in `done`, archived. An ID that already exists, open or archived, is never touched: a second init
 or `--force` neither duplicates nor revives it, nor rewrites its files.
 
 A project keeps its definitions folder. An init that would write another folder of the same scope (a legacy
 `.agents/` or `~/.agents/`) exits 3 and writes nothing, and its message says to add `--force`. With `--force` it
 writes the templates into `.claude/`, switches `.wip/config.json` to it and prints a `switched` line; the old folder is
-not touched, moved or deleted, and wip stops reading it. Init warns (`defs_left_behind`) about the custom agents and
-skills of the old folder that it does not copy: copy them by hand if you need them. It refuses (exit 3, nothing
-written) when a live item uses a flow that the new folder lacks: copy that flow's folder by hand and run init again.
+not touched, moved or deleted, and wip stops reading it. Init warns (`defs_left_behind`) about the agents and skills
+of the old folder that it does not copy, a shipped flow that this run does not select included: add it back with
+`--flows` or copy it by hand if you need it. It refuses (exit 3, nothing written) when a live item uses a flow that
+the new folder lacks: add that shipped flow to `--flows` or copy its folder by hand, and run init again.
 Local and `--global` are never switched, also with `--force`.
 
 ## `--gitignore`
@@ -77,7 +90,7 @@ Claude Code session, terminal or desktop, loads it by itself as `wip-kanban@skil
 marketplace.
 
 The install writes two things: that copy, and `"enabledPlugins": {"wip-kanban@skills-dir": true}` merged into one
-settings file of the project. In a terminal the wizard's fourth step asks `Install the wip Kanban mod for Claude
+settings file of the project. In a terminal the wizard's fifth step asks `Install the wip Kanban mod for Claude
 Code?` (`yes`, the default, installs the copy and the entry; `no` writes nothing) and, after `yes`, `Where does the
 enabledPlugins entry go?`:
 

@@ -113,7 +113,7 @@ describe("wip cron (e2e)", () => {
     for (const [, sql] of MIGRATIONS.slice(0, 3)) old.exec(sql);
     old.exec("PRAGMA user_version = 3");
     old.exec(`INSERT INTO items (id, flow, phase, created_at, updated_at)
-              VALUES ('a', 'tasks', 'intake', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
+              VALUES ('a', 'tasks', 'todo', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
     old.close();
     expect(jobs(dir)).toEqual([]);
     const copies = readdirSync(join(dir, ".wip", "backups", "db"));

@@ -15,12 +15,13 @@ import {
 import { dirname, join, relative } from "node:path";
 import { unsetLine } from "../../src/commands/init.ts";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
-import { GENERIC_AGENTS, TEMPLATES } from "../../src/embedded/templates.ts";
+import { DEFAULT_FLOWS, GENERIC_AGENTS, TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
 import { type IEnvelopeOut, WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
 
 const ALL_UNSET = unsetLine([...GENERIC_AGENTS, "wip"].sort(), true) as string;
+const LINT_ALL = `${DEFAULT_FLOWS.map((name) => `OK ${name}`).join("\n")}\n`;
 
 const dirs: string[] = [];
 
@@ -136,8 +137,8 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
     for (const key of Object.keys(TEMPLATES))
       expect(out.stdout).toContain(`created .claude/${key}`);
     expect(out.stdout).toContain("created .wip/config.json (definitions in .claude/)");
-    expect(out.stdout).toContain("flow lint: OK tasks");
-    expect(out.stdout).toContain("seeded item onboarding (tasks · intake) with guide.md");
+    for (const name of DEFAULT_FLOWS) expect(out.stdout).toContain(`flow lint: OK ${name}`);
+    expect(out.stdout).toContain("seeded item onboarding (tasks · todo) with guide.md");
     expect(out.stdout).toContain("Run `wip start` (or bare `wip`) in this directory");
     expect(out.stdout).not.toContain("Point your harness");
     expect(out.stdout).not.toContain("--harness");
@@ -145,7 +146,7 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
     expect(existsSync(join(dir, ".agents"))).toBe(false);
     expect(existsSync(join(dir, ".claude", "rules"))).toBe(false);
     expect(existsSync(join(dir, ".claude", "flows"))).toBe(false);
-    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK tasks\n");
+    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe(LINT_ALL);
   });
 
   test("a second run changes nothing and says exists of every file", () => {
@@ -177,6 +178,73 @@ describe("wip init in an empty directory (F-NEW-01)", () => {
     const out = wipIn(dir, ["init", "--harness", "claude-code"]);
     expect(out.code).toBe(EXIT.USAGE);
     expect(readdirSync(dir)).toEqual([]);
+  });
+});
+
+describe("wip init --flows", () => {
+  const flowFolders = (dir: string): string[] =>
+    readdirSync(join(dir, ".claude", "skills"))
+      .filter((name) => name.startsWith("wip-flow-"))
+      .sort();
+
+  test("--yes writes all four by default; --flows picks a subset and data.flows says which", () => {
+    const all = tmp("flows-all");
+    const out = wipJsonIn(all, ["init", "--yes"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.data?.flows).toEqual([...DEFAULT_FLOWS]);
+    expect(flowFolders(all)).toEqual(DEFAULT_FLOWS.map((name) => `wip-flow-${name}`).sort());
+
+    const tasks = tmp("flows-tasks");
+    const only = wipJsonIn(tasks, ["init", "--yes", "--flows", "tasks"]);
+    expect(only.code).toBe(EXIT.OK);
+    expect(only.body.data?.flows).toEqual(["tasks"]);
+    expect(flowFolders(tasks)).toEqual(["wip-flow-tasks"]);
+    expect(existsSync(join(tasks, ".claude", "skills", "wip-flow-tasks", "guide.md"))).toBe(true);
+    expect(wipIn(tasks, ["flow", "lint"]).stdout).toBe("OK tasks\n");
+    expect(existsSync(join(tasks, ".wip", "items", "tasks", "onboarding", "guide.md"))).toBe(true);
+  });
+
+  test("--flows ideas writes only ideas and creates no item or database", () => {
+    const dir = tmp("flows-ideas");
+    const out = wipJsonIn(dir, ["init", "--flows", "ideas"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.body.data?.flows).toEqual(["ideas"]);
+    expect(flowFolders(dir)).toEqual(["wip-flow-ideas"]);
+    expect(out.body.data?.items).toEqual([]);
+    expect(existsSync(join(dir, ".wip", "wip.sqlite"))).toBe(false);
+    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK ideas\n");
+  });
+
+  test("an unknown or empty flow exits 2 and writes nothing", () => {
+    for (const value of ["nope", "", "tasks,", "tasks,nope", "none"]) {
+      const dir = tmp("flows-bad");
+      const out = wipIn(dir, ["init", "--flows", value]);
+      expect({ value, code: out.code }).toEqual({ value, code: EXIT.USAGE });
+      expect(readdirSync(dir)).toEqual([]);
+    }
+  });
+
+  test("a foreign file blocks a selected flow, not a deselected one", () => {
+    const dir = tmp("flows-foreign");
+    const foreign = "---\nname: wip-flow-ideas\ndescription: another tool's flow\n---\n\nMine.\n";
+    mkdirSync(join(dir, ".claude", "skills", "wip-flow-ideas"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "skills", "wip-flow-ideas", "SKILL.md"), foreign);
+    const blocked = wipIn(dir, ["init", "--flows", "ideas,tasks"]);
+    expect(blocked.code).toBe(EXIT.REJECTED);
+    expect(blocked.stderr).toContain(
+      ".claude/skills/wip-flow-ideas/SKILL.md exists without a `wip:` mark",
+    );
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+
+    // The foreign folder is not wip's, so it is not touched; the flow registry still sees it and lint
+    // reports it, which makes the run exit 1 with the selected flow written.
+    const ok = wipIn(dir, ["init", "--flows", "tasks"]);
+    expect(ok.code).toBe(EXIT.FINDINGS);
+    expect(readFileSync(join(dir, ".claude", "skills", "wip-flow-ideas", "SKILL.md"), "utf8")).toBe(
+      foreign,
+    );
+    expect(existsSync(join(dir, ".claude", "skills", "wip-flow-tasks", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".claude", "skills", "wip-flow-development"))).toBe(false);
   });
 });
 
@@ -307,6 +375,7 @@ describe("the definitions folder in .claude/ (F-NEW-02)", () => {
     expect(text.code).toBe(EXIT.OK);
     expect(text.stdout).toContain("exists .claude/agents/fast.md");
     expect(text.stdout).toContain("flow lint: OK tasks");
+    for (const name of DEFAULT_FLOWS) expect(text.stdout).toContain(`flow lint: OK ${name}`);
     expect(text.stdout).toContain("Run `wip start` (or bare `wip`) in this directory");
     expect(text.stdout).not.toContain('"start"');
     expect(text.stdout).not.toContain("Point your harness");
@@ -317,13 +386,13 @@ describe("the definitions folder in .claude/ (F-NEW-02)", () => {
     const dir = tmp("claude-reads");
     wipIn(dir, ["init"]);
     stripModels(dir);
-    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK tasks\n");
+    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe(LINT_ALL);
     const check = wipJsonIn(dir, ["check"]);
     expect(check.code).toBe(EXIT.OK);
     expect(check.body.warnings.find((w) => w.code === "models_unset")?.agents).toEqual(
       [...GENERIC_AGENTS, "wip"].sort(),
     );
-    expect(wipJsonIn(dir, ["phase", "T1", "intake"]).code).toBe(EXIT.OK);
+    expect(wipJsonIn(dir, ["phase", "T1", "todo", "--flow", "tasks"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["agent", "start", "T1", "fast"]).code).toBe(EXIT.OK);
   });
 
@@ -402,8 +471,8 @@ describe("wip init --force migrates a legacy .agents folder", () => {
     expect(out.stdout).toContain(
       "switched definitions from .agents/ to .claude/; .agents/ stays as it is and wip no longer reads it",
     );
-    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe("OK tasks\n");
-    expect(wipJsonIn(dir, ["phase", "T1", "intake"]).code).toBe(EXIT.OK);
+    expect(wipIn(dir, ["flow", "lint"]).stdout).toBe(LINT_ALL);
+    expect(wipJsonIn(dir, ["phase", "T1", "todo", "--flow", "tasks"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["agent", "start", "T1", "fast"]).code).toBe(EXIT.OK);
   });
 
@@ -467,6 +536,25 @@ describe("wip init --force migrates a legacy .agents folder", () => {
     expect(wipIn(dir, ["flow", "lint", "zzz"]).code).toBe(EXIT.OK);
   });
 
+  test("a live item in a shipped but deselected flow refuses, names --flows, and selecting it succeeds", () => {
+    const dir = legacyProject("switch-deselected");
+    expect(wipIn(dir, ["phase", "I1", "initial", "--flow", "ideas"]).code).toBe(EXIT.OK);
+    const before = tree(dir);
+    const out = wipIn(dir, ["init", "--force", "--flows", "tasks"]);
+    expect(out.code).toBe(EXIT.REJECTED);
+    expect(out.stderr).toContain(
+      "item I1 uses the flow ideas, which is shipped but not selected; add it to --flows",
+    );
+    expect(tree(dir)).toEqual(before);
+    expect(existsSync(join(dir, ".claude"))).toBe(false);
+
+    const ok = wipIn(dir, ["init", "--force", "--flows", "ideas,tasks"]);
+    expect(ok.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, ".claude", "skills", "wip-flow-ideas", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(dir, ".claude", "skills", "wip-flow-development"))).toBe(false);
+    expect(config(dir)).toEqual({ defs_dir: ".claude" });
+  });
+
   test("an archived item does not block the switch", () => {
     const dir = legacyProject("switch-archived");
     customFlow(dir, "zzz");
@@ -507,7 +595,7 @@ describe("the onboarding item seeded by init (F-NEW-08)", () => {
     const rows = (wipJsonIn(dir, argv).body.data?.items ?? []) as Record<string, unknown>[];
     return rows.map((r) => [r.id, r.flow, r.phase, r.waiting_on, r.title]);
   }
-  const ONBOARDING = ["onboarding", "tasks", "intake", "user", "Get to know wip"];
+  const ONBOARDING = ["onboarding", "tasks", "todo", "user", "Get to know wip"];
 
   for (const [argv, defs] of [[["init"], ".claude"]] as const) {
     test(`${argv.join(" ")} seeds it once with its guide; a second init and --force do not duplicate it`, () => {
@@ -515,7 +603,7 @@ describe("the onboarding item seeded by init (F-NEW-08)", () => {
       const first = wipJsonIn(dir, argv);
       expect(first.code).toBe(EXIT.OK);
       expect(first.body.data?.items).toEqual([
-        { id: "onboarding", flow: "tasks", phase: "intake", action: "seeded", files: ["guide.md"] },
+        { id: "onboarding", flow: "tasks", phase: "todo", action: "seeded", files: ["guide.md"] },
       ]);
       const shown = wipJsonIn(dir, ["show", "onboarding"]).body;
       const artifacts = String(shown.item?.artifact_dir);
@@ -524,11 +612,14 @@ describe("the onboarding item seeded by init (F-NEW-08)", () => {
       expect(readFileSync(join(artifacts, "guide.md"), "utf8")).toBe(
         readFileSync(template, "utf8"),
       );
-      expect(wipIn(dir, argv).stdout).toContain("exists item onboarding (tasks · intake)\n");
+      const seededGuide = readFileSync(join(artifacts, "guide.md"), "utf8");
+      expect(seededGuide).toContain("Your own flows and agents");
+      expect(seededGuide).toContain("flow disable");
+      expect(wipIn(dir, argv).stdout).toContain("exists item onboarding (tasks · todo)\n");
       const forced = wipJsonIn(dir, [...argv, "--force"]);
       expect(forced.code).toBe(EXIT.OK);
       expect(forced.body.data?.items).toEqual([
-        { id: "onboarding", flow: "tasks", phase: "intake", action: "exists", files: [] },
+        { id: "onboarding", flow: "tasks", phase: "todo", action: "exists", files: [] },
       ]);
       expect(items(dir)).toEqual([ONBOARDING]);
       expect(items(dir, ["state", "--attention"])).toEqual([ONBOARDING]);
@@ -710,7 +801,7 @@ describe("wip init --global", () => {
     expect(out.code).toBe(EXIT.OK);
     expect(tree(join(h, ".claude"))).toEqual(sortedTemplates());
     expect(readFileSync(join(dir, ".gitignore"), "utf8")).toBe(".wip/\n");
-    expect(out.stdout).toContain("seeded item onboarding (tasks · intake) with guide.md");
+    expect(out.stdout).toContain("seeded item onboarding (tasks · todo) with guide.md");
     expect(existsSync(join(dir, ".wip", "items", "tasks", "onboarding", "guide.md"))).toBe(true);
     expect(existsSync(join(dir, ".agents"))).toBe(false);
     expect(existsSync(join(dir, ".claude"))).toBe(false);
@@ -731,7 +822,7 @@ describe("wip init --global", () => {
     expect(g(dir, ["check"], h).code).toBe(EXIT.OK);
     const lint = g(dir, ["flow", "lint"], h);
     expect(lint.code).toBe(EXIT.OK);
-    expect(lint.stdout).toBe("OK tasks\n");
+    expect(lint.stdout).toBe(LINT_ALL);
   });
 
   test("init --global <path> creates .wip/ in <path>", () => {
@@ -881,7 +972,7 @@ describe("wip init --global", () => {
     mkdirSync(zzz, { recursive: true });
     writeFileSync(join(zzz, "SKILL.md"), flowSkill("zzz"));
     const lint = g(dir, ["flow", "lint"], h);
-    expect(lint.stdout).toBe("OK tasks\n");
+    expect(lint.stdout).toBe(LINT_ALL);
     expect(lint.stdout).not.toContain("zzz");
   });
 
