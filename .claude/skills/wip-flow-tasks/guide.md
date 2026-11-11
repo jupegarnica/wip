@@ -30,7 +30,7 @@ each phase with the rules, the model and the write scope you choose. Flows and a
 
 ## This onboarding
 
-`onboarding` is a real item of the `tasks` flow, in `intake`. Its steps show in its `next` on the kanban:
+`onboarding` is a real item of the `tasks` flow, in `todo`. Its steps show in its `next` on the kanban:
 
 1. Read this guide and find the item on the kanban.
 2. Ask the coordinator anything about it, or tell it you have read it.
@@ -50,22 +50,24 @@ Write as you would to a colleague; there are no commands to learn:
 
 ## Flows and stages
 
-The default flow, `tasks`, carries any task with a clear outcome:
+`wip init` ships four flows, all selected by default:
 
-- **preparation**
-  - `intake`: the coordinator saves your words and sets the title; the first subagent writes `request.md`.
-  - `research`: a subagent gathers context and options; skipped when the request is clear.
-  - `plan`: a subagent writes `plan.md` with what is delivered and how it is checked; you approve it.
-- **execution**
-  - `execute`: a subagent produces the deliverable as the plan says.
-  - `check`: a subagent checks it against the plan's criteria; red goes back to `execute`.
-- **review**
-  - `review`: you validate the result.
-  - `deliver`: only when something goes outside the project (a pull request, a message, a ticket).
-  - `done`: closed, then archived.
+- `development`: a small piece of work in a git worktree and branch, with a plan, a build, a QA pass, the user's
+  review, one commit and one release.
+- `ideas`: shapes an idea before anything is built, in rounds of questions and answers, until it is executed or
+  discarded.
+- `reports`: a search or a report, one-off or recurring, from the questions and the sources to the written report.
+- `tasks`: any task with a clear outcome.
 
-A typical task: you ask → `intake` → `research` if needed → `plan` (approved) → `execute` → `check` → `review` →
-`deliver` if it goes outside → `done`.
+The `tasks` flow has three stages, one phase each, with the same names:
+
+- **todo** · `todo`: the coordinator saves your words; a subagent writes `request.md` and `plan.md` with what is
+  delivered and how it is checked, and you approve the plan.
+- **doing** · `doing`: a subagent produces the deliverable as the plan says and checks it against the plan's
+  criteria; you review the result.
+- **done** · `done`: closed, then archived.
+
+A typical task: you ask → `todo` (the plan, approved) → `doing` (the work and its check) → you review → `done`.
 
 ## Agents and models
 
@@ -134,12 +136,19 @@ You never need them, but they are there:
 
 ## Your own flows and agents
 
-Ask the coordinator: «create a flow for code reviews», «add an agent that writes release notes».
+The defaults are only a starting point. By talking to the coordinator you can:
+
+- **Edit a flow or an agent.** Say what changes («split `doing` into `execute` and `check` in `tasks`», «make the plan gate optional»).
+  The coordinator proposes the new text and waits for your approval; a subagent then writes it with a backup under
+  `.wip/backups/defs/` and runs `"$WIP_BIN" flow lint`.
+- **Disable a flow you do not use.** `"$WIP_BIN" flow disable <flow>` hides it and freezes its items without touching
+  any file; `"$WIP_BIN" flow enable <flow>` brings it back. Ask the coordinator when you want it off or on again.
+- **Create a new flow or agent.** «create a flow for code reviews», «add an agent that writes release notes». The
+  coordinator uses the skills `wip-new-flow` and `wip-new-agent`: a proposal you approve, a backup, the file under
+  `<defs>/`, and `"$WIP_BIN" flow lint`. `<defs>/skills/wip-new-flow/example.md` is a complete flow to start from.
 
 You choose the phases and, for each one, the agent and the instructions it follows; agents are Markdown too, with
-their rules and their model. It uses the skills
-`wip-new-flow` and `wip-new-agent`: a proposal you approve, a backup, the file under `<defs>/`, and `"$WIP_BIN" flow lint`.
-`<defs>/skills/wip-new-flow/example.md` is a complete flow to start from.
+their rules and their model.
 
 ## Sessions and restarts
 

@@ -178,11 +178,11 @@ Detail: <path of gate-<phase>.md, if any>
 ```
 
 - **Summary labels** by kind of phase: a plan → Goal · Key steps · Risks · Writes (which files, where); a result
-  (execute, check, review) → Result (green or red, and why) · Changes (files) · Checks (what ran, failures) · Deviations;
+  (doing, check, review) → Result (green or red, and why) · Changes (files) · Checks (what ran, failures) · Deviations;
   a publication → Destination · Text. Any other phase → what the user needs to decide.
 - **Open points:** each one says what is decided, the options, the consequence of each and your recommendation
   with its reason.
-- **Options:** Approve · Change · Stop, plus the phase's own (`review`: back to `execute` or to `plan`, or on to `deliver`).
+- **Options:** Approve · Change · Stop, plus the phase's own (`doing`: back to `todo` or on to `done`).
 
 ## Messages
 
@@ -325,22 +325,27 @@ It also exports `WIP_BIN` with that path to the session it launches.
 
 ## Onboarding
 
-`wip init` seeds the item `onboarding` (flow `tasks`, phase `intake`, waiting on the user) with the artifact
-`guide.md`, which explains everything the user can do. While it is open you guide it, step by step, to `done` and
-archive it, with no subagent; its `next` shows the current step on the kanban. It stays in `intake`. Anything that writes a file goes to a subagent.
+`wip init` seeds the item `onboarding` (flow `tasks`, phase `todo`, waiting on the user) with the artifact
+`guide.md`, which explains everything the user can do, when the run writes the `tasks` flow. While it is open you
+guide it, step by step, to `done` and archive it, with no subagent; its `next` shows the current step on the kanban.
+It stays in `todo`. Anything that writes a file goes to a subagent. A project initialised without `tasks` has no
+onboarding item, and this section does nothing.
 
 1. **Not started** (its `next` is still the seeded one): the closing message of «Start of every session» is the usual
    one, after the kanban line, and the first suggestion of its `🟪 NEXT · …` line
-   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it.
+   is «You have an onboarding task (`onboarding`): tell me when you want to start». No other text about it beyond the
+   one line that «Start of every session» adds while it is still not started.
 2. **Step 1 · the guide.** When the user wants to start: `"$WIP_BIN" log onboarding "<their words>" --kind user`, then one 🟦
    message with the link to `guide.md` and the link to the item's panel, built as «The kanban» in
    `<defs>/agents/wip.md` says (with the kanban down, the full path of `guide.md` in its `artifact_dir`), then
    `"$WIP_BIN" wait onboarding user --next "read the guide and find this task on the kanban"`.
+   In the same 🟦, one line more: the flows and agents are yours to change — edit one, disable one you do not use, or
+   create a new flow or agent by asking; «Your own flows and agents» in the guide says how.
 3. **Step 2 · questions.** Answer each question from `guide.md` and `<defs>/`, never from memory, and suggest the
    next step without waiting to be asked. When the user says they have read it:
    `"$WIP_BIN" log onboarding "<their words>" --kind milestone:guide-read`,
    `"$WIP_BIN" wait onboarding user --next "close the onboarding at its gate"`, and step 3 in the same turn.
-4. **Step 3 · the gate.** `"$WIP_BIN" gate open onboarding intake --question "Close the onboarding?" --detail <guide.md path>`,
+4. **Step 3 · the gate.** `"$WIP_BIN" gate open onboarding todo --question "Close the onboarding?" --detail <guide.md path>`,
    then the 🟧 block: Approve closes it · Change keeps asking · Stop closes it too.
    - Approve or Stop: `"$WIP_BIN" gate close onboarding --answer "<their words>" --decision approved`,
      `"$WIP_BIN" phase onboarding done`, `"$WIP_BIN" archive onboarding`; then a 🟩 line with the guide's link (an archived item

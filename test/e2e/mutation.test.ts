@@ -112,13 +112,16 @@ describe("a new flow created by copying the tasks flow skill (§1.7)", () => {
     const p = flowProject("new");
     expect(lint(p.dir)).toMatchObject({ code: EXIT.OK });
     expect(lint(p.dir).flows.map((f) => [f.name, f.ok])).toEqual([
+      ["development", true],
+      ["ideas", true],
+      ["reports", true],
       ["review", true],
       ["tasks", true],
     ]);
 
     wipOkIn(p.dir, ["phase", "R1", "intake", "--flow", "review"]);
     wipOkIn(p.dir, ["phase", "R1", "review"]);
-    wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "tasks"]);
+    wipOkIn(p.dir, ["phase", "W1", "todo", "--flow", "tasks"]);
 
     expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "review"]))).toEqual(["R1"]);
     expect(itemIds(wipOkIn(p.dir, ["state", "--flow", "tasks"]))).toEqual(["W1", "onboarding"]);
@@ -218,8 +221,8 @@ async function freePort(): Promise<number> {
 describe("wip web over both flows (§1.8)", () => {
   test("the kanban shows the tasks and review columns, your turn, gates and running agents", async () => {
     const p = flowProject("web");
-    wipOkIn(p.dir, ["phase", "W1", "intake", "--flow", "tasks"]);
-    wipOkIn(p.dir, ["phase", "W1", "plan"]);
+    wipOkIn(p.dir, ["phase", "W1", "todo", "--flow", "tasks"]);
+    wipOkIn(p.dir, ["phase", "W1", "doing"]);
     wipOkIn(p.dir, ["agent", "start", "W1", "thinker", "--handle", "h1"]);
     wipOkIn(p.dir, ["phase", "R1", "intake", "--flow", "review"]);
     wipOkIn(p.dir, ["phase", "R1", "review"]);
@@ -247,14 +250,28 @@ describe("wip web over both flows (§1.8)", () => {
         kanban.flows.map((f: TJson) => [f.name, f.columns.flatMap((c: TJson) => c.phases)]),
       );
       expect(columns).toEqual({
+        development: [
+          "backlog",
+          "plan",
+          "worktree",
+          "build",
+          "qa-plan",
+          "qa-exec",
+          "human-review",
+          "commit",
+          "release",
+          "close",
+        ],
+        ideas: ["initial", "refine", "final", "will", "done", "discarded"],
+        reports: ["request", "plan", "search", "check", "report", "review", "waiting", "done"],
         review: ["intake", "review", "fix", "done"],
-        tasks: ["intake", "research", "plan", "execute", "check", "review", "deliver", "done"],
+        tasks: ["todo", "doing", "done"],
       });
       const tasks = kanban.flows.find((f: TJson) => f.name === "tasks");
       expect(tasks.columns.map((c: TJson) => [c.label, c.alpha])).toEqual([
-        ["preparation", 1],
-        ["execution", 0.63],
-        ["review", 0.25],
+        ["todo", 1],
+        ["doing", 0.63],
+        ["done", 0.25],
       ]);
       expect(
         new Set(tasks.columns.map((c: TJson) => c.color.split(",").slice(0, 3).join())),

@@ -2,6 +2,7 @@
 
 name: wip-flow-ideas
 description: "wip flow `ideas`, for the coordinator: phases, gates and subagents of an item that is an idea, from its first words, refined by questions and answers, to a final written idea that waits to be executed or is discarded. Read it before every phase of an item of this flow."
+wip: flow
 ---
 
 # ideas
@@ -110,8 +111,8 @@ the same phase with the user's feedback; an idea that needs more shaping goes ba
 
 The coordinator does this phase itself. The item stays open on the list of ideas waiting to be executed; set it
 with `"$WIP_BIN" wait <ID> external --next "execute or discard"`. It is not archived. When the user decides to execute it,
-the coordinator offers to start an item of the flow that fits (`dev` or `tasks`) with the approved
-`v<N>.idea.md` as its context. When the user says it was executed, it moves to `done`; when the user drops it, it moves
+the coordinator offers to start an item of a flow the project has installed for it (`development` or `tasks` when
+present) with the approved `v<N>.idea.md` as its context. When the user says it was executed, it moves to `done`; when the user drops it, it moves
 to `discarded`; one that needs more shaping goes back to `refine`.
 
 ### done

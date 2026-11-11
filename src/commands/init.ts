@@ -16,6 +16,7 @@ import {
 import type { ICtx, IHandler } from "../context.ts";
 import { openForRead } from "../db.ts";
 import { KANBAN_MOD } from "../embedded/kanban.ts";
+import { flowNames, selectTemplates } from "../embedded/templates.ts";
 import { defsPath, FLOW_SKILL_PREFIX, rootAt, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, usage } from "../errors.ts";
 import { liveItems, loadFlows } from "../flow/registry.ts";
@@ -30,6 +31,7 @@ import {
 } from "../init/claude-settings.ts";
 import { splitCommand } from "../init/command.ts";
 import { savedStart } from "../init/current.ts";
+import { parseFlows } from "../init/flows.ts";
 import {
   type IKanbanCopyResult,
   KANBAN_DIR,
@@ -66,7 +68,7 @@ export function unsetLine(models: readonly string[], startUnset: boolean): strin
 }
 
 const INIT_USAGE =
-  "usage: wip init [<path>] [--global] [--force] [--yes] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none] [--kanban] [--kanban-settings-file settings.json|settings.local.json]";
+  "usage: wip init [<path>] [--global] [--force] [--yes] [--flows <names>] [--start <command> | --start-default | --no-start] [--gitignore wip,defs | none] [--kanban] [--kanban-settings-file settings.json|settings.local.json]";
 
 const CLAUDE_CODE_NEXT = [
   "Run `wip start` (or bare `wip`) in this directory: it starts the coordinator, the runtime that runs the project's flows.",
@@ -148,17 +150,28 @@ function liveFlows(project: string, env: TEnv): ReturnType<typeof liveItems> {
 }
 
 /** The refusals of a switch whose live items use a flow the new folder lacks: nothing is written then. */
-function liveFlowRefusals(project: string, from: string, to: string, env: TEnv): string[] {
+function liveFlowRefusals(
+  project: string,
+  from: string,
+  to: string,
+  env: TEnv,
+  templates: Readonly<Record<string, string>>,
+): string[] {
   const oldRoot = defsPath(project, from, env);
   const newRoot = defsPath(project, to, env);
-  return uncoveredFlows(liveFlows(project, env), newRoot).map(({ flow, id, more }) => {
+  const shipped = flowNames();
+  const runAgain = "and run init again";
+  return uncoveredFlows(liveFlows(project, env), newRoot, templates).map(({ flow, id, more }) => {
     const inOld = existsSync(join(oldRoot, "skills", `${FLOW_SKILL_PREFIX}${flow}`, "SKILL.md"));
     const shownOld = shownDefsDir(from, env);
     const shownNew = shownDefsDir(to, env);
     const who = `item ${id}${more > 0 ? ` (and ${more} more)` : ""}`;
+    if (shipped.includes(flow)) {
+      return `${who} uses the flow ${flow}, which is shipped but not selected; add it to --flows or copy skills/${FLOW_SKILL_PREFIX}${flow}/ to ${shownNew}/ by hand ${runAgain}`;
+    }
     return inOld
-      ? `${who} uses the flow ${flow}, which is in ${shownOld}/ and not in ${shownNew}/; copy skills/${FLOW_SKILL_PREFIX}${flow}/ to ${shownNew}/ by hand and run init again`
-      : `${who} uses the flow ${flow}, which is not in ${shownNew}/ (nor in ${shownOld}/); add skills/${FLOW_SKILL_PREFIX}${flow}/SKILL.md to ${shownNew}/ by hand and run init again`;
+      ? `${who} uses the flow ${flow}, which is in ${shownOld}/ and not in ${shownNew}/; copy skills/${FLOW_SKILL_PREFIX}${flow}/ to ${shownNew}/ by hand ${runAgain}`
+      : `${who} uses the flow ${flow}, which is not in ${shownNew}/ (nor in ${shownOld}/); add skills/${FLOW_SKILL_PREFIX}${flow}/SKILL.md to ${shownNew}/ by hand ${runAgain}`;
   });
 }
 
@@ -218,6 +231,8 @@ function run(ctx: ICtx, args: IArgs): void {
       throw usage("--kanban-settings-file: use settings.json or settings.local.json");
     }
   }
+  const flows = args.opts.flows === undefined ? flowNames() : parseFlows(args.opts.flows);
+  const templates = selectTemplates(flows);
   const defsDir = (global ? HOME_PREFIX : "") + DEFAULT_DEFS_DIR;
   const defsRoot = defsPath(project, defsDir, ctx.env);
   const shown = shownDefsDir(defsDir, ctx.env);
@@ -233,8 +248,8 @@ function run(ctx: ICtx, args: IArgs): void {
   const kanbanPre = kanbanPreflight(project, { requested: kanban, force, file: kanbanFile });
   const conflicts = [
     ...(sw.refusal ? [sw.refusal] : []),
-    ...(sw.from === null ? [] : liveFlowRefusals(project, sw.from, defsDir, ctx.env)),
-    ...foreignFiles(defsRoot, shown).map(
+    ...(sw.from === null ? [] : liveFlowRefusals(project, sw.from, defsDir, ctx.env, templates)),
+    ...foreignFiles(defsRoot, shown, templates).map(
       (rel) =>
         `${rel} exists without a \`wip:\` mark (another tool's file); rename or move it and run init again`,
     ),
@@ -266,6 +281,7 @@ function run(ctx: ICtx, args: IArgs): void {
     defsRoot,
     ignoreWip: ignore.wip,
     ignoreDefs: defsIgnored,
+    templates,
   });
   writeConfig(project, {
     defs_dir: defsDir,
@@ -322,12 +338,13 @@ function run(ctx: ICtx, args: IArgs): void {
   }
   const shared = global ? ", shared by every --global project" : "";
   lines.push(`${configAction} ${WIP_DIR}/${CONFIG_FILE} (definitions in ${shown}/${shared})`);
+  lines.push(`flows: ${flows.join(", ")}`);
   if (sw.from !== null) {
     const oldShown = shownDefsDir(sw.from, ctx.env);
     lines.push(
       `switched definitions from ${oldShown}/ to ${shown}/; ${oldShown}/ stays as it is and wip no longer reads it`,
     );
-    const left = leftBehind(defsPath(project, sw.from, ctx.env), defsRoot).map(
+    const left = leftBehind(defsPath(project, sw.from, ctx.env), defsRoot, templates).map(
       (key) => `${oldShown}/${key}`,
     );
     if (left.length > 0) {
@@ -406,6 +423,7 @@ function run(ctx: ICtx, args: IArgs): void {
     config: configAction,
     defs_dir: defsDir,
     switched_from: sw.from,
+    flows,
     files: done.files,
     items,
     start,
@@ -480,6 +498,13 @@ export async function promptInit(
   const kanbanFile = args.opts["kanban-settings-file"];
   if (kanbanFile !== undefined && (!args.flags.has("kanban") || !isSettingsFile(kanbanFile))) {
     return { argv: [...argv], code: 0 }; // the command reports the usage error itself
+  }
+  if (args.opts.flows !== undefined) {
+    try {
+      parseFlows(args.opts.flows);
+    } catch {
+      return { argv: [...argv], code: 0 }; // the command reports the usage error itself
+    }
   }
   try {
     const extra = await askInit(asker, { args, cwd, env });

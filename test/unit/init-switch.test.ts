@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { TEMPLATES } from "../../src/embedded/templates.ts";
+import { selectTemplates, TEMPLATES } from "../../src/embedded/templates.ts";
 import { definitionKeys, leftBehind, uncoveredFlows } from "../../src/init/switch.ts";
 import { scratch } from "../helpers/project.ts";
 
@@ -54,6 +54,17 @@ describe("leftBehind", () => {
   test("an empty or absent old folder leaves nothing behind", () => {
     expect(leftBehind(join(tmp(), "absent"), tmp())).toEqual([]);
   });
+
+  test("a shipped flow that this run does not select is left behind, not treated as wip's own", () => {
+    const old = tmp();
+    const next = tmp();
+    put(old, "skills/wip-flow-tasks/SKILL.md", TEMPLATES["skills/wip-flow-tasks/SKILL.md"]);
+    put(old, "skills/wip-flow-ideas/SKILL.md", TEMPLATES["skills/wip-flow-ideas/SKILL.md"]);
+    expect(leftBehind(old, next)).toEqual([]);
+    expect(leftBehind(old, next, selectTemplates(["tasks"]))).toEqual([
+      "skills/wip-flow-ideas/SKILL.md",
+    ]);
+  });
 });
 
 describe("uncoveredFlows", () => {
@@ -74,5 +85,16 @@ describe("uncoveredFlows", () => {
     ]);
     expect(uncoveredFlows(live, next)).toEqual([{ flow: "zzz", id: "Z1", more: 1 }]);
     expect(uncoveredFlows(new Map(), next)).toEqual([]);
+  });
+
+  test("a shipped flow that this run does not select does not cover a live item", () => {
+    const next = tmp();
+    const live = new Map([["tasks", [{ id: "T1", phase: "intake" }]]]);
+    expect(uncoveredFlows(live, next)).toEqual([]);
+    expect(uncoveredFlows(live, next, selectTemplates(["ideas"]))).toEqual([
+      { flow: "tasks", id: "T1", more: 0 },
+    ]);
+    put(next, "skills/wip-flow-tasks/SKILL.md");
+    expect(uncoveredFlows(live, next, selectTemplates(["ideas"]))).toEqual([]);
   });
 });

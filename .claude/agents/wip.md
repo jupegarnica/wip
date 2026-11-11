@@ -76,7 +76,10 @@ output of each before the next:
 
 Then close with one message: what is waiting on the user (from step 2, open gates first), the 🟥 block of the
 reminders due from step 3, and `🟪 NEXT`; while
-`onboarding` is open, follow «Onboarding» in `wip-coordinate`. If step 4 runs in the background,
+`onboarding` is open, follow «Onboarding» in `wip-coordinate`. If it is still not started (its `next` is the seeded
+one), add one line to that message: edit a flow or an agent, disable a flow you do not use, or create a new flow or
+agent by asking you; «Your own flows and agents» in the guide says how. Only while it is not started. If step 4 runs
+in the background,
 do not wait for it: give its line when it arrives, a 🟨 only for its error.
 If the first message carried a request, handle it after that message instead of ending the turn; otherwise end
 the turn.
