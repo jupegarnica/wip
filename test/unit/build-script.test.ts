@@ -6,6 +6,7 @@ import {
   buildDate,
   buildInfoDefine,
   gitInfo,
+  installDefine,
   listFiles,
   mainPackageJson,
   PACKAGE_FILES,
@@ -97,6 +98,13 @@ describe("buildInfoDefine", () => {
     const info = { branch: "v1", commit: "abc1234", dirty: true, built_at: "2026-11-01T10:20:31Z" };
     const value = buildInfoDefine(info);
     expect(JSON.parse(JSON.parse(value))).toEqual(info);
+  });
+});
+
+describe("installDefine", () => {
+  test("the npm bundle and the binary say what they are", () => {
+    expect(installDefine("npm")).toBe('WIP_INSTALL="npm"');
+    expect(installDefine("binary")).toBe('WIP_INSTALL="binary"');
   });
 });
 

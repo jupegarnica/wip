@@ -124,7 +124,9 @@ the other settings file: it reads it only to warn when its entry wins over the c
 not an object, a non-boolean value or a file that is not a regular file in the chosen path exits 3 with nothing
 written.
 
-Updating the copy is part of init: with `--force` the whole folder is replaced, managed files return to the embedded
+Updating the copy is also what [`wip upgrade`](upgrade.md) does, with the installed CLI's own embedded files and only
+in the current project; `wip init --force` remains the broader refresh, because it also writes the definitions and,
+with `--kanban`, the settings. Init replaces the whole folder with `--force`: managed files return to the embedded
 text, your own extra files inside it are removed (each listed as `removed`) and the previous folder is copied first to
 `.wip/backups/kanban/wip-kanban.<stamp>/`; the `.claude-plugin/types/` Claude generates is kept. A second `--force`
 with nothing changed says `exists` and writes nothing. `--force` alone refreshes an existing copy and touches neither
