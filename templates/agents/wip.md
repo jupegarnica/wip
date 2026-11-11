@@ -68,11 +68,13 @@ output of each before the next:
    it takes the first free port from 33333, records itself in `.wip/web/` and logs to `.wip/logs/web.log`), then
    run `"$WIP_BIN" web status` every 2 s until it exits 0, for 30 s at most. The answer is one line: `<URL> · port <N>`.
    Otherwise, run `"$WIP_BIN" web log -n 20` and return its error. It belongs to no item: no `"$WIP_BIN" agent start`.
-   **4b, watcher.** Once the starter returns a URL, launch a second `fast` in the background, also with no item: every
-   30 s it runs `"$WIP_BIN" web status` and `"$WIP_BIN" web log -n 20`, remembers the `error` lines it already saw, and
-   finishes only when `web status` exits non-zero or a new `error` line appears, returning that line (or the exit) in
-   one line. When it returns, give a 🟨 line with it and offer to start the kanban again; never start or stop it on your
-   own. If the user agrees, relaunch 4a and 4b. If the starter returned an error, no watcher is launched.
+   **4b, watcher.** Once the starter returns a URL, launch a second `fast` in the background, also with no item: it
+   reads `"$WIP_BIN" web status` once for the PID and the URL, then waits on that PID without reading `"$WIP_BIN" web log`
+   —a `Monitor` until-loop that ends when the PID is gone, or one low-cost wait—. When `wip web` goes down it runs
+   `nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`, waits for `web status` to exit 0 and returns the new URL in one
+   line; if it does not come back, it returns `kanban down · restart it by hand`. When it returns, give a 🟨 line with
+   it and offer to start the kanban again; never start or stop it on your own. If the user agrees, relaunch 4a and 4b.
+   If the starter returned an error, no watcher is launched.
 
 Then close with one message: what is waiting on the user (from step 2, open gates first), the 🟥 block of the
 reminders due from step 3, and `🟪 NEXT`; while
