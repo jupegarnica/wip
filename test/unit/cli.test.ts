@@ -25,6 +25,7 @@ describe("wip --version", () => {
       commit: null,
       dirty: null,
       built_at: null,
+      install: "source",
     });
   });
 

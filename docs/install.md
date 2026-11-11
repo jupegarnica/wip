@@ -71,20 +71,18 @@ local installs) is in [CLAUDE.md](../CLAUDE.md).
 
 ## Upgrade
 
+`wip upgrade` moves the npm install to the newest version and refreshes the current project's Kanban mod from the
+new CLI; the channels, the exact npm command, what it does not touch, the verification and the exit codes are in
+[`wip upgrade`](upgrade.md).
+
 Read the CHANGELOG first, its "Upgrade notes" above all. **An upgrade migrates the database of every project the new
 `wip` opens, one way:** the next command in that project upgrades `.wip/wip.sqlite`, and from then on an older `wip`
 refuses that project with exit 10. Before migrating, `wip` copies the database as it was to
 `.wip/backups/db/wip.sqlite.v<schema>.<time>.<pid>`.
 
-```sh
-npm install -g @garndev/wip@latest
-wip --version
-cd my-project && wip check     # opens (and migrates) the database, reports invariants
-```
-
 Switching from the binary to npm, or back, is not a migration: both open the same database. Remove the other `wip`
 from `PATH`; a project pinned through `wip_bin` in `.wip/config.json` keeps calling the old path until `wip start`,
-started from the new `wip`, rewrites it.
+started from the new `wip`, rewrites it, or until you point it at the new install by hand.
 
 ## Back up a project's state by hand
 
@@ -100,14 +98,8 @@ The item folders (`.wip/items/`) are plain files and are not migrated; the defin
 
 ## Roll back
 
-```sh
-npm install -g @garndev/wip@<previous version>
-```
-
-Then, in each project the newer version already opened, stop every `wip` process and restore the copy taken before
-the migration: `cp .wip/backups/db/wip.sqlite.v<schema>.<time>.<pid> .wip/wip.sqlite` (or your own backup) and delete
-`wip.sqlite-wal` and `wip.sqlite-shm`. Changes made after the upgrade are lost on restore; there is no
-down-migration.
+`npm install -g @garndev/wip@<previous version>`, then restore each project's database from the copy taken before
+the migration. The procedure and what a rollback cannot undo are in [`wip upgrade`](upgrade.md#roll-back).
 
 ## Uninstall
 
