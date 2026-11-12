@@ -20,6 +20,9 @@ maintainer's steps.
   the release fails when they differ, when `CHANGELOG.md` has no `## <version>` section (an exact match:
   `## 0.1.0` or `## 0.1.0 (<date>)`, never `## 0.1.0-rc.1`), and when that heading still says `unreleased` (a dry
   run only warns).
+- The tag is annotated and unsigned: `git tag -a v<version> -m "wip <version>"`. A signed tag (`git tag -s`) is
+  optional and needs a GPG key the maintainer has configured (`user.signingkey`, `tag.gpgSign`); without one, use
+  the annotated tag.
 - Dist-tags: a stable version (`X.Y.Z`) goes to `latest`; a prerelease (`X.Y.Z-rc.N`, `-beta.N`) goes to `next` and
   its GitHub Release is marked as a prerelease.
 - A bad release: `npm deprecate @garndev/wip@X.Y.Z "<reason>"`, move `latest` back
@@ -100,7 +103,7 @@ builds. If `jupegarnica/wip` becomes public, switch over:
 4. Run `release.yml` by hand (Actions > Release > Run workflow) on the release branch with `dry_run` checked. Every
    job must pass, including the two `binaries` runs; `verify` is skipped. `github-release` prints the five assets it
    would attach.
-5. Tag and push (the maintainer runs it): `git tag -s vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
+5. Tag and push (the maintainer runs it): `git tag -a vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
 6. Approve the `npm-publish` environment when `publish` waits (when the environment has reviewers).
 7. Check the `verify` job, the npm page and the GitHub Release: the notes, the four `wip-X.Y.Z-<os>-<arch>.tar.gz`
    and `SHA256SUMS`.
