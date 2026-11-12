@@ -68,7 +68,7 @@ let prevCards = new Map();
 let timer = null;
 let inFlight = false;
 let openRef = null; // { flow, id } of the item in the panel
-let panelText = null; // stable key: the item body with totals.user_wait_seconds zeroed
+let panelText = null; // stable key: the item body with the clock-derived totals zeroed
 let panelRaw = null; // last body, to repaint Totals only when the wait moved
 let panelTimer = null;
 let viewer = null; // { name, text, md?, lineStarts?, refs?, notice? } of the artifact shown in the panel
@@ -675,6 +675,26 @@ function duration(seconds) {
   return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
 }
 
+// "1d 2h" with days of `day` seconds; below a day, "2h 05m", "17m" or "42s".
+function span(seconds, day) {
+  const s = Math.max(0, Math.round(seconds));
+  if (s >= day) {
+    const days = Math.floor(s / day);
+    const hours = Math.floor((s % day) / 3600);
+    return hours ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (s >= 3600) {
+    return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  }
+  if (s >= 60) return `${Math.floor(s / 60)}m`;
+  return `${s}s`;
+}
+
+// Work time counts days of 8 h.
+function workSpan(seconds) {
+  return span(seconds, 28800);
+}
+
 // Short age of an artifact: "now", "5 min ago", "2 h ago" (same day), "yesterday 14:30", else the date.
 function artAge(isoText, now) {
   const d = new Date(isoText);
@@ -707,13 +727,43 @@ function panelState(data) {
   return head;
 }
 
+// One row of the Totals table; the label's title explains the metric on hover.
+function totalsRow(label, value, title) {
+  const row = el("div", "totals-row");
+  const term = el("dt", "totals-k", label);
+  term.setAttribute("title", title);
+  row.appendChild(term);
+  row.appendChild(el("dd", "totals-v", value));
+  return row;
+}
+
 function panelTotals(t) {
   const tot = section("Totals");
   tot.dataset.panel = "totals";
-  const agents = duration(t.agent_seconds) || "0s";
-  const waiting = duration(t.user_wait_seconds) || "0s";
-  tot.appendChild(el("p", "big", `agents ${agents} · waiting on you ${waiting}`));
-  tot.appendChild(el("p", "muted", `${t.runs} runs (${t.running} running) · ${t.gates} gates`));
+  const list = el("dl", "totals");
+  list.appendChild(
+    totalsRow(
+      "Clock time",
+      span(t.clock_seconds || 0, 86400),
+      "From creation to archive, or now while open",
+    ),
+  );
+  list.appendChild(
+    totalsRow(
+      "Work time",
+      workSpan(t.work_seconds || 0),
+      "Active days, max 8 h per day; today from 08:00 local",
+    ),
+  );
+  list.appendChild(
+    totalsRow("Agents", duration(t.agent_seconds) || "0s", "Sum of finished agent runs"),
+  );
+  list.appendChild(
+    totalsRow("Waiting on you", duration(t.user_wait_seconds) || "0s", "Time with an open gate"),
+  );
+  tot.appendChild(list);
+  const running = t.running > 0 ? ` (${t.running} running)` : "";
+  tot.appendChild(el("p", "totals-foot muted", `${t.runs} runs${running} · ${t.gates} gates`));
   return tot;
 }
 
@@ -856,9 +906,13 @@ function restorePanelScroll(scroll) {
   if (pre) pre.scrollTop = scroll.viewer;
 }
 
-// The only clock-derived field of the item view: an open gate's wait grows on every poll and must not repaint.
+// The clock-derived fields of the item view: an open gate's wait and the totals that grow on every poll must not
+// repaint the whole panel.
 function panelKey(data) {
-  return JSON.stringify({ ...data, totals: { ...data.totals, user_wait_seconds: 0 } });
+  return JSON.stringify({
+    ...data,
+    totals: { ...data.totals, user_wait_seconds: 0, clock_seconds: 0, work_seconds: 0 },
+  });
 }
 
 function renderPanel(data) {

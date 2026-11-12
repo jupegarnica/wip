@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { EXIT } from "../../src/errors.ts";
 import {
   at,
@@ -15,6 +15,17 @@ import { loadSchema, validate } from "../helpers/schema.ts";
 
 const SHOW = loadSchema("show");
 const ctx = useProject();
+
+// Work time reads local days and 08:00: fixed so the totals do not depend on the runner's time zone.
+let tz: string | undefined;
+beforeAll(() => {
+  tz = process.env.TZ;
+  process.env.TZ = "UTC";
+});
+afterAll(() => {
+  if (tz === undefined) delete process.env.TZ;
+  else process.env.TZ = tz;
+});
 
 describe("wip show (F-EST-14)", () => {
   test("--json follows show.json and brings the runs, gates, events, signals and totals", () => {
@@ -44,6 +55,8 @@ describe("wip show (F-EST-14)", () => {
       agent_seconds: 300 + 100,
       gates: 2,
       user_wait_seconds: 600 + 20,
+      clock_seconds: 1020,
+      work_seconds: 1020,
     });
     expect(body.data?.signals).toEqual({ attention: true, incoherent: [] });
     expect(rows(body, "agent_runs").map((r) => r.agent)).toEqual(["thinker", "efficient"]);
@@ -79,6 +92,8 @@ describe("wip show (F-EST-14)", () => {
     expect(out).toContain("T1 · valid · plan · user · open");
     expect(out).toContain("size: s");
     expect(out).toContain("totals: 0 runs");
+    expect(out).toContain("clock 0s");
+    expect(out).toContain("work 0s");
     expect(out).toContain("## Gates");
     expect(out).toContain("## Log");
   });

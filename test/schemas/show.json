@@ -176,14 +176,24 @@
         "signals": { "$ref": "#/definitions/signals" },
         "totals": {
           "type": "object",
-          "required": ["runs", "running", "agent_seconds", "gates", "user_wait_seconds"],
+          "required": [
+            "runs",
+            "running",
+            "agent_seconds",
+            "gates",
+            "user_wait_seconds",
+            "clock_seconds",
+            "work_seconds"
+          ],
           "additionalProperties": false,
           "properties": {
             "runs": { "type": "integer" },
             "running": { "type": "integer" },
             "agent_seconds": { "type": "integer" },
             "gates": { "type": "integer" },
-            "user_wait_seconds": { "type": "integer" }
+            "user_wait_seconds": { "type": "integer" },
+            "clock_seconds": { "type": "integer" },
+            "work_seconds": { "type": "integer" }
           }
         }
       }
