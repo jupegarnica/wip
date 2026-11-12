@@ -15,7 +15,14 @@ wip web log -n 20  # the last lines of its log; --follow keeps printing
 A read-only kanban of the project, served from the binary with nothing external: one board per flow (columns by
 `stage` or by phase; each stage in one blue, more transparent stage after stage, with readable text in the light and
 dark themes, and no colour for a phase without a stage), «Your turn», open gates, running agents, the history with archived items, each item's runs,
-gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). The boards follow the
+gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). The item panel also shows
+its totals as a compact table, a label on the left and its value on the right: «Clock time», from its creation to
+its archive, or to now while it is open; «Work time», its local days with activity at 8 h each, the day of the
+archive or the current one counting from 08:00 local; «Agents», the sum of the finished agent runs; and «Waiting on
+you», the time an open gate has been waiting. Hovering a label says what the metric measures. A footer closes the
+table with the runs —and how many are running— and the gates. An item open all day adds up to 8 h, work before
+08:00 adds to the clock but not to work, a day without activity adds nothing, and an archived item keeps both
+totals fixed while one in a terminal phase that is not archived keeps counting. The boards follow the
 project's flow order (`.wip/config.json`; see [Flows](flows.md#the-order-of-the-flows-on-the-board)). Each flow can be collapsed
 from its header, which keeps showing its open items and how many wait on you; the browser remembers the choice
 (`localStorage`), and History keeps its `Flow` filter. Requests with a foreign

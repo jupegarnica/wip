@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
+import { runInNewContext } from "node:vm";
 import {
   composite,
   flowColumns,
@@ -533,10 +534,12 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
       crons: body.crons,
     }).toEqual(shown.data as TJson);
     expect(body.totals.user_wait_seconds).toBe(7200);
+    // T1 was created at 10:00 and is read at 12:00.
+    expect(body.totals.clock_seconds).toBe(7200);
     expect(body.field_links).toEqual([]);
   });
 
-  test("with an open gate, two polls 5 s apart differ only in totals.user_wait_seconds", async () => {
+  test("with an open gate, two polls 5 s apart differ only in the clock-derived totals", async () => {
     const p = board();
     at("2026-10-30T12:00:00Z");
     await serve(p);
@@ -544,8 +547,17 @@ describe("wip web · item panel (F-WEB-07, F-WEB-10)", () => {
     tick(5, "2026-10-30T12:00:00Z");
     const second = await getJson("/api/item/valid/T1");
     expect(second.totals.user_wait_seconds - first.totals.user_wait_seconds).toBe(5);
+    expect(second.totals.clock_seconds - first.totals.clock_seconds).toBe(5);
+    // Work time depends on the runner's TZ (its own 08:00): it only grows, never by more than the 5 s.
+    const work = second.totals.work_seconds - first.totals.work_seconds;
+    expect(work).toBeGreaterThanOrEqual(0);
+    expect(work).toBeLessThanOrEqual(5);
     delete first.totals.user_wait_seconds;
     delete second.totals.user_wait_seconds;
+    delete first.totals.clock_seconds;
+    delete second.totals.clock_seconds;
+    delete first.totals.work_seconds;
+    delete second.totals.work_seconds;
     expect(second).toEqual(first);
   });
 
@@ -1199,13 +1211,114 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
       "function restorePanelScroll",
       "function panelKey",
       "user_wait_seconds: 0",
+      "clock_seconds: 0",
+      "work_seconds: 0",
       "function updatePanelTotals",
       'dataset.panel = "totals"',
       "pre.scrollTop = scroll.viewer",
+      "totals-row",
+      "totals-foot",
+      "Clock time",
+      "Waiting on you",
+      "running > 0",
     ]) {
       expect(app).toContain(needle);
     }
     expect(app).not.toContain("innerHTML");
+    const css = WEB["app.css"] as string;
+    for (const needle of [
+      ".totals-row",
+      "grid-template-columns: 1fr auto",
+      ".totals-k",
+      "tabular-nums",
+      "text-align: right",
+      ".totals-foot",
+      "border-top",
+    ]) {
+      expect(css).toContain(needle);
+    }
+  });
+
+  test("the Totals section is a label/value table with tooltips and one footer", () => {
+    const app = WEB["app.js"] as string;
+    // The helpers panelTotals needs, run against a document that only records the tree it builds.
+    const source = [
+      app.slice(app.indexOf("function el("), app.indexOf("function link(")),
+      app.slice(app.indexOf("function section("), app.indexOf("function duration(")),
+      app.slice(app.indexOf("function duration("), app.indexOf("// Short age of an artifact")),
+      app.slice(app.indexOf("function totalsRow("), app.indexOf("function panelTotals(")),
+      app.slice(app.indexOf("function panelTotals("), app.indexOf("// The only section")),
+    ].join("\n");
+    class FakeNode {
+      readonly tag: string;
+      className = "";
+      textContent = "";
+      title = "";
+      readonly dataset: Record<string, string> = {};
+      readonly children: FakeNode[] = [];
+
+      constructor(tag: string) {
+        this.tag = tag;
+      }
+
+      appendChild(child: FakeNode): FakeNode {
+        this.children.push(child);
+        return child;
+      }
+
+      setAttribute(name: string, value: string): void {
+        if (name === "title") this.title = value;
+      }
+    }
+    const context: Record<string, unknown> = {
+      document: { createElement: (tag: string) => new FakeNode(tag) },
+    };
+    runInNewContext(`${source}\nglobalThis.panelTotals = panelTotals;`, context, {
+      filename: "app.js",
+    });
+    const panelTotals = context.panelTotals as (totals: Record<string, number>) => FakeNode;
+    const totals = {
+      runs: 3,
+      running: 0,
+      gates: 2,
+      agent_seconds: 3780,
+      user_wait_seconds: 7200,
+      clock_seconds: 100800,
+      work_seconds: 36000,
+    };
+    const node = panelTotals(totals);
+    expect(node.tag).toBe("section");
+    expect(node.className).toBe("psec");
+    expect(node.dataset.panel).toBe("totals");
+    expect(node.children.map((child) => child.tag)).toEqual(["h3", "dl", "p"]);
+    expect(node.children[0]?.textContent).toBe("Totals");
+    const rows = node.children[1]?.children ?? [];
+    expect(rows.map((row) => [row.children[0]?.textContent, row.children[1]?.textContent])).toEqual(
+      [
+        ["Clock time", "1d 4h"],
+        ["Work time", "1d 2h"],
+        ["Agents", "1h 03m"],
+        ["Waiting on you", "2h 00m"],
+      ],
+    );
+    expect(rows.map((row) => row.children[1]?.className)).toEqual([
+      "totals-v",
+      "totals-v",
+      "totals-v",
+      "totals-v",
+    ]);
+    expect(rows.map((row) => row.children[0]?.title)).toEqual([
+      "From creation to archive, or now while open",
+      "Active days, max 8 h per day; today from 08:00 local",
+      "Sum of finished agent runs",
+      "Time with an open gate",
+    ]);
+    expect(node.children[2]?.className).toBe("totals-foot muted");
+    expect(node.children[2]?.textContent).toBe("3 runs · 2 gates");
+    // The running count only shows when there is one; the footer still separates it from the rows.
+    expect(panelTotals({ ...totals, running: 2 }).children[2]?.textContent).toBe(
+      "3 runs (2 running) · 2 gates",
+    );
   });
 
   test("the page files and @garndev/markdown are served as embedded, with their types", async () => {

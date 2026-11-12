@@ -4,6 +4,13 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.4.0 (unreleased)
+
+- `wip show` and the `wip web` item panel show two more totals: `clock_seconds` (clock time, from the item's
+  creation to its archive, or to now while it is open) and `work_seconds` (work time, its local days with activity
+  at most 8 h each, with the day of the archive or the current one counting from 08:00 local). Both are additive
+  fields of `totals`; there is no schema change.
+
 ## 0.3.1 (2026-11-11)
 
 - `wip upgrade` updates the npm-installed CLI from a dist-tag (`latest`, or `next` with `--channel`), verifies the
