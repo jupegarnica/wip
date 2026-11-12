@@ -40,17 +40,16 @@
       message("Invalid path.");
       return;
     }
+    WipMd.setNotice(notify);
     document.title = `${p.name} · ${p.id}`;
     const preview = await WipMd.loadPreview(p.flow, p.id, p.name);
     if (preview.md) {
       body.replaceChildren(preview.md);
-      WipMd.mountGrid(body, preview, notify);
     } else {
       const pre = document.createElement("pre");
       pre.textContent = preview.text;
       body.replaceChildren(pre);
     }
-    WipMd.trackModKey();
   }
 
   main();
