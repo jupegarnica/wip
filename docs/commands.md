@@ -13,7 +13,7 @@
 | `wip agent start\|stop <ID> …`                  | record a subagent run                                                          |
 | `wip gate open\|close <ID> …`                   | open or close a decision for the user                                          |
 | `wip log <ID> "<text>"`                         | add a note to the item's history                                               |
-| `wip show <ID>`                                 | one item with its runs, gates, history and totals                              |
+| `wip show <ID>`                                 | one item with its runs, gates, history and totals (clock and work time)        |
 | `wip state [--attention]`                       | every item and what it waits on                                                |
 | `wip archive <ID> [--no-prune]`                 | archive an item with nothing running nor open; prunes its folder to the trash  |
 | `wip prune <ID>\|--archived [--dry-run]`        | move an archived item's dependencies, builds and `tmp/` scratch to the trash   |
