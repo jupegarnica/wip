@@ -1096,6 +1096,21 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     }
   });
 
+  test("any board page asks for the handover, with or without an item", () => {
+    const app = WEB["app.js"] as string;
+    const from = app.indexOf("async function start()");
+    expect(from).toBeGreaterThan(-1);
+    const start = app.slice(from, app.indexOf("\nstart();", from));
+    expect(start).toContain("itemTabs.claim()");
+    expect(start).toContain("itemTabs.takeOver(");
+    // The item only decides the panel; it never decides whether to ask nor whether to close.
+    expect(start).not.toContain("!wanted");
+    expect(start).not.toContain("window.close()");
+    expect(start).toContain("if (wanted) openPanel(wanted.flow, wanted.id);");
+    expect(start).toContain("if (wanted) openPanel(wanted.flow, wanted.id, { focus: false });");
+    expect(start).toContain('outcome === "locked" ? TAB_NOTICE_LOCKED : TAB_NOTICE_OPEN');
+  });
+
   test("the handover releases the lock before it confirms and tries to close the old tab", () => {
     const tabs = WEB["tabs.js"] as string;
     const handler = tabs.slice(
@@ -1158,8 +1173,8 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     ]) {
       expect(app).toContain(needle);
     }
-    // handOver() and the item-less tab; the locked branch never closes this tab.
-    expect(app.split("window.close()").length - 1).toBe(2);
+    // Only handOver() closes a tab; the newcomer never closes itself, with or without an item.
+    expect(app.split("window.close()").length - 1).toBe(1);
 
     const tabs = WEB["tabs.js"] as string;
     for (const needle of ["setLocked", "isLocked", 'type: "locked"']) {

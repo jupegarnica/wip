@@ -1434,7 +1434,7 @@ paintLock();
 loadProject();
 poll();
 
-// One tab per origin in `localhost`: a new page with `?item=` asks for the handover; without an item it only closes.
+// One tab per origin in `localhost`: any board URL asks the open tab for the handover, item or not.
 async function start() {
   const linked = (new URLSearchParams(window.location.search).get("item") || "").split("/");
   const wanted =
@@ -1443,23 +1443,13 @@ async function start() {
     if (wanted) openPanel(wanted.flow, wanted.id);
     return;
   }
-  if (!wanted) {
-    // The board alone has nothing to hand over: close it if the browser lets us, or show the notice.
-    try {
-      window.close();
-    } catch (_) {
-      // the browser refused it; the notice below stays
-    }
-    setTimeout(() => showTabNotice(TAB_NOTICE_OPEN), 0);
-    return;
-  }
   const outcome = await itemTabs.takeOver();
   if (outcome === "owner") {
-    openPanel(wanted.flow, wanted.id);
+    if (wanted) openPanel(wanted.flow, wanted.id);
     return;
   }
-  // Locked owner or no handover: show the item here without the focus, and never close this tab.
-  openPanel(wanted.flow, wanted.id, { focus: false });
+  // Locked owner or no handover: show the item here without focus if there is one, never close this tab.
+  if (wanted) openPanel(wanted.flow, wanted.id, { focus: false });
   showTabNotice(outcome === "locked" ? TAB_NOTICE_LOCKED : TAB_NOTICE_OPEN);
 }
 
