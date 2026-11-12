@@ -1,0 +1,17 @@
+name: Test
+
+# The full matrix, by hand: typecheck, lint and `bun test` on Ubuntu, macOS and Windows, then the npm package and
+# the e2e suite against it on Node 22, 24 and 26 (Ubuntu) and Node 24 (macOS, Windows). Pull requests and the
+# release run the same jobs on Ubuntu only through `ci.yml`.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    with:
+      full: true
