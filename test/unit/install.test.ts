@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import pkg from "../../package.json" with { type: "json" };
 import {
   binPathOf,
   detectInstall,
@@ -155,7 +156,7 @@ describe("detectInstall", () => {
       root: tree.root,
       prefix: join(tree.base, "prefix"),
       bin: join(tree.base, "prefix", "bin", "wip"),
-      version: "0.2.1",
+      version: pkg.version,
       problem: null,
       entry: "bin/wip.mjs",
     });
