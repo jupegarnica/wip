@@ -117,16 +117,19 @@ criterion the plan got wrong, goes back to `plan` (`from_any`) and its gate.
 
 ### report
 
-Inputs: the approved `v<N>.plan.md`, `sources.md` and `check.md`. The subagent writes `report.md`: the answer to each
-question with its citations, what was not found, disagreements between sources and the limits of the search. When it
-returns `done`, move to `review`.
+Inputs: the approved `v<N>.plan.md`, `sources.md` and `check.md`. The subagent writes `v<N>.report.md`, one version
+above the last report in `ARTIFACT_DIR` (`v1.report.md` the first time): the answer to each question with its
+citations, what was not found, disagreements between sources and the limits of the search. The name starts with the
+version because the runtime refuses, for subagents, `.md` names that start with `report`, `summary`, `findings` or
+`analysis`. When it returns `done`, move to `review`.
 
 ### review
 
-The coordinator does this phase itself, with no subagent. Gate `ask` with `report.md`: what the report answers, what
-it leaves open and where to read it. «Approve» ends a one-off item in `done`; for a recurring item (`cadence` set) it
-moves to `waiting` after the coordinator sets `next_run` to the next occurrence. «Change» goes back to `search` (more
-sources), `report` (rewrite) or `plan` (change the questions), with the user's feedback.
+The coordinator does this phase itself, with no subagent. Gate `ask` with the latest `v<N>.report.md`: what the report
+answers, what it leaves open and where to read it. «Approve» ends a one-off item in `done`; for a recurring item
+(`cadence` set) it moves to `waiting` after the coordinator sets `next_run` to the next occurrence. «Change» goes back
+to `search` (more sources), `report` (rewrite as `v<N+1>.report.md`) or `plan` (change the questions), with the user's
+feedback.
 
 ### waiting
 
