@@ -4,7 +4,7 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.3.0 (2026-11-11)
+## 0.3.1 (2026-11-11)
 
 - `wip upgrade` updates the npm-installed CLI from a dist-tag (`latest`, or `next` with `--channel`), verifies the
   new version by running it and rolls back a mismatch, then refreshes the current project's Kanban mod with the
