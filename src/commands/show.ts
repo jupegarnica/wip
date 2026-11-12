@@ -67,6 +67,23 @@ export function itemView(
   };
 }
 
+/** "1d 2h" with days of `day` seconds; below a day, "2h 05m", "17m" or "42s". */
+function span(totalSeconds: number, day: number): string {
+  const s = Math.max(0, Math.round(totalSeconds));
+  if (s >= day) {
+    const days = Math.floor(s / day);
+    const hours = Math.floor((s % day) / 3600);
+    return hours ? `${days}d ${hours}h` : `${days}d`;
+  }
+  if (s >= 3600)
+    return `${Math.floor(s / 3600)}h ${String(Math.floor((s % 3600) / 60)).padStart(2, "0")}m`;
+  if (s >= 60) return `${Math.floor(s / 60)}m`;
+  return `${s}s`;
+}
+
+/** Work time counts days of 8 h. */
+const workSpan = (totalSeconds: number): string => span(totalSeconds, 28_800);
+
 function textLines(view: IItemView): string[] {
   const it = view.item;
   const lines = [`${it.id} · ${it.flow} · ${it.phase} · ${it.waiting_on ?? "none"} · ${it.status}`];
@@ -78,7 +95,7 @@ function textLines(view: IItemView): string[] {
   if (it.artifact_dir) lines.push(`artifacts: ${it.artifact_dir}`);
   const t = view.totals;
   lines.push(
-    `totals: ${t.runs} runs · agents ${t.agent_seconds}s · waiting on the user ${t.user_wait_seconds}s`,
+    `totals: ${t.runs} runs · agents ${t.agent_seconds}s · clock ${span(t.clock_seconds, 86_400)} · work ${workSpan(t.work_seconds)} · waiting on the user ${t.user_wait_seconds}s`,
   );
   for (const c of view.crons) {
     lines.push(
