@@ -5,8 +5,13 @@ on:
   #   branches: [main, v1]
   pull_request:
   workflow_dispatch:
-  # release.yml runs this whole workflow first.
+  # release.yml runs this whole workflow first; test.yml calls it with full: true.
   workflow_call:
+    inputs:
+      full:
+        description: Run the suite on macOS and Windows too (the manual Test workflow).
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -17,11 +22,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        # Ubuntu on every run; macOS and Windows only from the manual `test.yml` (`full: true`), where the Windows
+        # suite is still red (path separators, the launcher spawn, the PowerShell recycle bin, SIGTERM in `wip web`).
+        os: ${{ fromJSON(inputs.full && '["ubuntu-latest", "macos-latest", "windows-latest"]' || '["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
-    # TODO(windows): the suite is red on Windows (path separators, the launcher spawn, the PowerShell recycle bin,
-    # SIGTERM in `wip web`). It still runs and shows red, but it does not gate a release until that pass lands.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -57,15 +61,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - { os: ubuntu-latest, node: "22" }
-          - { os: ubuntu-latest, node: "24" }
-          - { os: ubuntu-latest, node: "26" }
-          - { os: macos-latest, node: "24" }
-          - { os: windows-latest, node: "24" }
+        # Node 22 on Ubuntu on every run; the other Node lines and macOS and Windows only from the manual
+        # `test.yml` (`full: true`).
+        include: ${{ fromJSON(inputs.full && '[{"os":"ubuntu-latest","node":"22"},{"os":"ubuntu-latest","node":"24"},{"os":"ubuntu-latest","node":"26"},{"os":"macos-latest","node":"24"},{"os":"windows-latest","node":"24"}]' || '[{"os":"ubuntu-latest","node":"22"}]') }}
     runs-on: ${{ matrix.os }}
-    # TODO(windows): same as `test` above; Windows reports without gating the release.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
     defaults:
       run:
         shell: bash

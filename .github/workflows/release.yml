@@ -62,7 +62,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "release $version → $dist_tag (dry run: $dry_run)"
 
-  # bun test on 3 OSes, the npm package packed once and the e2e suite against it on Node 22, 24 and 26.
+  # typecheck, lint, bun test and the package e2e suite on Ubuntu (Node 22): the minimum, before publishing.
   test:
     needs: version
     uses: ./.github/workflows/ci.yml
@@ -225,7 +225,7 @@ jobs:
           fi
 
   # Installs the published version from the registry once, on the minimum supported Node. The same tarball already
-  # ran the e2e suite on Node 22, 24, 26 (Linux) and 24 (macOS, Windows) in `ci.yml`.
+  # ran the e2e suite on Node 22 (Ubuntu) in `ci.yml`; the full matrix is the manual `test.yml`.
   verify:
     needs: [version, publish]
     if: needs.version.outputs.dry_run != 'true'
