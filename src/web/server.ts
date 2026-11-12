@@ -5,7 +5,7 @@ import { type NetworkInterfaceInfo, networkInterfaces } from "node:os";
 import pkg from "../../package.json" with { type: "json" };
 import { itemView } from "../commands/show.ts";
 import type { TDatabase } from "../db.ts";
-import { MARKDOWN_LIB, WEB } from "../embedded/web.ts";
+import { WEB } from "../embedded/web.ts";
 import type { IRoot } from "../env.ts";
 import { FLOW_NAME_RE } from "../flow/parse.ts";
 import { DEFAULT_ID_RE, type IFlowSet, loadFlows } from "../flow/registry.ts";
@@ -120,7 +120,6 @@ const TYPES: Readonly<Record<string, string>> = {
   js: "text/javascript; charset=utf-8",
   svg: "image/svg+xml",
 };
-const LIB_PREFIX = "/lib/garndev-markdown/";
 
 function typeOf(path: string): string {
   return TYPES[path.slice(path.lastIndexOf(".") + 1)] ?? TEXT;
@@ -149,13 +148,6 @@ const STATIC: ReadonlyMap<string, string> = new Map([
     .map((k): [string, string] => [`/${k}`, k]),
   ["/", "index.html"],
 ]);
-
-function libFile(path: string): string | null {
-  if (!path.startsWith(LIB_PREFIX)) return null;
-  const key = path.slice(LIB_PREFIX.length);
-  const name = key === "tokens.css" ? key : `dist/${key}`;
-  return Object.hasOwn(MARKDOWN_LIB, name) ? name : null;
-}
 
 function segment(s: string | undefined): string | null {
   if (s === undefined) return null;
@@ -275,8 +267,6 @@ export async function startWeb(options: IWebOptions): Promise<IWebServer> {
     const path = url.pathname;
     if (path.startsWith("/api/item/")) return item(path.slice("/api/item/".length).split("/"));
     if (path.startsWith("/view/")) return view(path.slice("/view/".length).split("/"));
-    const lib = libFile(path);
-    if (lib) return respond(MARKDOWN_LIB[lib] as string, 200, typeOf(lib));
     const page = STATIC.get(path);
     if (page) return respond(WEB[page] as string, 200, typeOf(page));
     switch (path) {

@@ -14,8 +14,15 @@ wip web log -n 20  # the last lines of its log; --follow keeps printing
 
 A read-only kanban of the project, served from the binary with nothing external: one board per flow (columns by
 `stage` or by phase; each stage in one blue, more transparent stage after stage, with readable text in the light and
-dark themes, and no colour for a phase without a stage), «Your turn», open gates, running agents, the history with archived items, each item's runs,
-gates and artifacts (Markdown rendered; every artifact is served with a `sandbox` CSP). The item panel also shows
+dark themes, and no colour for a phase without a stage), «Your turn», open gates, running agents, the history with
+archived items, each item's runs, gates and artifacts (Markdown rendered to semantic HTML with `marked` — headings,
+GFM tables, task lists, autolinks, strikethrough and fenced code, no syntax highlighting; a YAML front matter block
+at the top, a `---` line closed by another `---`, is kept out of the render and shown as plain text above it in the
+panel and in the artifact page; `http(s)` links open in a new tab, `file://` links and absolute paths are copied, any
+other scheme is ignored. Raw HTML is allowed and the page CSP is its limit: there is no sanitizer, so no script or
+inline handler runs. Every artifact is served with a `sandbox` CSP). Each artifact's row in the panel has two links:
+**open**, its page in a new tab, and **RAW**, the API URL that serves the file in plain text
+(`text/plain; charset=utf-8`, byte for byte, front matter included) instead of the rendered page. The item panel also shows
 its totals as a compact table, a label on the left and its value on the right: «Clock time», from its creation to
 its archive, or to now while it is open; «Work time», its local days with activity at 8 h each, the day of the
 archive or the current one counting from 08:00 local; «Agents», the sum of the finished agent runs; and «Waiting on

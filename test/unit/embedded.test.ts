@@ -4,7 +4,7 @@ import { join, relative, sep } from "node:path";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
 import { MIGRATIONS } from "../../src/embedded/migrations.ts";
 import { TEMPLATES } from "../../src/embedded/templates.ts";
-import { MARKDOWN_LIB, MARKDOWN_PACKAGE, WEB } from "../../src/embedded/web.ts";
+import { WEB } from "../../src/embedded/web.ts";
 
 const REPO = join(import.meta.dir, "..", "..");
 
@@ -69,17 +69,19 @@ describe("embedded files (D15)", () => {
     });
   });
 
-  test("@garndev/markdown is the exact 0.3.1 devDependency, and the manifest is closed under its imports", () => {
+  test("marked is the exact 18.2.0 devDependency and the vendored bundle carries its version", () => {
     const pkg = JSON.parse(readFileSync(join(REPO, "package.json"), "utf8"));
-    expect(pkg.devDependencies[MARKDOWN_PACKAGE]).toBe("0.3.1");
+    expect(pkg.devDependencies.marked).toBe("18.2.0");
+    expect(pkg.devDependencies["@garndev/markdown"]).toBeUndefined();
     expect(pkg.dependencies).toBeUndefined();
-    const dir = join(REPO, "node_modules", "@garndev", "markdown");
-    expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).version).toBe("0.3.1");
-    for (const [key, text] of Object.entries(MARKDOWN_LIB)) {
-      expect(text).toBe(readFileSync(join(dir, key), "utf8"));
-      for (const m of text.matchAll(/from\s+'\.\/([a-z-]+\.js)'/g)) {
-        expect({ key, imports: `dist/${m[1]}` in MARKDOWN_LIB }).toEqual({ key, imports: true });
-      }
-    }
+    const marked = JSON.parse(
+      readFileSync(join(REPO, "node_modules", "marked", "package.json"), "utf8"),
+    );
+    expect(marked.version).toBe("18.2.0");
+    const vendor = WEB["vendor/markdown.js"] as string;
+    expect(vendor.startsWith("/*!")).toBe(true);
+    expect(vendor).toContain(`marked ${marked.version} (MIT`);
+    expect(vendor).toContain("globalThis.WipMarkdown");
+    expect(vendor).toContain("parseMarkdown");
   });
 });
