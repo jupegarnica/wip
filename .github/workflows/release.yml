@@ -2,8 +2,8 @@ name: Release
 
 # A tag v<version> publishes @garndev/wip to npm (after a reviewer approves the npm-publish environment, when the
 # environment has reviewers) and makes the GitHub Release with the CHANGELOG notes and the standalone binaries. Run
-# by hand (workflow_dispatch) it is a dry run by default: everything is built and tested, `npm publish --dry-run`
-# runs, and nothing is published. See docs/releasing.md.
+# by hand (workflow_dispatch) it is a dry run: everything is built and tested, `npm publish --dry-run` runs, and
+# nothing is published. See docs/releasing.md.
 #
 # The binaries are compiled here (`bun scripts/build.ts --targets …`), one archive per target, on one Ubuntu image
 # (ubuntu-latest) and on macOS; `ci.yml` does not build them.
@@ -12,11 +12,6 @@ on:
   push:
     tags: ["v*"]
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Build and test only; publish nothing"
-        type: boolean
-        default: true
 
 permissions:
   contents: read
@@ -32,14 +27,12 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
       dist_tag: ${{ steps.v.outputs.dist_tag }}
-      prerelease: ${{ steps.v.outputs.prerelease }}
       dry_run: ${{ steps.v.outputs.dry_run }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - id: v
         env:
           EVENT: ${{ github.event_name }}
-          DRY_INPUT: ${{ inputs.dry_run }}
         run: |
           version=$(node -p 'require("./package.json").version')
           if [ "$EVENT" = "push" ]; then
@@ -48,12 +41,11 @@ jobs:
               echo "tag $GITHUB_REF_NAME does not match package.json version $version"; exit 1
             fi
           else
-            dry_run=${DRY_INPUT:-true}
-            if [ "$dry_run" != "true" ]; then echo "a real release starts from a tag push"; exit 1; fi
+            dry_run=true
           fi
           case "$version" in
-            *-*) dist_tag=next; prerelease=true ;;
-            *) dist_tag=latest; prerelease=false ;;
+            *-*) dist_tag=next ;;
+            *) dist_tag=latest ;;
           esac
           # The heading is exactly `## <version>` or `## <version> (<date>)`: 0.1.0 does not match 0.1.0-rc.1 or
           # 0.1.10. A section still marked "unreleased" stops a real release; a dry run only warns.
@@ -66,7 +58,6 @@ jobs:
           {
             echo "version=$version"
             echo "dist_tag=$dist_tag"
-            echo "prerelease=$prerelease"
             echo "dry_run=$dry_run"
           } >> "$GITHUB_OUTPUT"
           echo "release $version → $dist_tag (dry run: $dry_run)"
@@ -168,7 +159,6 @@ jobs:
           DRY_RUN: ${{ needs.version.outputs.dry_run }}
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          npm install -g npm@11
           tarball="./package/garndev-wip-$VERSION.tgz"
           test -f "$tarball"
           # Rerunning a release (or approving a retried run) must not fail on a version that is already out.
@@ -218,12 +208,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
-          PRERELEASE: ${{ needs.version.outputs.prerelease }}
+          DIST_TAG: ${{ needs.version.outputs.dist_tag }}
           DRY_RUN: ${{ needs.version.outputs.dry_run }}
         run: |
           assets=(dist/release/wip-"$VERSION"-*.tar.gz dist/release/SHA256SUMS)
           flags=(--title "wip $VERSION" --notes-file notes.md --verify-tag)
-          if [ "$PRERELEASE" = "true" ]; then flags+=(--prerelease); fi
+          if [ "$DIST_TAG" = "next" ]; then flags+=(--prerelease); fi
           if [ "$DRY_RUN" = "true" ]; then
             echo "dry run: gh release create v$VERSION ${flags[*]} ${assets[*]}"
             exit 0
@@ -234,36 +224,35 @@ jobs:
             gh release create "v$VERSION" "${flags[@]}" "${assets[@]}"
           fi
 
+  # Installs the published version from the registry once, on the minimum supported Node. The same tarball already
+  # ran the e2e suite on Node 22, 24, 26 (Linux) and 24 (macOS, Windows) in `ci.yml`.
   verify:
-    needs: [version, github-release]
+    needs: [version, publish]
     if: needs.version.outputs.dry_run != 'true'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: ubuntu-latest, node: "22" }
-          - { os: ubuntu-latest, node: "24" }
-          - { os: ubuntu-latest, node: "26" }
-          - { os: macos-latest, node: "24" }
-          - { os: windows-latest, node: "24" }
-    runs-on: ${{ matrix.os }}
-    # TODO(windows): keeps reporting the Windows state without failing the run; see `test` in ci.yml.
-    continue-on-error: ${{ matrix.os == 'windows-latest' }}
+    runs-on: ubuntu-latest
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: ${{ matrix.node }}
-      - name: Install from the registry, as a user does
+          node-version: "22"
+      - name: Wait for the version in the registry, then install it
         env:
           VERSION: ${{ needs.version.outputs.version }}
         run: |
           export npm_config_prefix="$RUNNER_TEMP/prefix" npm_config_cache="$RUNNER_TEMP/cache"
-          # The first publish of a version shows up in the registry minutes later ("being processed"), so retry.
-          for i in 1 2 3 4 5 6 7 8 9 10; do npm install -g "@garndev/wip@$VERSION" && break; sleep 30; done
-          if [ "$RUNNER_OS" = "Windows" ]; then echo "WIP=$RUNNER_TEMP/prefix/wip.cmd" >> "$GITHUB_ENV"; else echo "WIP=$RUNNER_TEMP/prefix/bin/wip" >> "$GITHUB_ENV"; fi
+          # The first publish of a version shows up in the registry minutes later ("being processed"): wait for it,
+          # then install once. A failure here fails this step with the cause, not the next step.
+          deadline=$((SECONDS + 900))
+          until npm view --prefer-online "@garndev/wip@$VERSION" version > /dev/null 2>&1; do
+            if [ "$SECONDS" -ge "$deadline" ]; then
+              echo "::error::@garndev/wip@$VERSION is not in the registry 15 minutes after publish"; exit 1
+            fi
+            sleep 30
+          done
+          npm install -g "@garndev/wip@$VERSION"
+          echo "WIP=$npm_config_prefix/bin/wip" >> "$GITHUB_ENV"
       - name: version, signatures, init, check, state and web, with no warning
         env:
           VERSION: ${{ needs.version.outputs.version }}
