@@ -405,9 +405,12 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "**One gate = one item and one topic.**",
       "**Approval is only an explicit answer of the user in a new turn**",
       "is it irreversible, or will someone else see",
-      "1. Approve",
-      "2. Change (say what)",
-      "3. Stop this item",
+      "**Summary:**",
+      "**Risk:**",
+      "**Questions:**",
+      "Recommended:",
+      "**If you approve:**",
+      "**Details:**",
       "🟧 <ID> · <phase> → <next phase or action>",
       "🟪 NEXT ·",
       RUNTIME_SECTION,
@@ -831,9 +834,9 @@ describe("the templates and the dogfood copies", () => {
 
 describe("the templates target Claude Code and use the real CLI (D9, F-NEW-06)", () => {
   const FORBIDDEN_EVERYWHERE = [/\bHarbiz\b/i, /\bJira\b/i, /\btier\b/i, /\bSlack\b/i];
-  // Claude and its model aliases may appear anywhere; the tool and API names stay in the runtime section.
+  // Claude and its model aliases may appear anywhere. The tool and API names stay in the runtime
+  // section, except AskUserQuestion, which is also part of the «Gates» block.
   const RUNTIME_ONLY = [
-    /AskUserQuestion/,
     /SendMessage/,
     /TaskStop/,
     /ToolSearch/,
@@ -851,9 +854,10 @@ describe("the templates target Claude Code and use the real CLI (D9, F-NEW-06)",
     }
   });
 
-  test("runtime vocabulary appears only in the runtime interface section of wip-coordinate", () => {
+  test("runtime vocabulary appears only in the runtime interface section of wip-coordinate, except AskUserQuestion, which is also part of Gates", () => {
     const skill = template("skills/wip-coordinate/SKILL.md");
     expect(section(skill, RUNTIME_SECTION)).toContain("AskUserQuestion");
+    expect(section(skill, "## Gates")).toContain("AskUserQuestion");
     for (const [key, text] of outsideRuntimeSection()) {
       for (const re of RUNTIME_ONLY) {
         expect({ key, match: text.match(re)?.[0] ?? null }).toEqual({ key, match: null });
