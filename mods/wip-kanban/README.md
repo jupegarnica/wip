@@ -76,7 +76,9 @@ next session.
   15 s), at `?item=<flow>/<id>`; the web shows that item's panel. In `localhost`, clicking a row again does not
   open a second tab of the same origin: the new tab asks the open one for the origin, the open tab hands it over and
   tries to close itself (best-effort: if the browser refuses, it stays with a notice and no ownership), so the item
-  opens in the tab that was just clicked (each port has its own tab; on the LAN there is no deduplication). The
+  opens in the tab that was just clicked (each port has its own tab; on the LAN there is no deduplication). The rule
+  covers any URL of the board, with or without an item; the artifact page (`/view/...`) is outside it and can stay
+  open beside the board. The
   board page also shows the padlock and the poll status in the top-left of its header (the project name is the
   browser tab title), with the padlock open by default. With it closed the page refuses the takeover, keeps its
   item and is never closed automatically; the tab that asked shows its item with “This project is locked in
