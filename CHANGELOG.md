@@ -4,7 +4,7 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.6.0 (unreleased)
+## 0.6.0 (2026-11-13)
 
 - `wip upgrade` prints the CHANGELOG sections between the version it replaced and the one it installed, newest
   first, and carries the same list in `--json` as `data.changelog` (`from`, `to`, `entries`, `truncated`). The
