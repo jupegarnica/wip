@@ -13,6 +13,17 @@
   --gate-bg: #fff1d6;
   --gate-border: #e8b04a;
   --dim-color: var(--muted);
+  /* Semantic Markdown: one colour per heading level, ≥ 4.5:1 on --surface; links, code and tables. */
+  --h1-color: #b42318;
+  --h2-color: #8a5300;
+  --h3-color: #1f7a3a;
+  --h4-color: #0b6e78;
+  --h5-color: #5b3fc4;
+  --h6-color: #a3267e;
+  --md-link: #0b5cad;
+  --md-code-bg: #f1efe9;
+  --md-table-head: #f1efe9;
+  --md-quote: #6b675f;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
@@ -30,61 +41,157 @@
     --gate: #ffc46b;
     --gate-bg: #352612;
     --gate-border: #8a5f1c;
-    color-scheme: dark;
-  }
-}
-/* One colour per heading level, ≥ 4.5:1 on --surface in each theme; the dark set is redeclared below. */
-.viewer pre.md {
-  --h1-color: #b42318;
-  --h2-color: #8a5300;
-  --h3-color: #1f7a3a;
-  --h4-color: #0b6e78;
-  --h5-color: #5b3fc4;
-  --h6-color: #a3267e;
-}
-.viewer pre.md .rline.r-h1 {
-  color: var(--h1-color);
-}
-.viewer pre.md .rline.r-h2 {
-  color: var(--h2-color);
-}
-.viewer pre.md .rline.r-h3 {
-  color: var(--h3-color);
-}
-.viewer pre.md .rline.r-h4 {
-  color: var(--h4-color);
-}
-.viewer pre.md .rline.r-h5 {
-  color: var(--h5-color);
-}
-.viewer pre.md .rline.r-h6 {
-  color: var(--h6-color);
-}
-/* @garndev/markdown 0.3 paints everything through named custom properties; the dark palette lives here, scoped to the
-   highlighted <pre> so /view and the panel preview share it. Colour, opacity and background only: no metric. */
-@media (prefers-color-scheme: dark) {
-  .viewer pre.md {
-    --link-color: #7ab7ff;
-    --link-hover-line: #7ab7ff;
-    --inline-code-color: #f0b27a;
-    --inline-code-bg: rgba(255, 255, 255, 0.1);
-    --code-block-color: #d8d4ca;
-    --code-block-bg: rgba(255, 255, 255, 0.06);
-    --table-header-bg: rgba(255, 255, 255, 0.06);
-    --table-delim-color: var(--muted);
-    --quote-color: #b9b3a8;
-    --hr-color: var(--muted);
-    --ref-color: #9fb8b0;
-    --html-color: #c4a7d9;
-    --dim-opacity: 0.7;
-    --task-done-color: #6fcf8b;
     --h1-color: #ff9e8a;
     --h2-color: #f5d36b;
     --h3-color: #8ed39a;
     --h4-color: #6fd3d8;
     --h5-color: #b8a4ff;
     --h6-color: #e59ad6;
+    --md-link: #7ab7ff;
+    --md-code-bg: rgba(255, 255, 255, 0.08);
+    --md-table-head: rgba(255, 255, 255, 0.06);
+    --md-quote: #b9b3a8;
+    color-scheme: dark;
   }
+}
+/* Semantic Markdown from marked: headings, lists, tables, code and quotes. Raw HTML is allowed and the page CSP is
+   the limit (no sanitizer); no rule here sets an inline style, and every colour is a custom property above. */
+.viewer .md {
+  margin: 6px 0 0;
+  padding: 10px 12px;
+  max-height: 50vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.viewer .md > :first-child {
+  margin-top: 0;
+}
+.viewer .md > :last-child {
+  margin-bottom: 0;
+}
+.viewer .md h1,
+.viewer .md h2,
+.viewer .md h3,
+.viewer .md h4,
+.viewer .md h5,
+.viewer .md h6 {
+  margin: 1.1em 0 0.45em;
+  line-height: 1.25;
+}
+.viewer .md h1 {
+  font-size: 1.6em;
+  color: var(--h1-color);
+}
+.viewer .md h2 {
+  font-size: 1.35em;
+  color: var(--h2-color);
+}
+.viewer .md h3 {
+  font-size: 1.18em;
+  color: var(--h3-color);
+}
+.viewer .md h4 {
+  font-size: 1.05em;
+  color: var(--h4-color);
+}
+.viewer .md h5 {
+  font-size: 1em;
+  color: var(--h5-color);
+}
+.viewer .md h6 {
+  font-size: 0.95em;
+  color: var(--h6-color);
+}
+.viewer .md p {
+  margin: 0.6em 0;
+}
+.viewer .md ul,
+.viewer .md ol {
+  margin: 0.6em 0;
+  padding-left: 1.6em;
+}
+.viewer .md li {
+  margin: 0.2em 0;
+}
+.viewer .md li > input[type="checkbox"] {
+  margin: 0 0.4em 0 0;
+  vertical-align: middle;
+}
+.viewer .md table {
+  display: block;
+  margin: 0.8em 0;
+  border-collapse: collapse;
+  overflow-x: auto;
+}
+.viewer .md th,
+.viewer .md td {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.viewer .md th {
+  background: var(--md-table-head);
+}
+.viewer .md code {
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  background: var(--md-code-bg);
+  font-family: ui-monospace, Menlo, "PT Mono", "Courier New", monospace;
+  font-size: 0.9em;
+}
+.viewer .md pre {
+  margin: 0.8em 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--md-code-bg);
+  font-size: 12px;
+}
+.viewer .md pre code {
+  padding: 0;
+  background: none;
+  font-size: inherit;
+}
+/* YAML front matter: plain text above the render, as it is; muted, monospaced and wrapped. No inline style. */
+.viewer .md pre.frontmatter {
+  margin: 0 0 0.8em;
+  padding: 6px 10px;
+  border-style: dashed;
+  background: none;
+  color: var(--muted);
+  font-family: ui-monospace, Menlo, "PT Mono", "Courier New", monospace;
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.viewer .md blockquote {
+  margin: 0.8em 0;
+  padding: 0.1em 0.9em;
+  border-left: 3px solid var(--border);
+  color: var(--md-quote);
+}
+.viewer .md hr {
+  margin: 1em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.viewer .md a {
+  color: var(--md-link);
+  text-decoration: underline;
+}
+.viewer .md img {
+  max-width: 100%;
+  height: auto;
+}
+.viewer .md del {
+  color: var(--muted);
 }
 * {
   box-sizing: border-box;
@@ -764,19 +871,7 @@ ol.env-list {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
-/* tokens.css sizes each line for a <textarea> grid (32px, no wrap); here there is no textarea to align with. */
-.viewer pre.md .rline {
-  height: auto;
-  min-height: 1.5em;
-  line-height: 1.5;
-  white-space: pre-wrap;
-  overflow: visible;
-  overflow-wrap: anywhere;
-}
-body.mod-key .viewer pre.md .tok-link {
-  cursor: pointer;
-  text-decoration: underline;
-}
+/* A plain-text fallback (over 512 KB, or no renderer) keeps the old <pre> look. */
 .viewer-head {
   display: flex;
   align-items: baseline;
@@ -807,8 +902,6 @@ html:has(.page-view) {
   overflow: auto;
   scrollbar-gutter: stable;
   background: var(--surface);
-  --link-hover-tip-bg: var(--text);
-  --link-hover-tip-color: var(--surface);
 }
 .viewer--page > p {
   margin: 0;
@@ -824,30 +917,16 @@ html:has(.page-view) {
   font-size: 16px;
   font-family: Menlo, "PT Mono", "Andale Mono", "Courier New", monospace;
 }
-/* Fixed grid for the link hover: markdown.js wraps to the measured columns, one div.rline per visual line. The
-   container's top edge is the first line (no padding-top). markdown.js reads the row height from the pre's
-   line-height (measureGrid), so every div.rline and the hover share --rline-height. */
-.viewer--page pre.md {
-  --rline-height: 25px;
-  position: relative;
-  margin: 12px 0;
-  padding: 0 16px;
-  line-height: var(--rline-height);
-  white-space: pre;
-  overflow-wrap: normal;
-}
-/* attachLinkHover draws the underline 8px above the line's bottom (tuned for 32px lines): in a 25px line at 16px the
-   baseline is ~7px above the bottom, so lower it 2.5px to sit just under the baseline. */
-.viewer--page pre.md > .link-hover {
-  inset: 2.5px 0 -2.5px 0;
-}
-.viewer--page pre.md .rline {
-  height: var(--rline-height);
-  min-height: 0;
-  line-height: var(--rline-height);
-  white-space: pre;
-  overflow: hidden;
-  overflow-wrap: normal;
+/* /view/…: the rendered document is the whole page and .viewer--page is the scroller, so the article does not scroll. */
+.viewer--page .md {
+  margin: 0;
+  padding: 12px 16px;
+  max-height: none;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  font-size: 16px;
+  line-height: 1.6;
 }
 .page-view > .viewer-notice {
   position: fixed;

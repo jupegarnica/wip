@@ -259,8 +259,8 @@ export function listFiles(dir: string, prefix = ""): string[] {
 }
 
 /**
- * The npm package in `<out>/npm/wip/`: the Node bundle of src/ (migrations, templates, the web page, yaml and
- * @garndev/markdown inlined), the bin that runs it, README and LICENSE. No dependencies and no platform packages.
+ * The npm package in `<out>/npm/wip/`: the Node bundle of src/ (migrations, templates, the web page and the vendored
+ * `marked` bundle inlined), the bin that runs it, README and LICENSE. No dependencies and no platform packages.
  */
 function buildPackage(out: string, root: IPackageJson, binName: string, define: string): string {
   const dir = join(out, "npm", "wip");
