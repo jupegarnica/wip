@@ -22,7 +22,8 @@ guessing, stop and return `STATUS: needs-input` with concrete questions in `QUES
 - Use the paths the prompt gives, written in full. `ARTIFACT_DIR` is absolute; resolve any relative path in the
   prompt against the project root before you use it.
 - `ID: none` means there is no item and no `ARTIFACT_DIR` under `.wip/items/`: the prompt's `ARTIFACT_DIR` is then a
-  folder for your `tmp/` and an optional `report.md`.
+  folder for your `tmp/` and an optional `v1.report.md` (the runtime refuses, for subagents, `.md` names that start
+  with `report`, `summary`, `findings` or `analysis`).
 - Do not change directory and rely on it later: write each path in full in every command.
 
 ## What you may write
