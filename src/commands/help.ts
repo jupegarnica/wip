@@ -267,6 +267,8 @@ export const COMMANDS: readonly ICommandSpec[] = [
     notes: [
       "Without --port, wip web reuses this project's running one, or serves on the first free port from 33333",
       "  to 33352 (WIP_WEB_PORT moves the first one); --port N serves on exactly N.",
+      "Host: only localhost, 127.0.0.1 or an IPv4 literal on the served port reaches the board; a host name or",
+      "  another port is 403 (DNS rebinding). No variable or flag: the published address works as it is.",
       "Each server records itself in .wip/web/<port>.json while it serves.",
       "--open opens http://localhost:<port>/ in the browser once it serves, or if it already does.",
       "status lists this project's servers from .wip/web/ (PORT · PID · URL) and asks no other port:",
