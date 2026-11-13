@@ -72,10 +72,13 @@ export const COMMANDS: readonly ICommandSpec[] = [
   },
   {
     name: "set",
-    summary: "Set item fields (key=value, int +N, list +a/-a, ts now/none)",
+    summary: "Set item fields (key=value, int +N, list +a/-a, ts now/none/ISO 8601)",
     usage: ["wip set <ID> <key>=<value> …"],
     options: [],
     flags: [],
+    notes: [
+      "A `ts` field takes `now`, `none` (clears it) or an ISO 8601 instant with a `Z` or a `±HH:MM` offset, stored as UTC: `2026-11-17T09:00:00Z`, `2026-11-17T10:00+01:00`.",
+    ],
   },
   {
     name: "wait",

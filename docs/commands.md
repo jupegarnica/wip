@@ -8,7 +8,7 @@
 | `wip upgrade [--check\|--dry-run]`              | update the npm CLI and the project's Kanban mod (exit 1 on `--check` findings) |
 | `wip start`                                     | run the coordinator: the start command saved in `.wip/config.json`             |
 | `wip phase <ID> <phase> [--flow F]`             | create an item, or move it along its flow's `next` or to a `from_any` phase    |
-| `wip set <ID> key=value …`                      | set fields (`int +N`, `list +a/-a`, `ts now/none`)                             |
+| `wip set <ID> key=value …`                      | set fields (`int +N`, `list +a/-a`, `ts now/none/ISO 8601`)                    |
 | `wip wait <ID> user\|external\|none\|agent:<a>` | record who the item waits on                                                   |
 | `wip agent start\|stop <ID> …`                  | record a subagent run                                                          |
 | `wip gate open\|close <ID> …`                   | open or close a decision for the user                                          |

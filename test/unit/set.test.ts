@@ -41,13 +41,22 @@ describe("wip set (F-EST-10)", () => {
     expect(fields(ok(p, ["set", "T1", "tags=none"]))).toEqual({ tags: [] });
   });
 
-  test("ts: now takes the CLI's clock and none clears it; anything else is a usage error", () => {
+  test("ts: now, an ISO 8601 instant and none; anything else is a usage error", () => {
     const p = ctx.set(itemsProject("set-ts"));
     itemInPlan(p);
     tick(42);
     expect(fields(ok(p, ["set", "T1", "due=now"]))).toEqual({ due: "2026-10-30T10:00:42Z" });
+    expect(fields(ok(p, ["set", "T1", "due=2030-01-07T09:00:00Z"]))).toEqual({
+      due: "2030-01-07T09:00:00.000Z",
+    });
+    expect(fields(ok(p, ["set", "T1", "due=2026-11-17T10:00+01:00"]))).toEqual({
+      due: "2026-11-17T09:00:00.000Z",
+    });
     expect(fields(ok(p, ["set", "T1", "due=none"]))).toEqual({ due: null });
-    expect(p.wip(["set", "T1", `due=${T0}`]).code).toBe(EXIT.USAGE);
+    const bad = wipJson(p, ["set", "T1", "due=2026-10-30"]);
+    expect(bad.code).toBe(EXIT.USAGE);
+    expect(bad.body.message).toContain("now, none or an ISO 8601 instant");
+    expect(p.wip(["set", "T1", `due=${T0.slice(0, -1)}`]).code).toBe(EXIT.USAGE);
   });
 
   test("enum outside its values, an unknown key, a repeated key or no key=value: usage errors", () => {

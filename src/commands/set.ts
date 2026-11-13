@@ -9,6 +9,21 @@ import { addEvent, getItem, itemFields, openItem, publicItem, updateItem } from 
 const NONE = "none";
 /** `title` is an item column: every flow accepts it as a string. */
 const TITLE: IFieldDef = { type: "string" };
+/** An ISO 8601 instant with a `Z` or a `±HH:MM` offset; seconds and fractions are optional. */
+const ISO_TS = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** The instant `value` names, normalized to UTC ISO, or `null` when it is not an ISO 8601 instant. */
+function instant(value: string): string | null {
+  if (!ISO_TS.test(value)) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  const [year, month, day] = value.slice(0, 10).split("-").map(Number) as [number, number, number];
+  const last = new Date(0);
+  last.setUTCFullYear(year);
+  last.setUTCMonth(month, 0);
+  if (month < 1 || month > 12 || day < 1 || day > last.getUTCDate()) return null;
+  return date.toISOString();
+}
 
 function splitList(text: string): string[] {
   return text
@@ -32,9 +47,16 @@ export function coerce(key: string, def: IFieldDef, value: string, current: unkn
       if (!/^-?\d+$/.test(value)) throw usage(`${key}: an integer, +N or -N`);
       return Number(value);
     }
-    case "ts":
-      if (value !== "now") throw usage(`${key}: only now or none (the CLI sets the time)`);
-      return iso();
+    case "ts": {
+      if (value === "now") return iso();
+      const at = instant(value);
+      if (at === null) {
+        throw usage(
+          `${key}: now, none or an ISO 8601 instant with Z or ±HH:MM (2026-11-17T09:00:00Z)`,
+        );
+      }
+      return at;
+    }
     case "list": {
       const list = Array.isArray(current) ? (current as string[]) : [];
       if (value.startsWith("+")) return [...new Set([...list, ...splitList(value.slice(1))])];
