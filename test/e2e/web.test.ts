@@ -12,6 +12,7 @@ import {
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { runInNewContext } from "node:vm";
+import { JSDOM } from "jsdom";
 import {
   composite,
   flowColumns,
@@ -37,7 +38,7 @@ import {
   webMain,
 } from "../../src/commands/web.ts";
 import { SCHEMA_VERSION } from "../../src/db.ts";
-import { MARKDOWN_LIB, WEB } from "../../src/embedded/web.ts";
+import { WEB } from "../../src/embedded/web.ts";
 import { rootAt, type TEnv } from "../../src/env.ts";
 import { EXIT } from "../../src/errors.ts";
 import { parseFlow } from "../../src/flow/parse.ts";
@@ -750,8 +751,7 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
       "/markdown.js",
       "/tabs.js",
       "/view.js",
-      "/lib/garndev-markdown/index.js",
-      "/lib/garndev-markdown/tokens.css",
+      "/vendor/markdown.js",
       "/api/kanban",
       "/api/history",
       "/api/item/valid/T1",
@@ -1215,7 +1215,8 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
       "work_seconds: 0",
       "function updatePanelTotals",
       'dataset.panel = "totals"',
-      "pre.scrollTop = scroll.viewer",
+      "scroller.scrollTop = scroll.viewer",
+      "function viewerScroller",
       "totals-row",
       "totals-foot",
       "Clock time",
@@ -1321,7 +1322,7 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     );
   });
 
-  test("the page files and @garndev/markdown are served as embedded, with their types", async () => {
+  test("the page files and the vendored marked bundle are served as embedded, with their types", async () => {
     const p = board();
     await serve(p);
     const index = await get("/");
@@ -1333,21 +1334,15 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
       ["/icon.svg", "icon.svg", "image/svg+xml"],
       ["/markdown.js", "markdown.js", "text/javascript; charset=utf-8"],
       ["/tabs.js", "tabs.js", "text/javascript; charset=utf-8"],
+      ["/vendor/markdown.js", "vendor/markdown.js", "text/javascript; charset=utf-8"],
       ["/view.js", "view.js", "text/javascript; charset=utf-8"],
     ] as const) {
       const res = await get(path);
       expect(res.headers.get("content-type")).toBe(type);
-      expect(await res.text()).toBe(readFileSync(join(REPO, "web", key), "utf8"));
+      expect(await res.text()).toBe(WEB[key] as string);
     }
-    for (const key of Object.keys(MARKDOWN_LIB)) {
-      const path = `/lib/garndev-markdown/${key.replace(/^dist\//, "")}`;
-      const res = await get(path);
-      expect({ path, status: res.status }).toEqual({ path, status: 200 });
-      const file = join(REPO, "node_modules", "@garndev", "markdown", key);
-      expect(await res.text()).toBe(readFileSync(file, "utf8"));
-    }
-    expect((await get("/lib/garndev-markdown/dist/index.js")).status).toBe(404);
-    expect((await get("/lib/garndev-markdown/package.json")).status).toBe(404);
+    expect((await get("/lib/garndev-markdown/index.js")).status).toBe(404);
+    expect((await get("/vendor/package.json")).status).toBe(404);
   });
 
   test("the item panel merges the flow's links and the fields' URLs in Links", () => {
@@ -1431,6 +1426,271 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(css).toContain(".stages[hidden] { display: none; }");
     expect(css).toContain(".flow-toggle:focus-visible");
   });
+});
+
+describe("wip web · rendered Markdown (F-WEB-02)", () => {
+  const LONG_MARKDOWN = [
+    "# Long document",
+    "",
+    "A paragraph with **bold**, *em*, ~~gone~~, `code` and <https://example.com/auto>.",
+    "",
+    "| Name | Value |",
+    "| --- | --- |",
+    "| one | 1 |",
+    "| two | 2 |",
+    "",
+    "- [x] done",
+    "- [ ] todo",
+    "",
+    "> quoted",
+    "",
+    "```js",
+    "const x = 1;",
+    "```",
+    "",
+    '<details><summary>Raw</summary><div onclick="alert(1)">raw html</div></details>',
+    "<script>window.__wipXss = true</script>",
+    "",
+    "[js](javascript:alert(1)) [file](file:///tmp/notes.md) [web](https://example.com/page)",
+    "",
+    ...Array.from({ length: 200 }, (_, i) => `Line ${i} of a long document.`),
+  ].join("\n");
+  const FRONT_MARKDOWN = [
+    "---",
+    "title: Front matter",
+    "tags:",
+    "  - one",
+    "  - two",
+    "---",
+    "",
+    "# Body heading",
+    "",
+    "Visible **markdown**.",
+  ].join("\n");
+  const PLAIN_MARKDOWN = ["# Plain heading", "", "No front matter here."].join("\n");
+
+  async function until<T>(read: () => T | null, ms = 8000): Promise<T> {
+    const end = Date.now() + ms;
+    for (;;) {
+      const value = read();
+      if (value) return value;
+      if (Date.now() > end) throw new Error("timed out waiting for the page");
+      await Bun.sleep(25);
+    }
+  }
+
+  // The real page and its scripts, served by the real server; jsdom only supplies the DOM and its fetch bridge.
+  async function page(p: IProject, path = "/?item=valid/T1"): Promise<JSDOM> {
+    const server = await serve(p);
+    return JSDOM.fromURL(`http://127.0.0.1:${server.port}${path}`, {
+      runScripts: "dangerously",
+      resources: "usable",
+      pretendToBeVisual: true,
+      beforeParse(window) {
+        const nativeFetch = globalThis.fetch;
+        const pageFetch = (input: RequestInfo | URL, init?: RequestInit) =>
+          nativeFetch(new URL(String(input), window.location.href), init);
+        (window as unknown as { fetch: typeof fetch }).fetch = pageFetch as typeof fetch;
+        (window as unknown as { AbortSignal: typeof AbortSignal }).AbortSignal =
+          globalThis.AbortSignal;
+        (window as unknown as { scrollTo: () => void }).scrollTo = () => {};
+        // jsdom 26 has no CSS object; the page only needs CSS.escape for its selectors.
+        (window as unknown as { CSS: { escape: (value: string) => string } }).CSS = {
+          escape: (value: string) => value.replace(/[^a-zA-Z0-9_-]/g, (c) => `\\${c}`),
+        };
+      },
+    });
+  }
+
+  async function show(dom: JSDOM, name: string, selector: string): Promise<Element> {
+    const doc = dom.window.document;
+    const button = await until(() => doc.querySelector(`[data-artifact="${name}"]`));
+    button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+    return until(() => doc.querySelector(selector));
+  }
+
+  function withArtifacts(): IProject {
+    const p = board();
+    const dir = join(p.dir, ".wip", "items", "valid", "T1");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "long.md"), LONG_MARKDOWN);
+    writeFileSync(join(dir, "front.md"), FRONT_MARKDOWN);
+    writeFileSync(join(dir, "plain.md"), PLAIN_MARKDOWN);
+    writeFileSync(join(dir, "big.md"), `# Big\n\n${"x".repeat(520 * 1024)}\n`);
+    return p;
+  }
+
+  test("GFM renders, raw HTML and links pass, javascript: is cancelled, over 512 KB is plain text", async () => {
+    const dom = await page(withArtifacts());
+    const doc = dom.window.document;
+    try {
+      const md = await show(dom, "long.md", ".arts .viewer > .md");
+      expect(md.querySelector("h1")?.textContent).toBe("Long document");
+      expect(md.querySelectorAll("table tbody tr")).toHaveLength(2);
+      expect(md.querySelectorAll('input[type="checkbox"]')).toHaveLength(2);
+      expect(md.querySelector("del")?.textContent).toBe("gone");
+      expect(md.querySelector('a[href="https://example.com/auto"]')?.getAttribute("target")).toBe(
+        "_blank",
+      );
+      expect(md.querySelector('a[href="https://example.com/page"]')?.getAttribute("rel")).toBe(
+        "noopener noreferrer",
+      );
+      // No sanitizer: raw HTML is kept. The page CSP is the limit, and the script did not run.
+      expect(md.querySelector("details summary")?.textContent).toBe("Raw");
+      expect(md.querySelector("div[onclick]")).not.toBeNull();
+      expect((dom.window as unknown as Record<string, unknown>).__wipXss).toBeUndefined();
+
+      const js = md.querySelector('a[href^="javascript:"]');
+      expect(js).not.toBeNull();
+      const click = new dom.window.MouseEvent("click", { bubbles: true, cancelable: true });
+      js?.dispatchEvent(click);
+      expect(click.defaultPrevented).toBe(true);
+
+      const file = md.querySelector('a[href^="file://"]');
+      const fileClick = new dom.window.MouseEvent("click", { bubbles: true, cancelable: true });
+      file?.dispatchEvent(fileClick);
+      expect(fileClick.defaultPrevented).toBe(true);
+      const notice = await until(() => doc.querySelector(".arts .viewer .viewer-notice"));
+      expect(notice.textContent).toContain("/tmp/notes.md");
+
+      const pre = await show(dom, "big.md", ".arts .viewer > pre");
+      expect(pre.textContent?.startsWith("# Big")).toBe(true);
+      expect(doc.querySelector(".arts .viewer > .md")).toBeNull();
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
+
+  test("the /view page renders the same Markdown and neutralizes odd schemes", async () => {
+    const dom = await page(withArtifacts(), "/view/item/valid/T1/artifact/long.md");
+    const doc = dom.window.document;
+    try {
+      const md = await until(() => doc.querySelector("#view-body > .md"));
+      expect(md.querySelector("h1")?.textContent).toBe("Long document");
+      expect(md.querySelectorAll("table tbody tr")).toHaveLength(2);
+      const js = md.querySelector('a[href^="javascript:"]');
+      const click = new dom.window.MouseEvent("click", { bubbles: true, cancelable: true });
+      js?.dispatchEvent(click);
+      expect(click.defaultPrevented).toBe(true);
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
+
+  test("front matter shows as plain text above the render in the panel, and not at all without it", async () => {
+    const dom = await page(withArtifacts());
+    const doc = dom.window.document;
+    try {
+      const md = await show(dom, "front.md", ".arts .viewer > .md");
+      const front = md.querySelector("pre.frontmatter");
+      expect(front?.textContent).toBe("title: Front matter\ntags:\n  - one\n  - two");
+      // Plain text: not parsed, no elements inside, and the opening `---` did not become an <hr>.
+      expect(front?.querySelector("*")).toBeNull();
+      expect(Array.from(md.children).some((c) => c.tagName === "HR")).toBe(false);
+      // The front matter heads the rendered article: the panel's own head is outside it.
+      expect(md.firstElementChild?.className).toBe("frontmatter");
+      expect(md.querySelector("h1")?.textContent).toBe("Body heading");
+      expect(md.querySelector("strong")?.textContent).toBe("markdown");
+
+      const button = await until(() => doc.querySelector('[data-artifact="plain.md"]'));
+      button.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true, cancelable: true }));
+      const plain = await until(() =>
+        doc.querySelector('.arts li[data-art="plain.md"] .viewer > .md'),
+      );
+      expect(plain.querySelector("pre.frontmatter")).toBeNull();
+      expect(plain.querySelector("h1")?.textContent).toBe("Plain heading");
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
+
+  test("the /view page shows the front matter as plain text above the render", async () => {
+    const dom = await page(withArtifacts(), "/view/item/valid/T1/artifact/front.md");
+    const doc = dom.window.document;
+    try {
+      const md = await until(() => doc.querySelector("#view-body > .md"));
+      const front = md.querySelector("pre.frontmatter");
+      expect(front?.textContent).toBe("title: Front matter\ntags:\n  - one\n  - two");
+      expect(front?.querySelector("*")).toBeNull();
+      expect(md.firstElementChild?.className).toBe("frontmatter");
+      expect(md.querySelector("h1")?.textContent).toBe("Body heading");
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
+
+  test("the /view page paints nothing for an artifact without front matter", async () => {
+    const dom = await page(withArtifacts(), "/view/item/valid/T1/artifact/plain.md");
+    const doc = dom.window.document;
+    try {
+      const md = await until(() => doc.querySelector("#view-body > .md"));
+      expect(md.querySelector("pre.frontmatter")).toBeNull();
+      expect(md.querySelector("h1")?.textContent).toBe("Plain heading");
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
+
+  test("each artifact has Open (the /view page) and RAW (the API, text/plain, exactly as the file)", async () => {
+    const dom = await page(withArtifacts());
+    const doc = dom.window.document;
+    try {
+      await show(dom, "front.md", ".arts .viewer > .md");
+      const row = doc.querySelector('.arts li[data-art="front.md"]');
+      const links = Array.from(row?.querySelectorAll("a") || []);
+      const open = links.find((a) => a.textContent === "open");
+      const raw = links.find((a) => a.textContent === "RAW");
+      expect(open?.getAttribute("href")).toBe("/view/item/valid/T1/artifact/front.md");
+      expect(raw?.getAttribute("href")).toBe("/api/item/valid/T1/artifact/front.md");
+      expect(raw?.getAttribute("target")).toBe("_blank");
+      expect(raw?.getAttribute("rel")).toBe("noopener noreferrer");
+      expect(raw && open && links.indexOf(raw) === links.indexOf(open) + 1).toBe(true);
+      const res = await get("/api/item/valid/T1/artifact/front.md");
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+      expect(await res.text()).toBe(FRONT_MARKDOWN);
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
+
+  test("no highlighter geometry or offset links survive in the scripts", () => {
+    const md = WEB["markdown.js"] as string;
+    const view = WEB["view.js"] as string;
+    const app = WEB["app.js"] as string;
+    for (const gone of ["mountGrid", "mdBuild", "mdImport", "mdOffsetAt", "openLink"]) {
+      expect({
+        gone,
+        md: md.includes(gone),
+        app: app.includes(gone),
+        view: view.includes(gone),
+      }).toEqual({ gone, md: false, app: false, view: false });
+    }
+    expect(view).toContain("WipMd.loadPreview");
+    expect(md).toContain('const MD_MODULE = "/vendor/markdown.js";');
+    expect(md).toContain("splitFrontMatter");
+    const css = WEB["app.css"] as string;
+    expect(css).toContain(".viewer .md h1");
+    expect(css).toContain(".viewer .md table");
+    expect(css).toContain(".viewer .md pre.frontmatter");
+    expect(css).not.toContain(".rline");
+  });
+
+  test("a poll with only clock-derived totals keeps the viewer node and its scroll", async () => {
+    const dom = await page(withArtifacts());
+    const doc = dom.window.document;
+    try {
+      const md = (await show(dom, "long.md", ".arts .viewer > .md")) as HTMLElement;
+      md.scrollTop = 240;
+      // T1 has an open gate: user_wait_seconds moves on every 5 s poll, but the panel key ignores it.
+      await Bun.sleep(11_000);
+      const after = doc.querySelector(".arts .viewer > .md") as HTMLElement | null;
+      expect(after).toBe(md);
+      expect(after?.scrollTop).toBe(240);
+    } finally {
+      dom.window.close();
+    }
+  }, 30000);
 });
 
 describe("wip web · command (F-WEB-01)", () => {
@@ -2074,8 +2334,8 @@ describe("wip web · entry point (WIP_TEST_BIN when set, else bun src/main.ts)",
       expect(typeof health.pid).toBe("number");
       const base = `http://127.0.0.1:${port}`;
       expect(await (await fetch(`${base}/app.js`)).text()).toBe(WEB["app.js"] as string);
-      const lib = await fetch(`${base}/lib/garndev-markdown/render.js`);
-      expect(await lib.text()).toBe(MARKDOWN_LIB["dist/render.js"] as string);
+      const lib = await fetch(`${base}/vendor/markdown.js`);
+      expect(await lib.text()).toBe(WEB["vendor/markdown.js"] as string);
       const kanban = (await (await fetch(`${base}/api/kanban`)).json()) as TJson;
       expect(kanban.items.map((i: TJson) => i.id)).toEqual(["A1", "T1", "T2"]);
       ok(p, ["wait", "A1", "user", "--next", "concurrent write"]);

@@ -1,9 +1,9 @@
 // wip web: polls /api/kanban every 5 s and repaints only when the text changed; the item panel polls
 // /api/item/<flow>/<ID> while it is open, and the History view polls /api/history while it is shown. The DOM is built
 // with textContent only: nothing from the server becomes HTML. The one exception is the .md preview, built in
-// markdown.js (WipMd): the highlighter's HTML is parsed inert and only whitelisted div/span are rebuilt. The panel
-// compares a stable key that ignores the clock-derived total, so an open gate's wait only repaints Totals, and the
-// preview keeps its own scroll across a repaint.
+// markdown.js (WipMd): marked's HTML is parsed inert and adopted as semantic nodes. The panel compares a stable key
+// that ignores the clock-derived total, so an open gate's wait only repaints Totals and never rebuilds the preview;
+// when the panel is rebuilt, the preview keeps its own scroll.
 
 const POLL_MS = 5000;
 const TIMEOUT_MS = 5000;
@@ -819,6 +819,13 @@ function panelArtifacts(data) {
     raw.setAttribute("target", "_blank");
     raw.setAttribute("rel", "noopener");
     li.appendChild(raw);
+    // The file as the API serves it (`text/plain`, exactly as it is), next to the rendered /view page.
+    const rawApi = el("a", "small", "RAW");
+    rawApi.setAttribute("href", WipMd.artifactApiUrl(item.flow, item.id, a.name));
+    rawApi.setAttribute("title", "Open the raw file in another tab");
+    rawApi.setAttribute("target", "_blank");
+    rawApi.setAttribute("rel", "noopener noreferrer");
+    li.appendChild(rawApi);
     li.appendChild(copyButton(a.path, "copy path"));
     const age = el("span", "art-age", artAge(a.mtime, artNow));
     age.setAttribute("title", clockTime(a.mtime));
@@ -894,16 +901,21 @@ function panelLog(data) {
   return log;
 }
 
-// The preview scrolls inside its own <pre> (max-height: 50vh, app.css); the panel repaint replaces it.
+// The preview scrolls inside its own box (max-height: 50vh, app.css); the panel repaint replaces it, so the box's
+// scrollTop is captured and restored too.
+function viewerScroller() {
+  return panelBody.querySelector(".arts .viewer > .md, .arts .viewer > pre");
+}
+
 function capturePanelScroll() {
-  const pre = panelBody.querySelector(".arts .viewer pre");
-  return { panel: panelBody.scrollTop, viewer: pre ? pre.scrollTop : 0 };
+  const scroller = viewerScroller();
+  return { panel: panelBody.scrollTop, viewer: scroller ? scroller.scrollTop : 0 };
 }
 
 function restorePanelScroll(scroll) {
   panelBody.scrollTop = scroll.panel;
-  const pre = panelBody.querySelector(".arts .viewer pre");
-  if (pre) pre.scrollTop = scroll.viewer;
+  const scroller = viewerScroller();
+  if (scroller) scroller.scrollTop = scroll.viewer;
 }
 
 // The clock-derived fields of the item view: an open gate's wait and the totals that grow on every poll must not
@@ -956,7 +968,8 @@ function paintViewer(box) {
   });
   if (viewer.notice) head.appendChild(el("span", "viewer-notice", viewer.notice));
   head.appendChild(close);
-  // The panel repaints on every change: the highlighted tree is built once and cloned.
+  // The panel repaints on every change: the rendered tree is built once and cloned. Link clicks are delegated on the
+  // document by WipMd, so a clone keeps working.
   const body = viewer.md ? viewer.md.cloneNode(true) : el("pre", null, viewer.text);
   target.replaceChildren(head, body);
 }
@@ -1167,12 +1180,8 @@ document.body.addEventListener("click", (e) => {
 panelBody.addEventListener("click", (e) => {
   const b = e.target.closest("[data-artifact]");
   if (b) showArtifact(b.dataset.artifact);
-  // A plain click never navigates: the preview is for reading and selecting.
-  if ((e.metaKey || e.ctrlKey) && e.target.closest(".viewer pre.md") && viewer) {
-    WipMd.openLink(e, viewer, setViewerNotice);
-  }
 });
-WipMd.trackModKey();
+WipMd.setNotice(setViewerNotice);
 panelClose.addEventListener("click", closePanel);
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && openRef) closePanel();

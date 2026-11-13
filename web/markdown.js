@@ -1,17 +1,20 @@
-// Shared by the item panel (app.js) and the /view page (view.js): fetches an artifact and, for .md, highlights it with
-// @garndev/markdown served from /lib/garndev-markdown/. The highlighter's HTML is parsed inert and only div/span
-// with whitelisted classes are rebuilt (mdImport). One IIFE and one global, WipMd: classic scripts share the global
-// lexical scope, so a const repeated in app.js would stop it from loading.
+// Shared by the item panel (app.js) and the /view page (view.js): fetches an artifact and, for .md, renders it to
+// semantic HTML with the vendored `marked` (web/vendor/markdown.js, loaded on first use). A YAML front matter block at
+// the top is shown as plain text above the render and never reaches marked. The HTML is parsed inert and adopted,
+// never assigned as raw markup; raw HTML is allowed as the page CSP permits, and every link click is intercepted
+// (http(s) in a new tab, file:// or an absolute path copied, any other scheme ignored).
+// One IIFE and one global, WipMd: classic scripts share the global lexical scope, so a const repeated in app.js
+// would stop it from loading.
 // biome-ignore lint/correctness/noUnusedVariables: the global app.js and view.js read
 const WipMd = (() => {
-  const MD_MODULE = "/lib/garndev-markdown/index.js";
-  const MD_MAX_BYTES = 512 * 1024; // above this the highlighter would block the main thread: plain text
-  const MD_CLASS_RE = /^(rline|r-[a-z0-9-]+|tok-[a-z0-9-]+)$/;
+  const MD_MODULE = "/vendor/markdown.js";
+  const MARKDOWN_MAX_BYTES = 512 * 1024; // above this the render would block the main thread: plain text
   const NOTICE_MS = 3000;
   const TIMEOUT_MS = 5000;
 
-  let mdLib = null;
+  let mdParse = null;
   let mdLoading = null;
+  let notify = () => {};
 
   function el(tag, cls, text) {
     const node = document.createElement(tag);
@@ -49,74 +52,60 @@ const WipMd = (() => {
 
   const isMarkdown = (name) => /\.md$/i.test(name);
 
+  // A YAML front matter block: a `---` line first, closed by another `---`. It is metadata, not Markdown, so it is cut
+  // before marked and shown as it is; no YAML is parsed. An empty block is consumed and paints nothing.
+  function splitFrontMatter(text) {
+    const open = /^(?:\uFEFF)?---[ \t]*\r?\n/.exec(text);
+    if (!open) return { frontmatter: "", body: text };
+    const rest = text.slice(open[0].length);
+    const close = /^---[ \t]*\r?$/m.exec(rest);
+    if (!close) return { frontmatter: "", body: text };
+    const frontmatter = rest.slice(0, close.index).replace(/\r?\n$/, "");
+    const body = rest.slice(close.index + close[0].length).replace(/^\r?\n/, "");
+    return { frontmatter: frontmatter.trim() ? frontmatter : "", body };
+  }
+
+  // The vendor is a classic script (an IIFE with one global): injected on first use, once, and cached.
   function loadMarkdown() {
     if (!mdLoading) {
-      mdLoading = import(MD_MODULE).then(
-        (lib) => {
-          mdLib = lib;
-          return lib;
-        },
-        () => null,
-      );
+      mdLoading = new Promise((resolve) => {
+        const script = document.createElement("script");
+        script.src = MD_MODULE;
+        script.async = true;
+        script.addEventListener("load", () => {
+          mdParse = globalThis.WipMarkdown?.parseMarkdown ?? null;
+          resolve(mdParse ? globalThis.WipMarkdown : null);
+        });
+        script.addEventListener("error", () => resolve(null));
+        document.head.appendChild(script);
+      });
     }
     return mdLoading;
   }
 
-  // Rebuilds the highlighter's HTML from an inert document: only div/span whose sole attribute is a whitelisted class.
-  // Anything else and the preview falls back to plain text (null).
-  function mdImport(src) {
-    if (src.nodeType === Node.TEXT_NODE) return document.createTextNode(src.data);
-    if (src.nodeType !== Node.ELEMENT_NODE) return null;
-    if (src.tagName !== "DIV" && src.tagName !== "SPAN") return null;
-    if (src.attributes.length !== 1 || src.attributes[0].name !== "class") return null;
-    const classes = src.getAttribute("class").split(/\s+/).filter(Boolean);
-    if (classes.length === 0 || !classes.every((c) => MD_CLASS_RE.test(c))) return null;
-    const node = document.createElement(src.tagName.toLowerCase());
-    node.className = classes.join(" ");
-    for (const child of src.childNodes) {
-      const copy = mdImport(child);
-      if (!copy) return null;
-      node.appendChild(copy);
-    }
-    return node;
-  }
-
-  // Without `width` each div.rline is one document line; with it (columns) the highlighter wraps and each div.rline is
-  // one visual line, lineStart[i] being the document offset where lines[i] starts.
-  function mdBuild(text, width) {
-    if (!mdLib) return null;
+  // marked's HTML is parsed in an inert document and its nodes adopted: no markup assignment, no script on insert.
+  // The front matter, when there is one, is a plain-text <pre> before the render. http(s) links open in another tab;
+  // the delegated click handler copes with the rest.
+  function mdNode(text, frontmatter) {
+    if (!mdParse) return null;
     try {
-      const { html, lines, realBreaks } = mdLib.highlightDocument(text, width ? { width } : {});
+      const html = mdParse(text);
       const doc = new DOMParser().parseFromString(`<!doctype html><body>${html}`, "text/html");
-      const pre = el("pre", "md");
-      pre.setAttribute("title", "Cmd/Ctrl+click opens a link");
-      for (const child of doc.body.childNodes) {
-        const copy = mdImport(child);
-        if (copy?.tagName !== "DIV") return null;
-        pre.appendChild(copy);
+      const box = el("article", "md");
+      if (frontmatter) box.appendChild(el("pre", "frontmatter", frontmatter));
+      for (const child of Array.from(doc.body.childNodes)) {
+        box.appendChild(document.adoptNode(child));
       }
-      if (pre.children.length !== lines.length) return null;
-      const lineStart = [];
-      let at = 0;
-      for (let i = 0; i < lines.length; i++) {
-        lineStart.push(at);
-        at += lines[i].length + (realBreaks[i] || 0);
+      for (const a of box.querySelectorAll("a")) {
+        if (/^https?:\/\//i.test(a.getAttribute("href") || "")) {
+          a.setAttribute("target", "_blank");
+          a.setAttribute("rel", "noopener noreferrer");
+        }
       }
-      return at === text.length ? { pre, lines, lineStart } : null;
+      return box;
     } catch (_) {
       return null;
     }
-  }
-
-  function mdNode(text) {
-    const built = mdBuild(text);
-    return built ? built.pre : null;
-  }
-
-  function lineStartsOf(text) {
-    const starts = [0];
-    for (let i = 0; i < text.length; i++) if (text[i] === "\n") starts.push(i + 1);
-    return starts;
   }
 
   async function loadPreview(flow, id, name) {
@@ -130,14 +119,11 @@ const WipMd = (() => {
       if (
         res.ok &&
         isMarkdown(name) &&
-        next.text.length <= MD_MAX_BYTES &&
+        next.text.length <= MARKDOWN_MAX_BYTES &&
         (await loadMarkdown())
       ) {
-        next.md = mdNode(next.text);
-        if (next.md) {
-          next.lineStarts = lineStartsOf(next.text);
-          next.refs = mdLib.collectRefs(next.text);
-        }
+        const { frontmatter, body } = splitFrontMatter(next.text);
+        next.md = mdNode(body, frontmatter);
       }
     } catch (_) {
       next = { name, text: "Cannot read it (offline)." };
@@ -145,124 +131,47 @@ const WipMd = (() => {
     return next;
   }
 
-  function caretAt(x, y) {
-    if (document.caretPositionFromPoint) {
-      const pos = document.caretPositionFromPoint(x, y);
-      return pos ? { node: pos.offsetNode, offset: pos.offset } : null;
-    }
-    if (document.caretRangeFromPoint) {
-      const range = document.caretRangeFromPoint(x, y);
-      return range ? { node: range.startContainer, offset: range.startOffset } : null;
-    }
-    return null;
-  }
-
-  // Without `width` each div.rline is exactly one document line, so offset = line start + column.
-  function mdOffsetAt(e, preview) {
-    const caret = caretAt(e.clientX, e.clientY);
-    if (!caret) return null;
-    const start = caret.node.nodeType === Node.ELEMENT_NODE ? caret.node : caret.node.parentElement;
-    const line = start?.closest("pre.md > .rline");
-    if (!line) return null;
-    const index = Array.prototype.indexOf.call(line.parentElement.children, line);
-    if (index < 0 || !preview.lineStarts || index >= preview.lineStarts.length) return null;
-    const range = document.createRange();
-    range.setStart(line, 0);
-    range.setEnd(caret.node, caret.offset);
-    return preview.lineStarts[index] + range.toString().length;
-  }
-
-  async function openLink(e, preview, notify) {
-    if (!preview?.md || !mdLib) return;
-    const offset = mdOffsetAt(e, preview);
-    if (offset === null) return;
-    const url = mdLib.linkAtOffset(preview.text, offset, preview.refs);
-    if (!url) return;
+  // http(s) opens in another tab; file:// or an absolute path is copied; any other scheme (javascript:, mailto:…)
+  // and anything else is cancelled. Links come from rendered HTML, also from its raw HTML.
+  function onLinkClick(e) {
+    const target = e.target;
+    const a = target?.closest ? target.closest("a") : null;
+    if (!a?.closest(".md")) return false;
+    const href = a.getAttribute("href") || "";
+    if (/^https?:\/\//i.test(href)) return false;
     e.preventDefault();
-    await openUrl(url, notify);
-  }
-
-  // http(s) opens in another tab; file:// or an absolute path is copied; any other scheme (javascript:…) is ignored.
-  async function openUrl(url, notify) {
-    if (/^https?:\/\//i.test(url)) {
-      window.open(url, "_blank", "noopener,noreferrer");
-      return;
-    }
-    if (/^file:\/\//i.test(url) || url.startsWith("/")) {
-      let path = url.replace(/^file:\/\//i, "");
+    if (/^file:\/\//i.test(href) || href.startsWith("/")) {
+      let path = href.replace(/^file:\/\//i, "");
       try {
         path = decodeURIComponent(path);
       } catch (_) {
         // malformed escape: copy it as written
       }
-      const ok = await copyText(path);
-      notify(
-        ok ? `path copied: ${path} (browsers do not open file://)` : `could not copy: ${path}`,
-      );
-    }
-  }
-
-  function trackModKey() {
-    const markModKey = (e) =>
-      document.body.classList.toggle("mod-key", Boolean(e.metaKey || e.ctrlKey));
-    window.addEventListener("keydown", markModKey);
-    window.addEventListener("keyup", markModKey);
-    window.addEventListener("blur", () => document.body.classList.remove("mod-key"));
-  }
-
-  // /view: the document is re-highlighted wrapped to the columns that fit (measured grid), so the package's link hover
-  // (underline + URL tooltip + Cmd/Ctrl+click) maps the pointer to a document offset. Re-wraps on resize and zoom.
-  // Without the package or on any failure the unwrapped preview.md stays, without hover.
-  function mountGrid(scroller, preview, notify) {
-    if (!preview?.md || !mdLib) return;
-    let hover = null;
-    let cols = 0;
-    let timer = 0;
-    function layout() {
-      const pre = scroller.querySelector(":scope > pre.md");
-      if (!pre) return;
-      const grid = mdLib.measureGrid(pre);
-      const padRight = parseFloat(getComputedStyle(pre).paddingRight) || 0;
-      const next = Math.max(
-        20,
-        Math.floor((pre.clientWidth - grid.padLeft - padRight) / grid.charWidth),
-      );
-      if (hover && next === cols) {
-        hover.update(grid);
-        return;
-      }
-      const built = mdBuild(preview.text, next);
-      if (!built) return;
-      built.pre.removeAttribute("title");
-      if (hover) hover.destroy();
-      pre.replaceWith(built.pre);
-      cols = next;
-      hover = mdLib.attachLinkHover({
-        container: built.pre,
-        text: preview.text,
-        lines: built.lines,
-        lineStart: built.lineStart,
-        ...grid,
-        onOpen: (url) => openUrl(url, notify),
+      copyText(path).then((ok) => {
+        notify(
+          ok ? `path copied: ${path} (browsers do not open file://)` : `could not copy: ${path}`,
+        );
       });
     }
-    const schedule = () => {
-      clearTimeout(timer);
-      timer = setTimeout(layout, cols ? 100 : 0);
-    };
-    new ResizeObserver(schedule).observe(scroller);
-    window.addEventListener("resize", schedule);
-    schedule();
+    return true;
+  }
+
+  document.addEventListener("click", (e) => {
+    onLinkClick(e);
+  });
+
+  function setNotice(fn) {
+    notify = typeof fn === "function" ? fn : () => {};
   }
 
   return {
     NOTICE_MS,
+    MARKDOWN_MAX_BYTES,
     artifactApiUrl,
     artifactViewUrl,
     copyText,
     loadPreview,
-    mountGrid,
-    openLink,
-    trackModKey,
+    onLinkClick,
+    setNotice,
   };
 })();
