@@ -34,23 +34,26 @@ exactly N: this project's `wip web` there exits 0, another project's or another 
 `wip web stop` stops it. If no browser opens (`open`, `xdg-open` or `start` fails), `--open` prints a warning and the
 server keeps serving.
 
-In `localhost`, `wip web` keeps one tab per origin: the first page of an origin takes a Web Locks lock and keeps it
-until it closes. A new page that opens an item (`?item=<flow>/<ID>`, for example from the Kanban) asks the open tab
-to hand the origin over; the open tab yields, confirms and tries to close itself, so the user stays in the tab they
-just opened. Closing the old tab is best-effort: when the browser refuses, it stays with the notice «This project
-moved to another tab.» and no ownership. Every view of the board shows the padlock and the poll status in the
-top-left of its header, where the project title used to be; the project name is only the browser tab title. The
-padlock is open by default: open means another tab may take the origin over and close this one; clicking it closes
-the padlock, and that tab then refuses the takeover, keeps its item and is never closed automatically. The tab that
-asked shows its item without focus and the notice «This project is locked in another tab.», and stays open. The
-padlock is kept in this tab's history entry, so reloading the tab keeps it closed; a new tab (including one opened
-with `window.open`) starts open, the state is not shared with other tabs, and a duplicated tab may inherit it when
-the browser copies the history entry. It only blocks the automatic close, and closing the tab by hand always works
-(whether `window.close()` works at all still depends on the browser). A new page with no item does not take over: it
-only tries to close itself and, if refused, shows «This project is open in another tab.». Origins are scheme, host
-and port, so another port has its own tab. The artifact page (`/view/item/.../artifact/...`) is deliberately outside:
-it opens in its own tab, with no padlock. On the LAN (`http://<ip>`, where Web Locks is unavailable) and in browsers
-without Web Locks every tab is its own page, as before: no deduplication, no message, no notice, and the padlock has
+In `localhost`, `wip web` keeps one tab per origin, and the rule covers any URL of the board (`/`,
+`/?view=history`, `?item=<flow>/<ID>`, for example from the Kanban), with or without an item: the first board page
+takes a Web Locks lock and keeps it until it closes. A board page that finds the origin owned asks the open tab to
+hand it over; the open tab yields, confirms and tries to close itself, so the user stays in the tab they just
+opened. Closing the old tab is best-effort: when the browser refuses, it stays with the notice «This project moved
+to another tab.» and no ownership. A new board page that does not get the handover (a locked owner, no answer, or a
+browser without BroadcastChannel) never closes itself: it keeps its URL and shows «This project is open in another
+tab.». The artifact page (`/view/item/.../artifact/...`) is deliberately outside the rule: it takes no lock and has
+no padlock, so the board and an artifact can stay open together. Origins are scheme, host and port, so another port
+has its own tab, and `localhost` and `127.0.0.1` do not share one. Every view of the board shows the padlock and the
+poll status in the top-left of its header, where the project title used to be; the project name is only the browser
+tab title. The padlock is open by default: open means another tab may take the origin over and close this one;
+clicking it closes the padlock, and that tab then refuses the takeover, keeps its item and is never closed
+automatically. The tab that asked opens its item without focus, if it has one, shows the notice «This project is
+locked in another tab.» and stays open. The padlock is kept in this tab's history entry, so reloading the tab keeps
+it closed; a new tab (including one opened with `window.open`) starts open, the state is not shared with other tabs,
+and a duplicated tab may inherit it when the browser copies the history entry. It only blocks the automatic close,
+and closing the tab by hand always works (whether `window.close()` works at all still depends on the browser). On the
+LAN (`http://<ip>`, where Web Locks is unavailable) and in browsers without Web Locks every tab is its own page, as
+before: no deduplication, no message, no notice, and the padlock has
 no effect.
 
 While it serves, each server records its PID and port in `.wip/web/<port>.json`, and `.wip/logs/web.log` gets the

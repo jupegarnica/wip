@@ -122,6 +122,32 @@ describe("wip web tabs (F-WEB-10)", () => {
     expect(first.claim.length).toBe(0);
   });
 
+  test("a page with no item claims, hands over and obeys the padlock", async () => {
+    const { create } = load();
+    const locks = new FakeLocks();
+    const bus = new FakeBus();
+    const Channel = channelOn(bus);
+    let handed = 0;
+    const board = create({ locks, Channel, handoverMs: 10, onTakeOver: () => (handed += 1) });
+    const other = create({ locks, Channel, handoverMs: 10 });
+    // Ownership is per origin, not per page: neither call takes an item key.
+    expect(board.claim.length).toBe(0);
+    expect(other.takeOver.length).toBe(0);
+    expect(await board.claim()).toBe(true);
+    expect(await other.claim()).toBe(false);
+    expect(await other.takeOver()).toBe("owner");
+    expect(handed).toBe(1);
+    expect(await other.claim()).toBe(true);
+
+    // The padlock keeps blocking the handover on an item-less page too.
+    other.setLocked(true);
+    const third = create({ locks, Channel, handoverMs: 10 });
+    expect(await third.claim()).toBe(false);
+    expect(await third.takeOver()).toBe("locked");
+    expect(handed).toBe(1);
+    expect(await other.claim()).toBe(true);
+  });
+
   test("simultaneous claims give exactly one owner", async () => {
     const { create } = load();
     const locks = new FakeLocks();
