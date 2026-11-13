@@ -67,20 +67,29 @@ describe("wip cron (e2e)", () => {
 
     const day = localDay(2);
     okIn(dir, ["cron", "add", "weekly", "--at", `${day} 14:00`, "--every", "7d"]);
-    const listed = jobs(dir);
+    const reminders = (): TJob[] => jobs(dir).filter((j) => j.kind === "reminder");
+    const listed = reminders();
     expect(listed.map((j) => j.text)).toEqual(["probe", "weekly"]);
     expect(listed[1]).toMatchObject({ at_local: `${day} 14:00`, every: "7d" });
-    expect(jobs(dir).map((j) => j.key)).toEqual(listed.map((j) => j.key));
+    expect(reminders().map((j) => j.key)).toEqual(listed.map((j) => j.key));
 
     const next = okIn(dir, ["cron", "done", "c2"]).data?.cron as TJob;
     expect(next).toMatchObject({ status: "open", at_local: `${localDay(9)} 14:00` });
 
     const cancelled = okIn(dir, ["cron", "cancel", "c1"]).data?.cron as TJob;
     expect(cancelled.status).toBe("cancelled");
-    expect(jobs(dir).map((j) => j.id)).toEqual([]);
+    expect(reminders().map((j) => j.id)).toEqual([]);
     expect(okIn(dir, ["cron", "list"]).data?.beyond).toBe(1);
-    expect(jobs(dir, ["--horizon", "14d"]).map((j) => j.id)).toEqual(["c2"]);
-    expect(jobs(dir, ["--all", "--horizon", "14d"]).map((j) => j.id)).toEqual(["c1", "c2"]);
+    expect(
+      jobs(dir, ["--horizon", "14d"])
+        .filter((j) => j.kind === "reminder")
+        .map((j) => j.id),
+    ).toEqual(["c2"]);
+    expect(
+      jobs(dir, ["--all", "--horizon", "14d"])
+        .filter((j) => j.kind === "reminder")
+        .map((j) => j.id),
+    ).toEqual(["c1", "c2"]);
 
     const snoozed = okIn(dir, ["cron", "snooze", "c2", "--at", "+3h"]).data?.cron as TJob;
     expect(Date.parse(snoozed.at as string)).toBeLessThan(Date.now() + 4 * 3600_000);
@@ -95,11 +104,15 @@ describe("wip cron (e2e)", () => {
     putFlow(dir, "review", fixture("flows", "polls"));
     okIn(dir, ["cron", "add", "--poll", "review/discover", "--at", "+1h"]);
     const listed = jobs(dir);
-    expect(listed.map((j) => [j.source, j.poll, j.due])).toEqual([
+    expect(listed.some((j) => `${j.flow},${j.poll},${j.source}` === "tasks,due,flow")).toBe(true);
+    expect(
+      listed.filter((j) => j.poll === "discover").map((j) => [j.source, j.poll, j.due]),
+    ).toEqual([
       ["flow", "discover", true],
       ["cron", "discover", false],
     ]);
-    expect((listed[1]?.pass as TJob | undefined)?.agent).toBe("fast");
+    const cronDiscover = listed.find((j) => j.source === "cron");
+    expect((cronDiscover?.pass as TJob | undefined)?.agent).toBe("fast");
     expect(wipJsonIn(dir, ["cron", "add", "--poll", "review/nope", "--at", "+1h"], ENV).code).toBe(
       EXIT.NOT_FOUND,
     );
@@ -115,7 +128,7 @@ describe("wip cron (e2e)", () => {
     old.exec(`INSERT INTO items (id, flow, phase, created_at, updated_at)
               VALUES ('a', 'tasks', 'todo', '2026-10-30T10:00:00Z', '2026-10-30T10:00:00Z')`);
     old.close();
-    expect(jobs(dir)).toEqual([]);
+    expect(jobs(dir).filter((j) => j.kind === "reminder")).toEqual([]);
     const copies = readdirSync(join(dir, ".wip", "backups", "db"));
     expect(copies).toHaveLength(1);
     expect(copies[0]).toMatch(/^wip\.sqlite\.v3\.\d{8}T\d{6}Z\.\d+$/);

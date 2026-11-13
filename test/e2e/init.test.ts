@@ -658,9 +658,9 @@ describe("the onboarding item seeded by init (F-NEW-08)", () => {
     const dir = tmp("seed-moved");
     wipIn(dir, ["init"]);
     expect(wipJsonIn(dir, ["log", "onboarding", "seen", "--kind", "user"]).code).toBe(EXIT.OK);
-    expect(wipJsonIn(dir, ["phase", "onboarding", "done"]).code).toBe(EXIT.OK);
+    expect(wipJsonIn(dir, ["phase", "onboarding", "closed"]).code).toBe(EXIT.OK);
     expect(wipIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
-    expect(items(dir)).toEqual([["onboarding", "tasks", "done", "none", "Get to know wip"]]);
+    expect(items(dir)).toEqual([["onboarding", "tasks", "closed", "none", "Get to know wip"]]);
     expect(wipJsonIn(dir, ["archive", "onboarding"]).code).toBe(EXIT.OK);
     expect(wipIn(dir, ["init"]).stdout).toContain("exists item onboarding");
     expect(items(dir)).toEqual([]);

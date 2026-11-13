@@ -22,7 +22,7 @@ wip init --global                 # definitions in ~/.claude/, shared by every -
 | `<defs>/skills/wip-flow-development/`            | the `development` flow: a small piece of work in a worktree and branch, with a plan, a build, QA, the user's review, one commit and one release (see [Flows](flows.md))                                                                                                                                                                                                                                |
 | `<defs>/skills/wip-flow-ideas/`                  | the `ideas` flow: shapes an idea in rounds of questions and answers before anything is built                                                                                                                                                                                                                                                                                                           |
 | `<defs>/skills/wip-flow-reports/`                | the `reports` flow: a search or a report, one-off or recurring, from the questions and sources to the written report                                                                                                                                                                                                                                                                                   |
-| `<defs>/skills/wip-flow-tasks/`                  | the `tasks` flow: any task with a clear outcome, in three stages (`todo`, `doing` and `done`, one phase each); it seeds `onboarding`                                                                                                                                                                                                                                                                   |
+| `<defs>/skills/wip-flow-tasks/`                  | the `tasks` flow: any task with a clear outcome, one-off or recurring, in four phases (`todo`, `doing`, `done` and `closed`); it seeds `onboarding`                                                                                                                                                                                                                                                    |
 
 These four flows are the default set. In a terminal the wizard has five steps: scope, the flows to write, the start
 command, what goes into `.gitignore` and the Kanban mod. The Flows step shows all four checked; Space toggles one,
@@ -45,7 +45,7 @@ coordinator tells you, in its `🟪 NEXT` line, that you have an onboarding task
 agents are yours to change (edit one, disable one you do not use, create one by asking). When you want to start, it
 gives you the links to the guide (`view/item/tasks/onboarding/artifact/guide.md` on the kanban) and to the item's
 panel, answers your questions from the guide (its «Your own flows and agents» section says how to change them), and
-closes the item at a real gate («Close the onboarding?») in `done`, archived. An ID that already exists, open or archived, is never touched: a second init
+closes the item at a real gate («Close the onboarding?») in `closed`, archived. An ID that already exists, open or archived, is never touched: a second init
 or `--force` neither duplicates nor revives it, nor rewrites its files.
 
 A project keeps its definitions folder. An init that would write another folder of the same scope (a legacy

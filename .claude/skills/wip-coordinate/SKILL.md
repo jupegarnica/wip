@@ -357,7 +357,7 @@ It also exports `WIP_BIN` with that path to the session it launches.
 
 `wip init` seeds the item `onboarding` (flow `tasks`, phase `todo`, waiting on the user) with the artifact
 `guide.md`, which explains everything the user can do, when the run writes the `tasks` flow. While it is open you
-guide it, step by step, to `done` and archive it, with no subagent; its `next` shows the current step on the kanban.
+guide it, step by step, to `closed` and archive it, with no subagent; its `next` shows the current step on the kanban.
 It stays in `todo`. Anything that writes a file goes to a subagent. A project initialised without `tasks` has no
 onboarding item, and this section does nothing.
 
@@ -378,7 +378,7 @@ onboarding item, and this section does nothing.
 4. **Step 3 · the gate.** `"$WIP_BIN" gate open onboarding todo --question "Close the onboarding?" --detail <guide.md path>`,
    then the 🟧 block: Approve closes it · Change keeps asking · Stop closes it too.
    - Approve or Stop: `"$WIP_BIN" gate close onboarding --answer "<their words>" --decision approved`,
-     `"$WIP_BIN" phase onboarding done`, `"$WIP_BIN" archive onboarding`; then a 🟩 line with the guide's link (an archived item
+     `"$WIP_BIN" phase onboarding closed`, `"$WIP_BIN" archive onboarding`; then a 🟩 line with the guide's link (an archived item
      still serves it) and the suggestion «try a task: ask for your first one».
    - Change: `"$WIP_BIN" gate close onboarding --answer "<their words>" --decision change --next "<their question>"`, and
      back to step 2.

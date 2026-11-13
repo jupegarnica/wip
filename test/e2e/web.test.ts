@@ -276,16 +276,17 @@ describe("wip web · /api/kanban (F-WEB-04, 05, 06, 09, 11, 12)", () => {
     expect(textOn(composite(STAGE_TONE, 0.25, SURFACE_DARK))).toBe("#FFFFFF");
   });
 
-  test("the tasks flow paints its three stages and nothing else", () => {
+  test("the tasks flow declares no stages, so each phase is its own colourless column", () => {
     const text = readFileSync(
       join(REPO, "templates", "skills", "wip-flow-tasks", "SKILL.md"),
       "utf8",
     );
     const columns = flowColumns(parseFlow("tasks", text).flow);
     expect(columns.map((c) => [c.label, c.phases, c.alpha])).toEqual([
-      ["todo", ["todo"], 1],
-      ["doing", ["doing"], 0.63],
-      ["done", ["done"], 0.25],
+      ["todo", ["todo"], null],
+      ["doing", ["doing"], null],
+      ["done", ["done"], null],
+      ["closed", ["closed"], null],
     ]);
   });
 

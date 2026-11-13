@@ -40,17 +40,21 @@ the plan through the build, QA and review to the commit and the release), `ideas
 `reports` (a search or a report, one-off or recurring) and `tasks` (a task with a clear outcome). The wizard's Flows
 step chooses them; `--flows <names>` picks a subset for scripts (see [Start a project: `wip init`](init.md)).
 
-The `tasks` flow is generic: the same phases carry code, an investigation, a document or a decision, grouped in
-three stages.
+The `tasks` flow is generic: the same phases carry code, an investigation, a document or a decision, one-off or
+recurring.
 
-| Stage   | Phase   | What happens                                                                |
-| ------- | ------- | --------------------------------------------------------------------------- |
-| `todo`  | `todo`  | the request and the plan, which you approve                                 |
-| `doing` | `doing` | the deliverable and its check against the plan's criteria, then your review |
-| `done`  | `done`  | closed                                                                      |
+| Phase    | What happens                                                                    |
+| -------- | ------------------------------------------------------------------------------- |
+| `todo`   | the request and the plan, which you approve; a recurring task waits here        |
+| `doing`  | the deliverable and its check against the plan's criteria                       |
+| `done`   | your review of the run; a recurring task waits here when `after_review` says so |
+| `closed` | the item ends here and is archived                                              |
 
-A request that needs no work, or that you drop, goes from `todo` straight to `done`; `todo` is reachable from any
+A request that needs no work, or that you drop, goes from `todo` straight to `closed`; `todo` is reachable from any
 phase (`from_any: true`), so a wrong approach goes back to the plan and its gate without `--force`.
+
+A recurring task also carries `schedule` (a cron expression in local time), `next_run` (the next run) and
+`after_review` (`todo` or `done`, where it waits between runs).
 
 To create a flow, ask the coordinator («create a flow for reviews with these phases…»): it follows `wip-new-flow`
 (proposal, your approval, backup, write, `wip flow lint`, restore if the lint fails). By hand:
