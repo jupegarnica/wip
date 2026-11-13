@@ -3,12 +3,12 @@
 [← Back to the README](../README.md)
 
 `@garndev/wip` is published on the npm registry; the current version is at the top of the
-[CHANGELOG](../CHANGELOG.md). The macOS and Linux binaries are in the GitHub Releases (Windows has none yet), or you
-can build the package from this repository (see [CLAUDE.md](../CLAUDE.md)) and install its tarball the same way.
+[CHANGELOG](../CHANGELOG.md). You can also build the package from this repository (see
+[CLAUDE.md](../CLAUDE.md)) and install its tarball the same way.
 
 **Requirements:** Claude Code's `claude` CLI, Node 22.13 or later and npm, on any OS Node supports. Without Node: a
-release binary for `darwin-arm64`, `darwin-x64`, `linux-x64` and `linux-arm64`. Windows has no release binary yet;
-`windows-x64` is experimental and only buildable from source.
+binary you build from source for `darwin-arm64`, `darwin-x64`, `linux-x64` and `linux-arm64`. Windows has no binary
+yet; `windows-x64` is experimental and only buildable from source.
 
 ## Before installing: is `wip` already taken?
 
@@ -38,32 +38,22 @@ platform packages. On Node 22 the bundled `node:sqlite` is still flagged experim
 
 `wip init` is described in [Start a project: `wip init`](init.md).
 
-## Without Node: a release binary
+## Without Node: a binary from source
 
-Each GitHub Release carries one archive per target, `wip-<version>-<os>-<arch>.tar.gz`, and a single `SHA256SUMS` for
-all four. Replace `0.2.1` with the version you want:
-
-```sh
-mkdir -p ~/wip-bin && cd ~/wip-bin
-gh release download v0.2.1 --pattern 'wip-0.2.1-darwin-arm64.tar.gz' --pattern SHA256SUMS
-shasum -a 256 -c SHA256SUMS                 # Linux: sha256sum -c SHA256SUMS
-tar -xzf wip-0.2.1-darwin-arm64.tar.gz
-install wip ~/.local/bin/wip
-```
-
-Pick the archive for your machine: `wip-<version>-darwin-arm64.tar.gz` or `darwin-x64` on macOS, `linux-x64` or
-`linux-arm64` on Linux. Each archive holds only the `wip` executable. The Linux binaries are compiled on the latest
-Ubuntu image and are not tested on older distributions. The binary needs neither Node nor Bun to run. On macOS it is
-signed ad hoc and not notarized: a copy downloaded with a browser gets the quarantine flag, which
-`xattr -d com.apple.quarantine <path>` removes. On macOS it uses the system SQLite, which must be 3.37 or later.
-
-Windows has no release binary. `windows-x64` is experimental and can only be built from source:
+Build it from the repository:
 
 ```sh
 bun install --frozen-lockfile
 bun scripts/build.ts --targets host --out dist    # dist/bin/<os>-<arch>/wip (wip.exe on Windows)
 install dist/bin/<os>-<arch>/wip ~/.local/bin/wip
 ```
+
+The binary needs neither Node nor Bun to run. The Linux binary is compiled on the machine that builds it and is not
+tested on older distributions. On macOS it is signed ad hoc and not notarized: a copy transferred from another
+machine through a browser gets the quarantine flag, which `xattr -d com.apple.quarantine <path>` removes. On macOS
+it uses the system SQLite, which must be 3.37 or later.
+
+Windows has no binary yet. `windows-x64` is experimental and can only be built from source with the same command.
 
 `--targets` also takes a list (`darwin-arm64,linux-x64,…`) or `all` to cross-compile for another machine; the
 archives and `SHA256SUMS` land in `dist/release/`. The contributor flow around the build (targets, build metadata,

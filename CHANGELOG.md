@@ -4,7 +4,7 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.5.0 (2026-11-12)
+## 0.5.1 (2026-11-13)
 
 - CI runs on Ubuntu with Node 22 for pull requests and for a release: typecheck, lint, `bun test`, the packed
   npm package with `npm publish --dry-run` and the e2e suite against it. The full matrix (Ubuntu 22/24/26, macOS
@@ -22,6 +22,9 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
   row gains a **RAW** link to the API URL that serves the file byte for byte as `text/plain`.
 - `wip upgrade` updates the CLI and the Kanban mod, not the definitions folder: a project picks up the new
   `reports` flow text and the other definition changes with a fresh `wip init` or by copying them by hand.
+- The release workflow publishes the npm package and makes the GitHub Release with the notes only:
+  the `binaries` and `verify` jobs are gone, so a macOS runner can no longer block a publish.
+  `bun scripts/build.ts --targets` still builds the binaries locally.
 
 ## 0.4.1 (2026-11-12)
 
