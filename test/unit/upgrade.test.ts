@@ -223,6 +223,7 @@ describe("wip upgrade --check and --dry-run (fake npm)", () => {
       update: true,
       check: true,
       dry_run: false,
+      changelog: null,
     });
     expect(fake.calls.length).toBe(1);
     expect(fake.calls[0]?.args).toEqual(["view", "@garndev/wip", "dist-tags", "--json"]);
@@ -275,7 +276,11 @@ describe("wip upgrade --check and --dry-run (fake npm)", () => {
     expect(readdirSync(dir)).toEqual([]);
     const { body } = json(dir, ["upgrade", "--dry-run"]);
     expect(validate(SCHEMA, body)).toEqual([]);
-    expect(dataOf(body)).toMatchObject({ action: "would-upgrade", dry_run: true });
+    expect(dataOf(body)).toMatchObject({
+      action: "would-upgrade",
+      dry_run: true,
+      changelog: null,
+    });
     expect((dataOf(body).npm as Record<string, unknown>).code).toBeNull();
   });
 });
@@ -322,9 +327,14 @@ describe("wip upgrade (fake npm)", () => {
     const { code, body } = json(dir, ["upgrade"]);
     expect(code).toBe(EXIT.FINDINGS);
     expect(body.ok).toBe(false);
-    expect(dataOf(body)).toMatchObject({ action: "failed" });
+    expect(dataOf(body)).toMatchObject({ action: "failed", changelog: null });
     expect((body.message as string) ?? "").toContain("EACCES");
     expect(kanbanOf(body)).toBeNull();
+    expect(
+      (body.warnings as { code: string }[]).some((warning) =>
+        warning.code.startsWith("changelog_"),
+      ),
+    ).toBe(false);
     expect(settingsBytes(dir)).toEqual(before);
     expect(backupCount(dir)).toBe(0);
     expect(existsSync(join(dir, ".wip", "backups"))).toBe(false);
@@ -345,7 +355,12 @@ describe("wip upgrade (fake npm)", () => {
     setUpgradeInstallForTests(npmInfo());
     const { code, body } = json(dir, ["upgrade"]);
     expect(code).toBe(EXIT.FINDINGS);
-    expect(dataOf(body)).toMatchObject({ action: "failed" });
+    expect(dataOf(body)).toMatchObject({ action: "failed", changelog: null });
+    expect(
+      (body.warnings as { code: string }[]).some((warning) =>
+        warning.code.startsWith("changelog_"),
+      ),
+    ).toBe(false);
     expect(dataOf(body).rollback).toMatchObject({
       version: "0.2.1",
       code: 0,
@@ -452,6 +467,96 @@ describe("wip upgrade (fake npm)", () => {
   });
 });
 
+describe("wip upgrade release notes (fake npm)", () => {
+  const MARKDOWN = `# Changelog
+
+## 9.9.9 (2026-12-01)
+
+- target bullet
+
+## 0.3.0 (2026-11-01)
+
+- middle bullet
+
+## 0.2.1 (2026-10-01)
+
+- running bullet
+`;
+
+  function notesRoot(name: string, markdown?: string): string {
+    const dir = bare(name);
+    if (markdown !== undefined) writeFileSync(join(dir, "CHANGELOG.md"), markdown);
+    return dir;
+  }
+
+  /** A fake upgrade of npmInfo's running 0.2.1 to 9.9.9, with `root` as the package that installs. */
+  function installing(root: string): { run: TRun; calls: ICall[] } {
+    const fake = fakeRun((call) => {
+      if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+      if (call.args.includes("version")) return envelope({ data: { version: "9.9.9" } });
+      return { status: 0 };
+    });
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo({ root, prefix: root, bin: join(root, "bin/wip") }));
+    return fake;
+  }
+
+  test("prints the sections between the running and the installed version, not the running one", () => {
+    const dir = notesRoot("notes-upgrade", MARKDOWN);
+    installing(dir);
+    const out = run(["upgrade"], { cwd: dir, env: {} });
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.stdout).toContain("upgraded wip 0.2.1 -> 9.9.9 (latest)");
+    expect(out.stdout).toContain("what's new (0.2.1 -> 9.9.9):");
+    expect(out.stdout).toContain("9.9.9 (2026-12-01)\n- target bullet");
+    expect(out.stdout).toContain("0.3.0 (2026-11-01)\n- middle bullet");
+    expect(out.stdout).not.toContain("running bullet");
+    expect(out.stdout).not.toContain("0.2.1 (2026-10-01)");
+  });
+
+  test("--json carries every entry and the range in data.changelog", () => {
+    const dir = notesRoot("notes-json", MARKDOWN);
+    installing(dir);
+    const { code, body } = json(dir, ["upgrade"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(dataOf(body).changelog).toEqual({
+      from: "0.2.1",
+      to: "9.9.9",
+      entries: [
+        { version: "9.9.9", title: "9.9.9 (2026-12-01)", body: "- target bullet" },
+        { version: "0.3.0", title: "0.3.0 (2026-11-01)", body: "- middle bullet" },
+      ],
+      truncated: false,
+    });
+  });
+
+  test("a package without CHANGELOG.md warns changelog_missing and still exits 0", () => {
+    const dir = notesRoot("notes-missing");
+    installing(dir);
+    const { code, body } = json(dir, ["upgrade"]);
+    expect(code).toBe(EXIT.OK);
+    expect(dataOf(body).action).toBe("upgraded");
+    expect(dataOf(body).changelog).toBeNull();
+    expect((body.warnings as { code: string }[]).map((warning) => warning.code)).toContain(
+      "changelog_missing",
+    );
+  });
+
+  test("a changelog without a section in range warns changelog_empty and exits 0", () => {
+    const dir = notesRoot("notes-empty", "## 0.2.1 (2026-10-01)\n\n- running bullet\n");
+    installing(dir);
+    const { code, body } = json(dir, ["upgrade"]);
+    expect(code).toBe(EXIT.OK);
+    expect(dataOf(body).changelog).toBeNull();
+    const warnings = body.warnings as { code: string; message: string }[];
+    expect(warnings.map((warning) => warning.code)).toContain("changelog_empty");
+    expect(warnings.find((warning) => warning.code === "changelog_empty")?.message).toContain(
+      "between 0.2.1 and 9.9.9",
+    );
+  });
+});
+
 describe("wip upgrade --apply-mod", () => {
   test("refreshes a corrupted owned copy with a backup and leaves settings alone", () => {
     const dir = withMod("apply-refresh");
@@ -461,6 +566,7 @@ describe("wip upgrade --apply-mod", () => {
     const { code, body } = json(dir, ["upgrade", "--apply-mod"]);
     expect(code).toBe(EXIT.OK);
     expect(kanbanOf(body)).toMatchObject({ action: "updated" });
+    expect(dataOf(body).changelog).toBeNull();
     expect(readFileSync(file, "utf8")).toBe(KANBAN_MOD["README.md"] as string);
     expect(kanbanOf(body)?.backup as string).toContain(".wip/backups/kanban/wip-kanban.");
     expect(settingsBytes(dir)).toEqual(before);

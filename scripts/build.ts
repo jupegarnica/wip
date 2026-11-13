@@ -36,6 +36,7 @@ const ALL_TARGETS: readonly ITarget[] = [
 export const DEFAULT_BIN_NAME = "wip";
 /** The files `npm publish` ships from `<out>/npm/wip/`; the build fails when the package holds anything else. */
 export const PACKAGE_FILES = [
+  "CHANGELOG.md",
   "LICENSE",
   "README.md",
   "bin/wip.mjs",
@@ -260,7 +261,8 @@ export function listFiles(dir: string, prefix = ""): string[] {
 
 /**
  * The npm package in `<out>/npm/wip/`: the Node bundle of src/ (migrations, templates, the web page and the vendored
- * `marked` bundle inlined), the bin that runs it, README and LICENSE. No dependencies and no platform packages.
+ * `marked` bundle inlined), the bin that runs it, README, LICENSE and CHANGELOG (which `wip upgrade` shows for the
+ * versions between the running one and the target). No dependencies and no platform packages.
  */
 function buildPackage(out: string, root: IPackageJson, binName: string, define: string): string {
   const dir = join(out, "npm", "wip");
@@ -283,6 +285,7 @@ function buildPackage(out: string, root: IPackageJson, binName: string, define: 
   chmodSync(join(dir, "bin", "wip.mjs"), 0o755);
   copyFileSync(join(ROOT, "README.md"), join(dir, "README.md"));
   copyFileSync(join(ROOT, "LICENSE"), join(dir, "LICENSE"));
+  copyFileSync(join(ROOT, "CHANGELOG.md"), join(dir, "CHANGELOG.md"));
   const template = readJson<IPackageJson>(join(PACKAGE_TEMPLATE, "package.json"));
   writeJson(join(dir, "package.json"), mainPackageJson(template, root.version, binName));
   const files = listFiles(dir);
