@@ -37,7 +37,7 @@ starts from a tag.
 | Job              | Runs on                           | What                                                                                                                                                                                                                                                                |
 | ---------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `version`        | ubuntu                            | reads the version, checks the tag and the CHANGELOG section, picks `latest` or `next`                                                                                                                                                                               |
-| `test`           | `ci.yml`                          | typecheck, lint, `bun test` on 3 OSes; packs the npm package, `npm publish --dry-run`; e2e against it on Node 22, 24, 26 (Linux) and 24 (macOS, Windows)                                                                                                            |
+| `test`           | `ci.yml`, Ubuntu, Node 22         | typecheck, lint and `bun test`; packs the npm package and runs `npm publish --dry-run`; e2e against it on Node 22. The full matrix (Ubuntu 22/24/26, macOS 24, Windows 24) is the manual `test.yml`                                                                 |
 | `binaries`       | `macos-latest`, `ubuntu-latest`   | one Ubuntu image only: compiles the four targets (`darwin-arm64`, `darwin-x64` on macOS; `linux-x64`, `linux-arm64` on Ubuntu), runs the runner's native binary, checks `file`/`codesign` on the other, uploads two artifacts (`binaries-darwin`, `binaries-linux`) |
 | `publish`        | ubuntu, environment `npm-publish` | `npm publish <the tested tarball> --access public --tag <latest\|next>` with the `NPM_TOKEN` secret (`--dry-run` in a dry run, in environment `npm-publish-dry-run`); waits for `binaries`, so a broken binary blocks the publish                                   |
 | `github-release` | ubuntu, `contents: write`         | notes from the CHANGELOG section; downloads both artifacts, writes one `SHA256SUMS` for the four, `gh release create v<version>` with the four `.tar.gz` and `SHA256SUMS` (only printed in a dry run); a second run uploads the assets again with `--clobber`       |
@@ -45,9 +45,11 @@ starts from a tag.
 
 Actions are pinned by commit SHA. Permissions default to `contents: read`; `github-release` adds `contents: write`.
 
-Windows only runs the `test` matrix of `ci.yml`; `release.yml`'s `verify` is Ubuntu-only. Its suite is red (path
-separators, the launcher spawn, the PowerShell recycle bin, SIGTERM in `wip web`), and the `continue-on-error` entry
-in `ci.yml` marks it; remove it when the Windows pass lands.
+The automatic testing is Ubuntu only and Node 22 only: `ci.yml` runs typecheck, lint, `bun test` and the package e2e
+suite there for every pull request and for a release, and `release.yml`'s `verify` is Ubuntu-only too. The full
+matrix (Ubuntu 22/24/26, macOS 24, Windows 24) runs only in `test.yml`, which is manual (`workflow_dispatch`). The
+Windows suite is still red (path separators, the launcher spawn, the PowerShell recycle bin, SIGTERM in `wip web`):
+the manual `Test` run shows that red and nothing gates on it.
 
 ## One-time setup (before the first release)
 
