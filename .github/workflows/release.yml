@@ -67,7 +67,8 @@ jobs:
   publish:
     needs: [version, test]
     runs-on: ubuntu-latest
-    # A reviewer approves every real publish; a dry run uses an environment without reviewers.
+    # No protection rules today: GitHub does not pause this job; the tag is the only gate. Add required
+    # reviewers in the environment settings to pause a real publish.
     environment: ${{ needs.version.outputs.dry_run == 'true' && 'npm-publish-dry-run' || 'npm-publish' }}
     # npm publishes with the `NPM_TOKEN` secret (a granular access token with "Bypass 2FA" on and read-write
     # access to @garndev/wip). The repository is private, so `--provenance` and trusted publishing (OIDC) are not
