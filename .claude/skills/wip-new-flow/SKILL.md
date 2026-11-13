@@ -130,5 +130,6 @@ reviews and verifications stay `artifacts`.
 - `## Subagents`: which agent each phase uses and when the coordinator should choose another one; extra prompt
   fields the subagents need.
 - `### <phase>` for each phase: inputs, the artifact it produces, what the gate shows, where it goes next. The
-  coordinator reads it before every phase.
+  coordinator reads it before every phase. A subagent's artifact never starts its `.md` name with `report`,
+  `summary`, `findings` or `analysis` (the runtime refuses it); use a version prefix such as `v1.report.md`.
 - No table of phases: the block is the only source, and a second copy drifts.

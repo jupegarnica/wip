@@ -450,7 +450,7 @@ prompt, `Flow: none`, `ID: none` (no item and no `ARTIFACT_DIR` under `.wip/item
 `ARTIFACT_DIR: <project>/.wip/defs-runs/<stamp>/` (`<stamp>` is UTC `YYYYMMDDHHMMSS`), `Writes: project` and
 `Task: APPROVED` followed by the approved proposal literally, with the order: back up each file to
 `.wip/backups/defs/<path>.<timestamp>`, write, run `"$WIP_BIN" flow lint` and restore the backup if it fails. The
-folder keeps only `tmp/` and, when needed, a `report.md`. Read the result, run `"$WIP_BIN" check` and report it. Its
+folder keeps only `tmp/` and, when needed, a `v1.report.md`. Read the result, run `"$WIP_BIN" check` and report it. Its
 cost does not appear in `wip show`; that is accepted.
 
 `"$WIP_BIN" flow disable <flow>` hides a flow and freezes its items without touching any file; `"$WIP_BIN" flow enable <flow>`
