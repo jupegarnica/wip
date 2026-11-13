@@ -32,8 +32,27 @@ table with the runs —and how many are running— and the gates. An item open a
 totals fixed while one in a terminal phase that is not archived keeps counting. The boards follow the
 project's flow order (`.wip/config.json`; see [Flows](flows.md#the-order-of-the-flows-on-the-board)). Each flow can be collapsed
 from its header, which keeps showing its open items and how many wait on you; the browser remembers the choice
-(`localStorage`), and History keeps its `Flow` filter. Requests with a foreign
-`Host` header are rejected. Without `--port`, running it again for the same project reports the running one and
+(`localStorage`), and History keeps its `Flow` filter.
+
+**Host.** A request is served only when its `Host` header is `localhost`, `127.0.0.1` or any IPv4 literal,
+always on the port the server listens on. A host name (`evil.example`, `myhost.local`), another port, an IPv6
+literal or a malformed address is 403. This is DNS-rebinding protection, not authentication: an attacker page
+cannot set `Host`, and a name that resolves to the board is still rejected. The address need not be one the
+machine owns: a Docker mapping rewrites the destination, not the header.
+
+**Docker.** Publish the port the server listens on:
+
+```sh
+docker run -p 33333:33333 <image>
+# then open http://192.168.1.59:33333/
+```
+
+No variable and no flag: the browser sends an IPv4 literal on the served port. The container must listen on its
+interface for the mapping to reach it, so do not use `--local` inside the container. With `-p 8080:33333` the
+browser sends `Host: 192.168.1.59:8080`, a different port, and gets 403; publish the same port, or put a reverse
+proxy in front that rewrites `Host` to `127.0.0.1:<port>`.
+
+Without `--port`, running it again for the same project reports the running one and
 exits 0 (with `--open`, it opens the browser on it); otherwise it serves on 33333 and, when something already
 accepts connections there (on `127.0.0.1` or `[::1]`) or the port does not bind, tries 33334, 33335… up to 33352,
 and exits 3 when all twenty are taken. `WIP_WEB_PORT` moves the first port of that range. `--port N` serves on

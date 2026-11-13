@@ -10,6 +10,13 @@ import { EXIT, rejected, type TExitCode, usage, WipError } from "../errors.ts";
 import type { TSettingsFile } from "../init/claude-settings.ts";
 import { KanbanCopyFailed, kanbanPreflight, kanbanState } from "../init/kanban.ts";
 import { detectInstall, type IInstallInfo, INSTALL_KIND, type TInstallKind } from "../install.ts";
+import {
+  formatNotes,
+  type IReleaseNotes,
+  parseChangelog,
+  readChangelog,
+  releaseNotes,
+} from "../upgrade/changelog.ts";
 import { applyMod, type IModResult, preferredSettingsFile } from "../upgrade/mod.ts";
 import {
   type ISpawnResult,
@@ -64,6 +71,8 @@ export interface IUpgradeData {
     settings: IModResult["settings"];
     reason: IModResult["reason"];
   } | null;
+  /** The installed package's notes for `(running, target]`; null when it was not read or had none. */
+  changelog: (IReleaseNotes & { truncated: boolean }) | null;
   pinned: string | null;
 }
 
@@ -183,6 +192,7 @@ function dataOf(
     npm?: IUpgradeData["npm"];
     rollback?: IUpgradeData["rollback"];
     kanban?: IModResult | null;
+    changelog?: IUpgradeData["changelog"];
     pinned?: string | null;
   },
   check: boolean,
@@ -200,6 +210,7 @@ function dataOf(
     npm: base.npm ?? null,
     rollback: base.rollback ?? null,
     kanban: publicMod(base.kanban ?? null),
+    changelog: base.changelog ?? null,
     pinned: base.pinned ?? null,
   };
 }
@@ -687,6 +698,7 @@ function run(ctx: ICtx, args: IArgs): void {
   let npm: IUpgradeData["npm"] = null;
   let rollback: IUpgradeData["rollback"] = null;
   let kanban: IModResult | null = null;
+  let changelog: IUpgradeData["changelog"] = null;
   let ok = true;
   let code: TExitCode = EXIT.OK;
   let action: TAction = resolved.update ? "upgraded" : "current";
@@ -716,6 +728,27 @@ function run(ctx: ICtx, args: IArgs): void {
       const verified = verifyInstalled(info, resolved.target);
       if (verified.ok) {
         lines.push(`upgraded wip ${info.version} -> ${resolved.target} (${options.channel})`);
+        const markdown = readChangelog(info.root);
+        if (markdown === null) {
+          addWarning(
+            ctx,
+            "changelog_missing",
+            `changelog_missing: the installed package ships no CHANGELOG.md; no release notes for ${info.version} -> ${resolved.target}`,
+          );
+        } else {
+          const notes = releaseNotes(parseChangelog(markdown), info.version, resolved.target);
+          if (notes === null) {
+            addWarning(
+              ctx,
+              "changelog_empty",
+              `changelog_empty: no CHANGELOG.md section between ${info.version} and ${resolved.target}`,
+            );
+          } else {
+            const formatted = formatNotes(notes);
+            changelog = { ...notes, truncated: formatted.truncated };
+            lines.push("", ...formatted.lines, "");
+          }
+        }
         if (!options.noKanban) {
           if (project === null) {
             kanban = skippedMod("no-project");
@@ -836,6 +869,7 @@ function run(ctx: ICtx, args: IArgs): void {
       npm,
       rollback,
       kanban,
+      changelog,
       pinned,
     },
     false,

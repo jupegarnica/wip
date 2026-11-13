@@ -87,12 +87,13 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
       throw new Error(`npm install failed (${install.code}): ${install.stderr}`);
   }, 180000);
 
-  test("the tarball holds only the bin, the bundle, README, LICENSE and package.json", () => {
+  test("the tarball holds only the bin, the bundle, README, LICENSE, CHANGELOG and package.json", () => {
     const listing = exec(["tar", "-tzf", tarball(dir)], dir)
       .stdout.trim()
       .split("\n")
       .sort();
     expect(listing).toEqual([
+      "package/CHANGELOG.md",
       "package/LICENSE",
       "package/README.md",
       "package/bin/wip.mjs",

@@ -28,7 +28,8 @@
 
 Every command accepts `--json` (envelope `{ok, item, events, warnings, message, data}`) and `--help`. Exit codes:
 0 ok · 1 findings · 2 usage · 3 rejected · 4 not found (or no `.wip/`) · 10 database. `WIP_HOME` points the CLI at
-another project, only if that directory contains a `.wip/`.
+another project, only if that directory contains a `.wip/`. `wip upgrade --json` adds `data.changelog`, the release
+notes of the installed version or `null` (see [`wip upgrade`](upgrade.md#whats-new)).
 
 Each group has its own page: [`wip init`](init.md), [`wip upgrade`](upgrade.md), [`wip start`](start.md),
 [Flows](flows.md), [`wip prune`](prune.md), [`wip web`](web.md), [Polling](polling.md) and [Cron](cron.md).

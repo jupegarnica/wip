@@ -108,7 +108,8 @@ the matching manifest; a test fails if one is missing. The Markdown preview rend
 `marked`; raw HTML is allowed and the page CSP is its limit (no sanitizer, so its bundle stays inside the budget).
 `src/web/*` is the `node:http` server for `wip web`.
 
-**Build.** `scripts/build.ts` always writes the npm package `dist/npm/wip/` (`bun build --target node` of `src/cli.ts` into `dist/wip.mjs`, `bin/wip.mjs`, `package.json` from `npm/wip/`, README, LICENSE; it fails if anything else ends up there) and embeds branch/commit/dirty/date (`src/build-info.ts`) and `WIP_INSTALL` (`npm` for the bundle, `binary` for a compiled binary) with `--define`. `--targets` also compiles binaries (`bun build --compile` of `src/main.ts`) into `dist/bin/<os>-<arch>/`, ad hoc signs darwin ones and archives them with `SHA256SUMS` into `dist/release/`. `--targets all` locally still includes `windows-x64`; `release.yml` builds no binaries. `bin/wip.mjs` checks Node ≥ 22.13 (exit 2), hides Node 22's SQLite ExperimentalWarning, sets `WIP_LAUNCH_BIN` (not on Windows) and imports the bundle.
+**Build.** `scripts/build.ts` always writes the npm package `dist/npm/wip/` (`bun build --target node` of `src/cli.ts` into `dist/wip.mjs`, `bin/wip.mjs`, `package.json` from `npm/wip/`, README, LICENSE, CHANGELOG; it fails if anything else ends up
+there) and embeds branch/commit/dirty/date (`src/build-info.ts`) and `WIP_INSTALL` (`npm` for the bundle, `binary` for a compiled binary) with `--define`. `--targets` also compiles binaries (`bun build --compile` of `src/main.ts`) into `dist/bin/<os>-<arch>/`, ad hoc signs darwin ones and archives them with `SHA256SUMS` into `dist/release/`. `--targets all` locally still includes `windows-x64`; `release.yml` builds no binaries. `bin/wip.mjs` checks Node ≥ 22.13 (exit 2), hides Node 22's SQLite ExperimentalWarning, sets `WIP_LAUNCH_BIN` (not on Windows) and imports the bundle.
 
 ## Two copies of the definitions
 

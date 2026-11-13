@@ -4,6 +4,19 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.6.0 (unreleased)
+
+- `wip upgrade` prints the CHANGELOG sections between the version it replaced and the one it installed, newest
+  first, and carries the same list in `--json` as `data.changelog` (`from`, `to`, `entries`, `truncated`). The
+  notes come from the target package's own `CHANGELOG.md`, which now ships in the npm package; the text block is
+  capped at 40 lines and `--json` keeps every entry. A missing file or an empty range is a warning
+  (`changelog_missing`, `changelog_empty`) that never changes the exit code; `--check`, `--dry-run` and an
+  already-current run show none.
+- `wip web` serves the board to `localhost`, `127.0.0.1` or any IPv4 literal on the port it listens on, so a
+  Docker port mapping (`-p 33333:33333`) works with no environment variable or flag: the browser sends the
+  address it typed. A host name, another port, an IPv6 literal or a malformed address is 403 (DNS rebinding),
+  and a mapping to a different published port (`-p 8080:33333`) still is; `docs/web.md` has the Docker example.
+
 ## 0.5.1 (2026-11-13)
 
 - CI runs on Ubuntu with Node 22 for pull requests and for a release: typecheck, lint, `bun test`, the packed
