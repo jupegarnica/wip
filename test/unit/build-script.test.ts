@@ -122,7 +122,7 @@ describe("mainPackageJson", () => {
     expect(pkg.version).toBe("1.2.3");
   });
 
-  test("the template has no dependencies, needs Node 22.13 and ships only bin, dist, README and LICENSE", () => {
+  test("the template has no dependencies, needs Node 22.13 and ships only bin, dist, README, LICENSE and CHANGELOG", () => {
     const real = JSON.parse(readFileSync(join(REPO, "npm", "wip", "package.json"), "utf8")) as {
       [key: string]: unknown;
     };
@@ -130,7 +130,7 @@ describe("mainPackageJson", () => {
     expect(real.optionalDependencies).toBeUndefined();
     expect(real.private).toBeUndefined();
     expect(real.engines).toEqual({ node: ">=22.13.0" });
-    expect(real.files).toEqual(["bin", "dist", "README.md", "LICENSE"]);
+    expect(real.files).toEqual(["bin", "dist", "README.md", "LICENSE", "CHANGELOG.md"]);
     expect(real.bin).toEqual({ wip: "bin/wip.mjs" });
     expect(real.type).toBe("module");
   });

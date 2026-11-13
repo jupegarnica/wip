@@ -31,6 +31,7 @@
         "npm",
         "rollback",
         "kanban",
+        "changelog",
         "pinned"
       ],
       "additionalProperties": false,
@@ -94,6 +95,29 @@
               }
             },
             "reason": { "enum": ["no-project", "not-owned", null] }
+          }
+        },
+        "changelog": {
+          "type": ["object", "null"],
+          "required": ["from", "to", "entries", "truncated"],
+          "additionalProperties": false,
+          "properties": {
+            "from": { "type": "string" },
+            "to": { "type": "string" },
+            "entries": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["version", "title", "body"],
+                "additionalProperties": false,
+                "properties": {
+                  "version": { "type": "string" },
+                  "title": { "type": "string" },
+                  "body": { "type": "string" }
+                }
+              }
+            },
+            "truncated": { "type": "boolean" }
           }
         },
         "pinned": { "type": ["string", "null"] }

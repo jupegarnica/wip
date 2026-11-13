@@ -50,6 +50,32 @@ settings that cannot take the entry exit 3 with nothing written. There is no mer
 
 After a mod change, run `/reload-plugins` or start a new Claude Code session.
 
+## What's new
+
+After a successful upgrade, `wip upgrade` prints the CHANGELOG sections between the version it replaced and the one
+it installed, newest first:
+
+```text
+upgraded wip 0.5.1 -> 0.6.0 (latest)
+
+what's new (0.5.1 -> 0.6.0):
+0.6.0 (2026-11-20)
+- ...
+0.5.2 (2026-11-16)
+- ...
+```
+
+The notes come from the `CHANGELOG.md` that the target package itself ships, read from the package `npm` just
+installed. The file is cumulative, so a jump across several versions shows every section in `(old, new]` and never
+repeats the running version's own. Nothing else is fetched. The text block stops at 40 lines: a long range ends with
+how many lines are not shown, and `--json` keeps every entry in `data.changelog` (`from`, `to`, `entries`,
+`truncated`).
+
+The notes never change the outcome and the exit code stays the same: a target package without the file warns
+`changelog_missing`, and one with no section in the range warns `changelog_empty`. `--check`, `--dry-run`, an
+already-current run and `--apply-mod` show none, because no install happens and the target package is not on disk;
+a source run and a standalone binary are never upgraded by wip, so read the [CHANGELOG](../CHANGELOG.md) for those.
+
 ## What it does not touch
 
 - A project database: `wip upgrade` never opens, creates or migrates `.wip/wip.sqlite`. The next command of the
@@ -79,8 +105,9 @@ After a mod change, run `/reload-plugins` or start a new Claude Code session.
 ## Output and exit codes
 
 Text mode names the running install, the resolved target, the npm command when it runs, the old and new version,
-what happened to the mod and its backup, and the reload note. `--json` carries the same facts in `data` (see
-[Commands](commands.md) for the envelope).
+the release notes ([What's new](#whats-new)), what happened to the mod and its backup, and the reload note. `--json`
+carries the same facts in `data` (see [Commands](commands.md) for the envelope), with the notes in
+`data.changelog`.
 
 | Code | When                                                                                                                      |
 | ---- | ------------------------------------------------------------------------------------------------------------------------- |
