@@ -7,8 +7,9 @@ dependencies), by `.github/workflows/release.yml`, which also makes a GitHub Rel
 no assets. The root package `@garndev/wip-dev` is private and never published. The workflow builds no binaries:
 `bun scripts/build.ts --targets …` still builds them locally (see [CLAUDE.md](../CLAUDE.md)).
 
-Nothing here runs without the maintainer: pushing a tag and approving the `npm-publish` environment are the
-maintainer's steps.
+Nothing here runs without the maintainer: pushing a tag is the maintainer's step. The `npm-publish` environment
+has no required reviewers today, so GitHub does not pause the job; add them in the environment settings to gate
+a publish.
 
 ## Versions and tags
 
@@ -63,9 +64,10 @@ the manual `Test` run shows that red and nothing gates on it.
    gh secret set NPM_TOKEN        # paste the token at the prompt
    ```
 
-3. In GitHub, Settings > Environments: `npm-publish` is referenced by the workflow. Add the maintainer as required
-   reviewer if the plan allows it (required reviewers on a private repository need a paid plan; without them the
-   pushed tag is the only gate). `npm-publish-dry-run` needs no reviewer; GitHub creates it on first use.
+3. In GitHub, Settings > Environments: `npm-publish` is referenced by the workflow and exists with no protection
+   rules, so a run goes straight through and the pushed tag is the only gate. Adding the maintainer as required
+   reviewer is optional (required reviewers on a private repository need a paid plan); with reviewers the job
+   pauses for an approval. `npm-publish-dry-run` needs no reviewer; GitHub creates it on first use.
 
 4. Rotate the token before it expires and update the secret; revoking it makes every release fail with `E401`.
 
@@ -99,7 +101,8 @@ builds. If `jupegarnica/wip` becomes public, switch over:
 4. Run `release.yml` by hand (Actions > Release > Run workflow) on the release branch. Every job must pass:
    `publish` runs `npm publish --dry-run` and `github-release` prints the `gh release create` command.
 5. Tag and push (the maintainer runs it): `git tag -a vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
-6. Approve the `npm-publish` environment when `publish` waits (when the environment has reviewers).
+6. If `publish` waits on the `npm-publish` environment, approve it: that happens only when the environment has
+   required reviewers, and today it has none.
 7. Check the npm page and the GitHub Release: the CHANGELOG notes, and no assets.
 8. On your own machine, from a throwaway prefix:
 
