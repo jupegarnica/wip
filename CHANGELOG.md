@@ -4,6 +4,25 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.5.0 (2026-11-12)
+
+- CI runs on Ubuntu with Node 22 for pull requests and for a release: typecheck, lint, `bun test`, the packed
+  npm package with `npm publish --dry-run` and the e2e suite against it. The full matrix (Ubuntu 22/24/26, macOS
+  24, Windows 24) moved to `.github/workflows/test.yml`, which is manual (`workflow_dispatch` only) and calls
+  `ci.yml` with `full: true`; nothing gates on it.
+- `wip web` keeps one tab per origin for any URL of the board, not only a new page with `?item=`: the first board
+  page takes the Web Locks lock, another one asks for the handover, and a newcomer that does not get it keeps its
+  URL with the notice instead of closing itself. The artifact page (`/view/…`) stays outside the rule.
+- The `reports` flow writes its report as `v<N>.report.md` (one version above the last one, `v1.report.md` the
+  first time), because the runtime refuses a subagent `.md` artifact whose name starts with `report`, `summary`,
+  `findings` or `analysis`. The flow, `wip-new-flow` and the coordinator skill say so.
+- The Markdown preview renders with the vendored `marked` bundle (GFM tables, task lists, autolinks, strikethrough
+  and fenced code) instead of `@garndev/markdown` and its highlighter. A YAML front matter block stays out of the
+  render and is shown as plain text above it, raw HTML is allowed (the page CSP is the limit), and each artifact
+  row gains a **RAW** link to the API URL that serves the file byte for byte as `text/plain`.
+- `wip upgrade` updates the CLI and the Kanban mod, not the definitions folder: a project picks up the new
+  `reports` flow text and the other definition changes with a fresh `wip init` or by copying them by hand.
+
 ## 0.4.1 (2026-11-12)
 
 - The release workflow is simpler: a `workflow_dispatch` is always a dry run (the `dry_run` input is gone) and a
