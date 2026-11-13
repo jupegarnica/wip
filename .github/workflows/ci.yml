@@ -36,9 +36,8 @@ jobs:
       - run: bunx biome check .
       - run: bun test
 
-  # The npm package (src/ bundled for Node) built once, then the e2e suite against it on each Node line. The compiled
-  # binaries (`bun scripts/build.ts --targets …`) are built by release.yml, not here: a pull request does not pay for
-  # them.
+  # The npm package (src/ bundled for Node) built once, then the e2e suite against it on each Node line. No workflow
+  # compiles the binaries (`bun scripts/build.ts --targets …`); they are a local build.
   package:
     runs-on: ubuntu-latest
     steps:

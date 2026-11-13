@@ -68,8 +68,8 @@ After a mod change, run `/reload-plugins` or start a new Claude Code session.
 `wip upgrade` replaces only an npm global install of the unrenamed package. It exits 3, before running anything, for:
 
 - a source run: `npm install -g @garndev/wip@latest`, or run it from a package or a binary;
-- a standalone binary: download the new archive from the GitHub Release (see [installation](install.md)); wip never
-  overwrites a running binary;
+- a standalone binary: build the new version from source (see [installation](install.md)); wip never overwrites a
+  running binary;
 - a Bun global install: `bun add -g @garndev/wip@latest`; npm would create a parallel layout Bun does not use;
 - an `npm link` or a copy outside npm's layout: install it with npm;
 - a package renamed with `--bin-name` (for example `wip2`): installing the registry package would remove the command.
