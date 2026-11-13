@@ -38,15 +38,13 @@ Flows and agents are Markdown files in the repository, so they are readable, dif
   trash, never a hard delete.
 
 > **Status:** published as `@garndev/wip` on the npm registry; the current version is at the top of the
-> [CHANGELOG](https://github.com/jupegarnica/wip/blob/main/CHANGELOG.md). The macOS and Linux binaries are in the
-> [GitHub Releases](https://github.com/jupegarnica/wip/releases) (Windows has none yet; see
-> [docs/install.md](https://github.com/jupegarnica/wip/blob/main/docs/install.md)).
+> [CHANGELOG](https://github.com/jupegarnica/wip/blob/main/CHANGELOG.md).
 
 ## Getting started
 
 ### Requirements
 
-Claude Code's `claude` CLI, Node 22.13 or later and npm; or a standalone binary (see
+Claude Code's `claude` CLI, Node 22.13 or later and npm; a standalone binary can be built from source (see
 [docs/install.md](https://github.com/jupegarnica/wip/blob/main/docs/install.md)).
 
 ### 1. Install
@@ -54,10 +52,6 @@ Claude Code's `claude` CLI, Node 22.13 or later and npm; or a standalone binary 
 ```sh
 npm install -g @garndev/wip
 ```
-
-The macOS and Linux binaries are in the
-[GitHub Releases](https://github.com/jupegarnica/wip/releases); Windows has none yet (see
-[docs/install.md](https://github.com/jupegarnica/wip/blob/main/docs/install.md)).
 
 ### 2. Initialise the project
 

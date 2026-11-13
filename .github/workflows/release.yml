@@ -1,12 +1,9 @@
 name: Release
 
 # A tag v<version> publishes @garndev/wip to npm (after a reviewer approves the npm-publish environment, when the
-# environment has reviewers) and makes the GitHub Release with the CHANGELOG notes and the standalone binaries. Run
-# by hand (workflow_dispatch) it is a dry run: everything is built and tested, `npm publish --dry-run` runs, and
-# nothing is published. See docs/releasing.md.
-#
-# The binaries are compiled here (`bun scripts/build.ts --targets …`), one archive per target, on one Ubuntu image
-# (ubuntu-latest) and on macOS; `ci.yml` does not build them.
+# environment has reviewers) and makes the GitHub Release with the CHANGELOG notes and no assets. Run by hand
+# (workflow_dispatch) it is a dry run: everything is built and tested, `npm publish --dry-run` runs, and nothing is
+# published. See docs/releasing.md.
 
 on:
   push:
@@ -67,73 +64,8 @@ jobs:
     needs: version
     uses: ./.github/workflows/ci.yml
 
-  # Standalone binaries, one archive per target. One Ubuntu image only (ubuntu-latest): the project does not build
-  # or test per-distro binaries. The release job merges both artifacts and writes one SHA256SUMS for the four.
-  binaries:
-    needs: version
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - { os: macos-latest, platform: darwin, targets: "darwin-arm64,darwin-x64" }
-          - { os: ubuntu-latest, platform: linux, targets: "linux-x64,linux-arm64" }
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: .bun-version
-      - run: bun install --frozen-lockfile
-      - name: Compile and archive
-        run: bun scripts/build.ts --out dist --targets "${{ matrix.targets }}"
-      - name: Smoke-test the native binary
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          case "$(uname -s)-$(uname -m)" in
-            Darwin-arm64) target=darwin-arm64 ;;
-            Darwin-x86_64) target=darwin-x64 ;;
-            Linux-x86_64) target=linux-x64 ;;
-            Linux-aarch64) target=linux-arm64 ;;
-            *) echo "unsupported runner $(uname -s)-$(uname -m)"; exit 1 ;;
-          esac
-          binary="$GITHUB_WORKSPACE/dist/bin/$target/wip"
-          test -x "$binary"
-          line=$("$binary" --version)
-          case "$line" in
-            "$VERSION "*) ;;
-            *) echo "unexpected version: $line"; exit 1 ;;
-          esac
-          project="$RUNNER_TEMP/smoke-$target"
-          mkdir -p "$project" && cd "$project" && git init -q
-          "$binary" init --yes > /dev/null
-          "$binary" check
-      - name: Check the archives and the other architecture
-        env:
-          PLATFORM: ${{ matrix.platform }}
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          for archive in dist/release/wip-"$VERSION"-*.tar.gz; do
-            test -s "$archive"
-            tar -tzf "$archive" | grep -qx wip
-          done
-          if [ "$PLATFORM" = darwin ]; then
-            file dist/bin/darwin-arm64/wip | grep -q "arm64"
-            file dist/bin/darwin-x64/wip | grep -q "x86_64"
-            codesign --verify --strict dist/bin/darwin-arm64/wip
-            codesign --verify --strict dist/bin/darwin-x64/wip
-          else
-            file dist/bin/linux-x64/wip | grep -q "x86-64"
-            file dist/bin/linux-arm64/wip | grep -q "aarch64"
-          fi
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: binaries-${{ matrix.platform }}
-          path: dist/release/wip-*.tar.gz
-          if-no-files-found: error
-
   publish:
-    needs: [version, test, binaries]
+    needs: [version, test]
     runs-on: ubuntu-latest
     # A reviewer approves every real publish; a dry run uses an environment without reviewers.
     environment: ${{ needs.version.outputs.dry_run == 'true' && 'npm-publish-dry-run' || 'npm-publish' }}
@@ -171,31 +103,12 @@ jobs:
           npm publish "$tarball" "${flags[@]}"
 
   github-release:
-    needs: [version, publish, binaries]
+    needs: [version, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: binaries-*
-          path: dist/release
-          merge-multiple: true
-      - name: Checksums for the four archives
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          cd dist/release
-          archives=(
-            "wip-$VERSION-darwin-arm64.tar.gz"
-            "wip-$VERSION-darwin-x64.tar.gz"
-            "wip-$VERSION-linux-arm64.tar.gz"
-            "wip-$VERSION-linux-x64.tar.gz"
-          )
-          for archive in "${archives[@]}"; do test -s "$archive"; done
-          sha256sum "${archives[@]}" > SHA256SUMS
-          cat SHA256SUMS
       - name: Release notes from CHANGELOG.md
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -211,62 +124,14 @@ jobs:
           DIST_TAG: ${{ needs.version.outputs.dist_tag }}
           DRY_RUN: ${{ needs.version.outputs.dry_run }}
         run: |
-          assets=(dist/release/wip-"$VERSION"-*.tar.gz dist/release/SHA256SUMS)
           flags=(--title "wip $VERSION" --notes-file notes.md --verify-tag)
           if [ "$DIST_TAG" = "next" ]; then flags+=(--prerelease); fi
           if [ "$DRY_RUN" = "true" ]; then
-            echo "dry run: gh release create v$VERSION ${flags[*]} ${assets[*]}"
+            echo "dry run: gh release create v$VERSION ${flags[*]}"
             exit 0
           fi
           if gh release view "v$VERSION" > /dev/null 2>&1; then
-            gh release upload "v$VERSION" "${assets[@]}" --clobber
-          else
-            gh release create "v$VERSION" "${flags[@]}" "${assets[@]}"
+            echo "the GitHub Release v$VERSION already exists; nothing to do."
+            exit 0
           fi
-
-  # Installs the published version from the registry once, on the minimum supported Node. The same tarball already
-  # ran the e2e suite on Node 22 (Ubuntu) in `ci.yml`; the full matrix is the manual `test.yml`.
-  verify:
-    needs: [version, publish]
-    if: needs.version.outputs.dry_run != 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        shell: bash
-    steps:
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
-      - name: Wait for the version in the registry, then install it
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          export npm_config_prefix="$RUNNER_TEMP/prefix" npm_config_cache="$RUNNER_TEMP/cache"
-          # The first publish of a version shows up in the registry minutes later ("being processed"): wait for it,
-          # then install once. A failure here fails this step with the cause, not the next step.
-          deadline=$((SECONDS + 900))
-          until npm view --prefer-online "@garndev/wip@$VERSION" version > /dev/null 2>&1; do
-            if [ "$SECONDS" -ge "$deadline" ]; then
-              echo "::error::@garndev/wip@$VERSION is not in the registry 15 minutes after publish"; exit 1
-            fi
-            sleep 30
-          done
-          npm install -g "@garndev/wip@$VERSION"
-          echo "WIP=$npm_config_prefix/bin/wip" >> "$GITHUB_ENV"
-      - name: version, signatures, init, check, state and web, with no warning
-        env:
-          VERSION: ${{ needs.version.outputs.version }}
-        run: |
-          err="$RUNNER_TEMP/err.txt"
-          "$WIP" --version 2> "$err" | grep -q "^$VERSION "
-          mkdir -p "$RUNNER_TEMP/sig" && cd "$RUNNER_TEMP/sig" && npm init -y > /dev/null
-          npm install "@garndev/wip@$VERSION" > /dev/null && npm audit signatures
-          mkdir -p "$RUNNER_TEMP/t" && cd "$RUNNER_TEMP/t" && git init -q
-          "$WIP" init --yes > /dev/null 2>> "$err"
-          "$WIP" check 2>> "$err"
-          "$WIP" state --json > /dev/null 2>> "$err"
-          "$WIP" web --port 33999 --local > web.out 2>> "$err" &
-          for i in $(seq 50); do curl -sf http://localhost:33999/health > health.json && break; sleep 0.2; done
-          grep -q '"app":"wip-web"' health.json
-          "$WIP" web stop
-          if grep -q ExperimentalWarning "$err"; then cat "$err"; exit 1; fi
+          gh release create "v$VERSION" "${flags[@]}"
