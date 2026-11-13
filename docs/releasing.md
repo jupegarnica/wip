@@ -31,23 +31,23 @@ maintainer's steps.
 
 ## What the release workflow does
 
-Triggered by a pushed tag `v*`, or by hand (`workflow_dispatch`) with `dry_run` (default `true`; a real release only
-starts from a tag).
+Triggered by a pushed tag `v*`, or by hand (`workflow_dispatch`), which is always a dry run: a real release only
+starts from a tag.
 
-| Job              | Runs on                                       | What                                                                                                                                                                                                                                                                |
-| ---------------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `version`        | ubuntu                                        | reads the version, checks the tag and the CHANGELOG section, picks `latest` or `next`                                                                                                                                                                               |
-| `test`           | `ci.yml`                                      | typecheck, lint, `bun test` on 3 OSes; packs the npm package, `npm publish --dry-run`; e2e against it on Node 22, 24, 26 (Linux) and 24 (macOS, Windows)                                                                                                            |
-| `binaries`       | `macos-latest`, `ubuntu-latest`               | one Ubuntu image only: compiles the four targets (`darwin-arm64`, `darwin-x64` on macOS; `linux-x64`, `linux-arm64` on Ubuntu), runs the runner's native binary, checks `file`/`codesign` on the other, uploads two artifacts (`binaries-darwin`, `binaries-linux`) |
-| `publish`        | ubuntu, environment `npm-publish`             | `npm publish <the tested tarball> --access public --tag <latest\|next>` with the `NPM_TOKEN` secret (`--dry-run` in a dry run, in environment `npm-publish-dry-run`); waits for `binaries`, so a broken binary blocks the publish                                   |
-| `github-release` | ubuntu, `contents: write`                     | notes from the CHANGELOG section; downloads both artifacts, writes one `SHA256SUMS` for the four, `gh release create v<version>` with the four `.tar.gz` and `SHA256SUMS` (only printed in a dry run); a second run uploads the assets again with `--clobber`       |
-| `verify`         | Node 22, 24, 26 (ubuntu), 24 (macOS, Windows) | not in a dry run: `npm i -g @garndev/wip@<version>` from the registry, `--version`, `npm audit signatures`, `init`, `check`, `state --json`, `web` `/health`, and no `ExperimentalWarning` on stderr                                                                |
+| Job              | Runs on                           | What                                                                                                                                                                                                                                                                |
+| ---------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `version`        | ubuntu                            | reads the version, checks the tag and the CHANGELOG section, picks `latest` or `next`                                                                                                                                                                               |
+| `test`           | `ci.yml`                          | typecheck, lint, `bun test` on 3 OSes; packs the npm package, `npm publish --dry-run`; e2e against it on Node 22, 24, 26 (Linux) and 24 (macOS, Windows)                                                                                                            |
+| `binaries`       | `macos-latest`, `ubuntu-latest`   | one Ubuntu image only: compiles the four targets (`darwin-arm64`, `darwin-x64` on macOS; `linux-x64`, `linux-arm64` on Ubuntu), runs the runner's native binary, checks `file`/`codesign` on the other, uploads two artifacts (`binaries-darwin`, `binaries-linux`) |
+| `publish`        | ubuntu, environment `npm-publish` | `npm publish <the tested tarball> --access public --tag <latest\|next>` with the `NPM_TOKEN` secret (`--dry-run` in a dry run, in environment `npm-publish-dry-run`); waits for `binaries`, so a broken binary blocks the publish                                   |
+| `github-release` | ubuntu, `contents: write`         | notes from the CHANGELOG section; downloads both artifacts, writes one `SHA256SUMS` for the four, `gh release create v<version>` with the four `.tar.gz` and `SHA256SUMS` (only printed in a dry run); a second run uploads the assets again with `--clobber`       |
+| `verify`         | ubuntu, Node 22                   | not in a dry run: waits up to 15 minutes for the version to appear in the registry and installs it once, then `--version`, `npm audit signatures`, `init`, `check`, `state --json`, `web` `/health`, and no `ExperimentalWarning` on stderr                         |
 
 Actions are pinned by commit SHA. Permissions default to `contents: read`; `github-release` adds `contents: write`.
 
-Windows runs every job but does not gate a release: its suite is red (path separators, the launcher spawn, the
-PowerShell recycle bin, SIGTERM in `wip web`). The `continue-on-error` entries in `ci.yml` and `release.yml` mark it;
-remove them when the Windows pass lands.
+Windows only runs the `test` matrix of `ci.yml`; `release.yml`'s `verify` is Ubuntu-only. Its suite is red (path
+separators, the launcher spawn, the PowerShell recycle bin, SIGTERM in `wip web`), and the `continue-on-error` entry
+in `ci.yml` marks it; remove it when the Windows pass lands.
 
 ## One-time setup (before the first release)
 
@@ -100,9 +100,8 @@ builds. If `jupegarnica/wip` becomes public, switch over:
    (cd dist/release && shasum -a 256 -c SHA256SUMS)
    ```
 
-4. Run `release.yml` by hand (Actions > Release > Run workflow) on the release branch with `dry_run` checked. Every
-   job must pass, including the two `binaries` runs; `verify` is skipped. `github-release` prints the five assets it
-   would attach.
+4. Run `release.yml` by hand (Actions > Release > Run workflow) on the release branch. Every job must pass,
+   including the two `binaries` runs; `verify` is skipped. `github-release` prints the five assets it would attach.
 5. Tag and push (the maintainer runs it): `git tag -a vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
 6. Approve the `npm-publish` environment when `publish` waits (when the environment has reviewers).
 7. Check the `verify` job, the npm page and the GitHub Release: the notes, the four `wip-X.Y.Z-<os>-<arch>.tar.gz`

@@ -4,6 +4,14 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.4.1 (2026-11-12)
+
+- The release workflow is simpler: a `workflow_dispatch` is always a dry run (the `dry_run` input is gone) and a
+  real release starts only from a `v<version>` tag, `--prerelease` is derived from the dist-tag (the `prerelease`
+  output is gone), `publish` no longer installs `npm@11` in the runner, and a single `verify` job runs on Ubuntu
+  with Node 22 after `publish`, waits up to 15 minutes for the version to appear in the registry before installing
+  it, and fails loudly with `::error::` when it does not. `docs/releasing.md` describes the new flow.
+
 ## 0.4.0 (2026-11-12)
 
 - `wip show` and the `wip web` item panel show two more totals: `clock_seconds` (clock time, from the item's
