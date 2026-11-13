@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
+import { type AddressInfo, isIPv4 } from "node:net";
 import { type NetworkInterfaceInfo, networkInterfaces } from "node:os";
 import pkg from "../../package.json" with { type: "json" };
 import { itemView } from "../commands/show.ts";
@@ -28,7 +28,7 @@ export type TInterfaces = Record<string, NetworkInterfaceInfo[] | undefined>;
 export interface IWebOptions {
   port: number;
   root: IRoot;
-  /** Loopback only: no LAN listener, and the Host check accepts only localhost and 127.0.0.1. */
+  /** Loopback only: no LAN listener. The Host rule is the same. */
   local?: boolean;
   /** `os.networkInterfaces()` by default. */
   interfaces?: TInterfaces;
@@ -87,9 +87,16 @@ export function privateIPv4s(ifaces: TInterfaces = networkInterfaces()): string[
   return found.sort((x, y) => x.rank - y.rank || x.order - y.order).map((f) => f.ip);
 }
 
-/** Host header values the server answers (DNS rebinding): loopback names and the given IPs, with the port. */
-export function allowedHosts(port: number, ips: readonly string[] = []): Set<string> {
-  return new Set(["localhost", "127.0.0.1", ...ips].map((h) => `${h}:${port}`));
+/**
+ * Whether a `Host` header value may reach the board: `localhost`, `127.0.0.1` or any IPv4 literal, always on the
+ * port the server listens on. A host name (DNS rebinding) or another port is rejected.
+ */
+export function hostAllowed(raw: string | null | undefined, port: number): boolean {
+  if (!raw) return false;
+  const at = raw.lastIndexOf(":");
+  if (at < 0 || raw.slice(at + 1) !== String(port)) return false;
+  const name = raw.slice(0, at).toLowerCase();
+  return name === "localhost" || isIPv4(name);
 }
 
 /** The project's name on the page: the last segment of its path, or the whole path when it has none (a root). */
@@ -113,6 +120,8 @@ const SECURITY_HEADERS: Readonly<Record<string, string>> = {
   "Cache-Control": "no-store",
 };
 const TEXT = "text/plain; charset=utf-8";
+// The Host header is validated in handle(); a malformed one must reach it and get 403, not throw here.
+const BOARD_URL = "http://localhost";
 const JSON_TYPE = "application/json; charset=utf-8";
 const TYPES: Readonly<Record<string, string>> = {
   css: "text/css; charset=utf-8",
@@ -257,11 +266,10 @@ export async function startWeb(options: IWebOptions): Promise<IWebServer> {
 
   const ips = options.local ? [] : privateIPv4s(options.interfaces);
   const lan = ips[0] ?? null;
-  let hosts = new Set<string>();
   let port = options.port;
 
   function handle(req: Request): Response {
-    if (!hosts.has(req.headers.get("host") ?? "")) return respond("forbidden", 403, TEXT);
+    if (!hostAllowed(req.headers.get("host"), port)) return respond("forbidden", 403, TEXT);
     if (req.method !== "GET") return respond("method not allowed", 405, TEXT);
     const url = new URL(req.url);
     const path = url.pathname;
@@ -323,7 +331,6 @@ export async function startWeb(options: IWebOptions): Promise<IWebServer> {
 
   const server = await listen("127.0.0.1", options.port, logged);
   port = (server.address() as AddressInfo).port;
-  hosts = allowedHosts(port, ips);
   let lanServer: Server | null = null;
   if (lan) {
     try {
@@ -375,7 +382,7 @@ function reply(req: IncomingMessage, res: ServerResponse, fetch: TFetch): void {
     for (let i = 0; i + 1 < req.rawHeaders.length; i += 2) {
       headers.append(req.rawHeaders[i] as string, req.rawHeaders[i + 1] as string);
     }
-    const url = new URL(req.url ?? "/", `http://${req.headers.host || "localhost"}`);
+    const url = new URL(req.url ?? "/", BOARD_URL);
     response = fetch(new Request(url.href, { method: req.method ?? "GET", headers }));
   } catch {
     response = respond("bad request", 400, TEXT);

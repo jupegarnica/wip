@@ -98,7 +98,7 @@ wip check          # invariants and warnings
 | [Flows](https://github.com/jupegarnica/wip/blob/main/docs/flows.md)                         | flow format, `wip-flow`, `flow lint`              |
 | [Commands](https://github.com/jupegarnica/wip/blob/main/docs/commands.md)                   | the command table, `--json`, exit codes           |
 | [Prune](https://github.com/jupegarnica/wip/blob/main/docs/prune.md)                         | `wip prune`, rules, trash, safety                 |
-| [Web](https://github.com/jupegarnica/wip/blob/main/docs/web.md)                             | `wip web`, ports, LAN, logs                       |
+| [Web](https://github.com/jupegarnica/wip/blob/main/docs/web.md)                             | `wip web`, ports, LAN, Docker, logs               |
 | [Polling](https://github.com/jupegarnica/wip/blob/main/docs/polling.md)                     | scheduled checks, states                          |
 | [Cron](https://github.com/jupegarnica/wip/blob/main/docs/cron.md)                           | reminders and fixed-time passes                   |
 | [Coordinating](https://github.com/jupegarnica/wip/blob/main/docs/coordinating.md)           | session start, attention, kanban                  |

@@ -51,7 +51,7 @@ import {
 } from "../../src/web/pidfile.ts";
 import {
   ARTIFACT_CSP,
-  allowedHosts,
+  hostAllowed,
   type IWebServer,
   PAGE_CSP,
   privateIPv4s,
@@ -737,10 +737,26 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
   test("Host check, GET only, and the page CSP on every response", async () => {
     const p = board();
     await serve(p);
-    const port = web?.port;
+    const port = web?.port ?? 0;
     expect((await get("/api/kanban", { headers: { Host: "evil.example" } })).status).toBe(403);
     expect((await get("/", { headers: { Host: `evil.example:${port}` } })).status).toBe(403);
     expect((await get("/", { headers: { Host: `localhost:${port}` } })).status).toBe(200);
+    for (const host of ["192.168.1.59", "10.1.2.3", "172.30.33.7"]) {
+      const res = await get("/health", { headers: { Host: `${host}:${port}` } });
+      expect({ host, status: res.status }).toEqual({ host, status: 200 });
+    }
+    for (const host of [
+      `evil.example:${port}`,
+      `myhost.local:${port}`,
+      `192.168.1.59:${port + 1}`,
+      "192.168.1.59",
+      `192.168.1.256:${port}`,
+      `192.168.01.5:${port}`,
+      `[::1]:${port}`,
+    ]) {
+      const res = await get("/health", { headers: { Host: host } });
+      expect({ host, status: res.status }).toEqual({ host, status: 403 });
+    }
     expect((await get("/api/kanban", { method: "POST" })).status).toBe(405);
     for (const path of [
       "/",
@@ -787,10 +803,10 @@ describe("wip web · security (F-WEB-02, F-WEB-14)", () => {
         en1: [iface("192.168.1.9"), iface("8.8.8.8")],
       } as TJson),
     ).toEqual(["192.168.1.9", "10.0.0.5"]);
-    expect([...allowedHosts(80, ["10.0.0.5"])]).toEqual([
-      "localhost:80",
-      "127.0.0.1:80",
-      "10.0.0.5:80",
+    expect(["localhost:80", "127.0.0.1:80", "10.0.0.5:80"].map((h) => hostAllowed(h, 80))).toEqual([
+      true,
+      true,
+      true,
     ]);
     const p = board();
     web = await startWeb({ port: 0, root: rootAt(p.dir), local: false, interfaces: {} });
@@ -1799,6 +1815,23 @@ describe("wip web · command (F-WEB-01)", () => {
     expect(existsSync(webServerPath(rootAt(p.dir), port))).toBe(false);
   });
 
+  test("an IPv4-literal Host on the served port reaches the board with no configuration", async () => {
+    const p = board();
+    const { port, stop } = await listening(p, ["--local"], {});
+    const base = `http://127.0.0.1:${port}`;
+    expect(
+      (await fetch(`${base}/health`, { headers: { Host: `192.168.1.59:${port}` } })).status,
+    ).toBe(200);
+    expect(
+      (await fetch(`${base}/health`, { headers: { Host: `evil.example:${port}` } })).status,
+    ).toBe(403);
+    expect(await stop()).toBe(EXIT.OK);
+    const log = await webSub(["log"], p.dir);
+    expect(log.code).toBe(EXIT.OK);
+    expect(log.out.some((line) => line.includes("403 GET /health (host evil.example"))).toBe(true);
+    expect(log.out.some((line) => line.includes("192.168.1.59"))).toBe(false);
+  });
+
   test("--open: a browser that cannot open is a warning on stderr and the server keeps serving", async () => {
     const p = board();
     const { c, port, stop } = await serving(p, ["--local", "--open"], true);
@@ -2314,6 +2347,8 @@ describe("wip web status", () => {
     expect(help).toContain(
       "to 33352 (WIP_WEB_PORT moves the first one); --port N serves on exactly N",
     );
+    expect(help).toContain("only localhost, 127.0.0.1 or an IPv4 literal on the served port");
+    expect(help).toContain("another port is 403 (DNS rebinding)");
     expect(help).toContain(".wip/web/<port>.json");
     expect(help).toContain("--open opens http://localhost:<port>/");
     expect(help).toContain("exit 0 at least one answers · 1 none");
