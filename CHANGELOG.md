@@ -4,6 +4,19 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.6.1 (2026-11-13)
+
+- The `tasks` flow gains recurring tasks: four phases — `todo` plans and waits for the next run, `doing` does the
+  work with no gate, `done` holds the user's review and, with `after_review=done`, the wait, and `closed` is the
+  terminal — plus the fields `schedule` (a cron expression in local time), `next_run` (an ISO 8601 instant) and
+  `after_review` (`todo` or `done`). A `due` poll and a fixed-time pass at each `next_run` move a due item to
+  `doing`; `doing` writes `v<N>.report.md`; after the user's OK a recurring item returns to `todo` with a new
+  `next_run` and a one-off goes to `closed`. The two shipped copies, `guide.md`, `wip-coordinate`, the docs and the
+  tests follow; the onboarding item now ends in `closed`.
+- `wip set` accepts an ISO 8601 instant for a `ts` field (`2026-11-17T09:00:00Z` or `2026-11-17T10:00+01:00`),
+  stored in UTC, next to `now` and `none`; a recurring task sets `next_run` with it.
+- The coordinator's start line for the kanban shows the LAN URL next to the local one.
+
 ## 0.6.0 (2026-11-13)
 
 - `wip upgrade` prints the CHANGELOG sections between the version it replaced and the one it installed, newest
