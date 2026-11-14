@@ -51,8 +51,32 @@ function artifactDir(dir: string, id: string): string {
   return String(item?.artifact_dir);
 }
 
-describe("the tasks flow from todo to done with CLI commands only (§1.6)", () => {
-  test("a simulated coordinator takes T1 through the plan, the work and the result review", () => {
+/** The plan gate of `todo`; the item stays in `todo` with the plan approved. */
+function plan(dir: string, id: string): string {
+  step(dir, ["phase", id, "todo", "--flow", "tasks"]);
+  const artifacts = artifactDir(dir, id);
+  writeFileSync(
+    join(artifacts, "request.md"),
+    "## What\n\nA recurring report.\n\n## Context\n\nNone.\n",
+  );
+  step(dir, ["agent", "start", id, "thinker", "--handle", "h1"]);
+  writeFileSync(join(artifacts, "v1.plan.md"), "# Plan\n\n1. Produce the report.\n");
+  step(dir, ["agent", "stop", id, "h1", "--status", "done", "--summary", "v1.plan.md"]);
+  step(dir, [
+    "gate",
+    "open",
+    id,
+    "--question",
+    "Approve v1.plan.md?",
+    "--detail",
+    join(artifacts, "v1.plan.md"),
+  ]);
+  step(dir, ["gate", "close", id, "--answer", "approved v1.plan.md", "--next", "doing"]);
+  return artifacts;
+}
+
+describe("the tasks flow from todo to closed with CLI commands only (§1.6)", () => {
+  test("a simulated coordinator takes T1 through the plan, the work and the review, then closes it", () => {
     const dir = project("t1");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
@@ -80,19 +104,17 @@ describe("the tasks flow from todo to done with CLI commands only (§1.6)", () =
 
     step(dir, ["phase", "T1", "doing"]);
     runSubagent(dir, "T1", "efficient", "h2");
-    writeFileSync(
-      join(artifacts, "execute-report.md"),
-      "# Execute report\n\nEach criterion passes.\n",
-    );
+    writeFileSync(join(artifacts, "v1.report.md"), "# Report\n\nEach criterion passes.\n");
+    step(dir, ["phase", "T1", "done"]);
 
     step(dir, ["gate", "open", "T1", "--question", "Approve the result of T1?"]);
-    step(dir, ["gate", "close", "T1", "--answer", "approved", "--next", "done"]);
-    step(dir, ["phase", "T1", "done"]);
+    step(dir, ["gate", "close", "T1", "--answer", "approved", "--next", "closed"]);
+    step(dir, ["phase", "T1", "closed"]);
     step(dir, ["archive", "T1"]);
 
     const shown = wipOkIn(dir, ["show", "T1"]);
     const item = shown.item as TRow;
-    expect(item).toMatchObject({ id: "T1", flow: "tasks", phase: "done", title: "Add a README" });
+    expect(item).toMatchObject({ id: "T1", flow: "tasks", phase: "closed", title: "Add a README" });
     expect(item.status).toBe("archived");
 
     const runs = rowsOf(shown, "agent_runs");
@@ -103,7 +125,7 @@ describe("the tasks flow from todo to done with CLI commands only (§1.6)", () =
     const gates = rowsOf(shown, "gates");
     expect(gates.map((g) => [g.phase, g.answer])).toEqual([
       ["todo", "approved v1.plan.md"],
-      ["doing", "approved"],
+      ["done", "approved"],
     ]);
 
     const totals = shown.data?.totals as Record<string, number>;
@@ -116,6 +138,7 @@ describe("the tasks flow from todo to done with CLI commands only (§1.6)", () =
     expect(archived.map((i) => i.id)).toEqual(["T1"]);
     expect(existsSync(join(artifacts, "request.md"))).toBe(true);
     expect(readFileSync(join(artifacts, "v1.plan.md"), "utf8")).toContain("README.md");
+    expect(readFileSync(join(artifacts, "v1.report.md"), "utf8")).toContain("criterion");
   }, 30000);
 
   test("a restarted coordinator finds the live run orphaned and relaunches nothing", () => {
@@ -133,20 +156,107 @@ describe("the tasks flow from todo to done with CLI commands only (§1.6)", () =
     expect(shown.data?.totals).toMatchObject({ runs: 1, running: 0 });
   });
 
-  test("a dropped request goes from todo to done; doing goes back to the plan", () => {
+  test("a dropped request goes from todo to closed; doing goes back to the plan", () => {
     const dir = project("direct");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     step(dir, ["phase", "T3", "todo", "--flow", "tasks"]);
-    step(dir, ["phase", "T3", "done"]);
-    expect(wipOkIn(dir, ["show", "T3"]).item).toMatchObject({ phase: "done" });
+    step(dir, ["phase", "T3", "closed"]);
+    expect(wipOkIn(dir, ["show", "T3"]).item).toMatchObject({ phase: "closed" });
 
     step(dir, ["phase", "T4", "todo", "--flow", "tasks"]);
     step(dir, ["phase", "T4", "doing"]);
     step(dir, ["phase", "T4", "todo"]);
     expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "todo" });
-    step(dir, ["phase", "T4", "done"]);
-    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "done" });
+    step(dir, ["phase", "T4", "closed"]);
+    expect(wipOkIn(dir, ["show", "T4"]).item).toMatchObject({ phase: "closed" });
   });
+});
+
+describe("the recurring cycle of the tasks flow", () => {
+  test("a scheduled task waits in todo, runs when due and returns to todo with a new next_run", () => {
+    const dir = project("recurring");
+    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
+    expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
+    step(dir, ["session", "start", "--id", "s1"]);
+
+    const artifacts = plan(dir, "R1");
+
+    // The plan is approved: the schedule and the next run are set and the item waits for it.
+    step(dir, [
+      "set",
+      "R1",
+      "schedule=0 9 * * 1",
+      "next_run=2030-01-07T09:00:00Z",
+      "after_review=todo",
+    ]);
+    step(dir, ["wait", "R1", "external", "--next", "next run"]);
+    let shown = wipOkIn(dir, ["show", "R1"]);
+    expect(shown.item).toMatchObject({ phase: "todo", waiting_on: "external" });
+    const fields = (shown.item?.fields ?? {}) as TRow;
+    expect(fields).toMatchObject({ schedule: "0 9 * * 1", after_review: "todo" });
+    expect(fields.next_run).toBe("2030-01-07T09:00:00.000Z");
+
+    // A pass reads `next_run` with `show --json` and waits for that instant; here the test moves it on.
+    step(dir, ["phase", "R1", "doing"]);
+    runSubagent(dir, "R1", "efficient", "h3");
+    writeFileSync(join(artifacts, "v1.report.md"), "# Report\n\nThe run.\n");
+    step(dir, ["phase", "R1", "done"]);
+
+    step(dir, ["gate", "open", "R1", "--question", "Approve the run of R1?"]);
+    step(dir, ["gate", "close", "R1", "--answer", "approved", "--next", "next run"]);
+    step(dir, ["phase", "R1", "todo"]);
+    step(dir, ["set", "R1", "next_run=2030-01-07T09:00:00Z"]);
+    step(dir, ["wait", "R1", "external", "--next", "next run"]);
+
+    shown = wipOkIn(dir, ["show", "R1"]);
+    expect(shown.item).toMatchObject({ phase: "todo", waiting_on: "external" });
+    expect(((shown.item?.fields ?? {}) as TRow).next_run).toBe("2030-01-07T09:00:00.000Z");
+    expect(rowsOf(wipOkIn(dir, ["state"]), "items").map((i) => i.id)).toContain("R1");
+    expect(rowsOf(wipOkIn(dir, ["state", "--archived"]), "items").map((i) => i.id)).not.toContain(
+      "R1",
+    );
+  }, 30000);
+
+  test("with after_review=done the item waits in done for its next run", () => {
+    const dir = project("recurring-done");
+    expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
+    step(dir, ["session", "start", "--id", "s1"]);
+
+    const artifacts = plan(dir, "R2");
+    step(dir, [
+      "set",
+      "R2",
+      "schedule=0 9 * * 1",
+      "next_run=2030-01-07T09:00:00Z",
+      "after_review=done",
+    ]);
+    step(dir, ["wait", "R2", "external", "--next", "next run"]);
+
+    step(dir, ["phase", "R2", "doing"]);
+    runSubagent(dir, "R2", "efficient", "h3");
+    writeFileSync(join(artifacts, "v1.report.md"), "# Report\n\nThe run.\n");
+    step(dir, ["phase", "R2", "done"]);
+
+    step(dir, ["gate", "open", "R2", "--question", "Approve the run of R2?"]);
+    step(dir, ["gate", "close", "R2", "--answer", "approved", "--next", "next run"]);
+    // after_review=done keeps it in `done`, waiting for the next run, and archives nothing.
+    step(dir, ["set", "R2", "next_run=2030-01-07T09:00:00Z"]);
+    step(dir, ["wait", "R2", "external", "--next", "next run"]);
+    let shown = wipOkIn(dir, ["show", "R2"]);
+    expect(shown.item).toMatchObject({ phase: "done", waiting_on: "external" });
+    expect(shown.item?.fields).toMatchObject({
+      after_review: "done",
+      next_run: "2030-01-07T09:00:00.000Z",
+    });
+    expect(rowsOf(wipOkIn(dir, ["state", "--archived"]), "items").map((i) => i.id)).not.toContain(
+      "R2",
+    );
+
+    // The next pass finds it due in `done` and moves it to `doing`.
+    step(dir, ["phase", "R2", "doing"]);
+    shown = wipOkIn(dir, ["show", "R2"]);
+    expect(shown.item).toMatchObject({ phase: "doing" });
+  }, 30000);
 });
 
 describe("the guided onboarding (F-NEW-08)", () => {
@@ -163,7 +273,7 @@ describe("the guided onboarding (F-NEW-08)", () => {
     return (await fetch(`http://127.0.0.1:${web?.port}${path}`)).status;
   }
 
-  test("guide → questions → gate → done → archive, with the guide served by wip web all along", async () => {
+  test("guide → questions → gate → closed → archive, with the guide served by wip web all along", async () => {
     const dir = project("onboarding");
     expect(wipJsonIn(dir, ["init"]).code).toBe(EXIT.OK);
     expect(wipJsonIn(dir, ["check"]).code).toBe(EXIT.OK);
@@ -220,7 +330,7 @@ describe("the guided onboarding (F-NEW-08)", () => {
     ]);
     step(dir, ["gate", "open", "onboarding", "todo", "--question", question, "--detail", guide]);
     step(dir, ["gate", "close", "onboarding", "--answer", "yes", "--decision", "approved"]);
-    step(dir, ["phase", "onboarding", "done"]);
+    step(dir, ["phase", "onboarding", "closed"]);
     step(dir, ["archive", "onboarding"]);
     expect(rowsOf(wipOkIn(dir, ["state", "--attention"]), "items")).toEqual([]);
     expect(await status(GUIDE_VIEW)).toBe(200);
@@ -229,6 +339,6 @@ describe("the guided onboarding (F-NEW-08)", () => {
     expect(wipJsonIn(dir, ["init", "--force"]).code).toBe(EXIT.OK);
     expect(rowsOf(wipOkIn(dir, ["state"]), "items")).toEqual([]);
     const archived = rowsOf(wipOkIn(dir, ["state", "--archived"]), "items");
-    expect(archived.map((i) => [i.id, i.phase])).toEqual([["onboarding", "done"]]);
+    expect(archived.map((i) => [i.id, i.phase])).toEqual([["onboarding", "closed"]]);
   });
 });

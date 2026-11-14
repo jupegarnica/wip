@@ -63,15 +63,15 @@ output of each before the next:
    (`start_invalid`: «Start command» in `wip-coordinate`). Then do
    «The read» of «Cron» in `wip-coordinate`: it arms the scheduled jobs and handles what is due, polls included.
 4. **Kanban**, two `fast` agents. **4a, starter.** Delegate to `fast`, in the background, this task: run `"$WIP_BIN" web status`. Exit 0:
-   this project's `"$WIP_BIN" web` is up, so start nothing and return its first `Local:` URL and port. Exit 1: start
+   this project's `"$WIP_BIN" web` is up, so start nothing and return its first `Local:` URL, its port and its `LAN:` URL. Exit 1: start
    `"$WIP_BIN" web --open`, detached so it outlives the agent (on macOS and Linux `nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`;
    it takes the first free port from 33333, records itself in `.wip/web/` and logs to `.wip/logs/web.log`), then
-   run `"$WIP_BIN" web status` every 2 s until it exits 0, for 30 s at most. The answer is one line: `<URL> · port <N>`.
+   run `"$WIP_BIN" web status` every 2 s until it exits 0, for 30 s at most. The answer is one line: `<local URL> · port <N> · LAN <lan URL>`, without the ` · LAN <lan URL>` part when the status has no `LAN:` line.
    Otherwise, run `"$WIP_BIN" web log -n 20` and return its error. It belongs to no item: no `"$WIP_BIN" agent start`.
    **4b, watcher.** Once the starter returns a URL, launch a second `fast` in the background, also with no item: it
    reads `"$WIP_BIN" web status` once for the PID and the URL, then waits on that PID without reading `"$WIP_BIN" web log`
    —a `Monitor` until-loop that ends when the PID is gone, or one low-cost wait—. When `wip web` goes down it runs
-   `nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`, waits for `web status` to exit 0 and returns the new URL in one
+   `nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`, waits for `web status` to exit 0 and returns the new Local and LAN URLs in one
    line; if it does not come back, it returns `kanban down · restart it by hand`. When it returns, give a 🟨 line with
    it and offer to start the kanban again; never start or stop it on your own. If the user agrees, relaunch 4a and 4b.
    If the starter returned an error, no watcher is launched.

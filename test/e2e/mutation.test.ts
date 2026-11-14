@@ -265,17 +265,25 @@ describe("wip web over both flows (§1.8)", () => {
         ideas: ["initial", "refine", "final", "will", "done", "discarded"],
         reports: ["request", "plan", "search", "check", "report", "review", "waiting", "done"],
         review: ["intake", "review", "fix", "done"],
-        tasks: ["todo", "doing", "done"],
+        tasks: ["todo", "doing", "done", "closed"],
       });
       const tasks = kanban.flows.find((f: TJson) => f.name === "tasks");
       expect(tasks.columns.map((c: TJson) => [c.label, c.alpha])).toEqual([
-        ["todo", 1],
-        ["doing", 0.63],
-        ["done", 0.25],
+        ["todo", null],
+        ["doing", null],
+        ["done", null],
+        ["closed", null],
+      ]);
+      expect(tasks.columns.every((c: TJson) => c.color === "" && c.alpha === null)).toBe(true);
+      const development = kanban.flows.find((f: TJson) => f.name === "development");
+      expect(development.columns.map((c: TJson) => [c.label, c.alpha])).toEqual([
+        ["plan", 1],
+        ["build", 0.63],
+        ["review", 0.25],
       ]);
       expect(
-        new Set(tasks.columns.map((c: TJson) => c.color.split(",").slice(0, 3).join())),
-      ).toEqual(new Set(["rgba(37, 99, 235"]));
+        new Set(development.columns.map((c: TJson) => c.color.split(",").slice(0, 3).join())),
+      ).toEqual(new Set(["rgba(170, 51, 0"]));
       const reviewFlow = kanban.flows.find((f: TJson) => f.name === "review");
       expect(reviewFlow.columns.every((c: TJson) => c.color === "" && c.alpha === null)).toBe(true);
       expect(kanban.your_turn.map((i: TJson) => i.id)).toContain("R1");

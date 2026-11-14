@@ -186,12 +186,12 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     const start = section(coordinator, "## Start of every session");
     for (const clause of [
       'Delegate to `fast`, in the background, this task: run `"$WIP_BIN" web status`. Exit 0',
-      "start nothing and return its first `Local:` URL and port",
+      "start nothing and return its first `Local:` URL, its port and its `LAN:` URL",
       'Exit 1: start\n   `"$WIP_BIN" web --open`, detached so it outlives the agent',
       '`nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`',
       "it takes the first free port from 33333, records itself in `.wip/web/`",
       "until it exits 0, for 30 s at most",
-      "The answer is one line: `<URL> · port <N>`",
+      "The answer is one line: `<local URL> · port <N> · LAN <lan URL>`, without the ` · LAN <lan URL>` part when the status has no `LAN:` line.",
       'run `"$WIP_BIN" web log -n 20` and return its error',
       "do not wait for it: give its line when it arrives, a 🟨 only for its error",
     ]) {
@@ -606,12 +606,11 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     expect(String(frontmatter(FLOW_KEY).description)).toContain("for the coordinator");
   });
 
-  test("three phases, one per stage, each with its gate, agent, writes and next", () => {
+  test("four phases, each with its gate, agent, writes and next", () => {
     const { flow, problems } = parseFlow(DEFAULT_FLOW, template(FLOW_KEY));
     expect(problems).toEqual([]);
     if (!flow) throw new Error("no flow");
     const shape = flow.phases.map((ph) => [
-      ph.stage,
       ph.name,
       ph.gate,
       ph.agent ?? null,
@@ -620,13 +619,17 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       ph.fromAny,
     ]);
     expect(shape).toEqual([
-      ["todo", "todo", "ask", "thinker", "artifacts", ["doing", "done"], true],
-      ["doing", "doing", "ask", "efficient", "project", ["done"], false],
-      ["done", "done", "none", null, "artifacts", [], false],
+      ["todo", "ask", "thinker", "artifacts", ["doing", "closed"], true],
+      ["doing", "auto", "efficient", "project", ["done"], false],
+      ["done", "ask", null, "artifacts", ["doing", "todo", "closed"], false],
+      ["closed", "none", null, "artifacts", [], false],
     ]);
-    expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual(["user", "agent", "none"]);
+    expect(flow.phases.map((ph) => ph.waitingDefault)).toEqual(["user", "agent", "user", "none"]);
     expect(flow.phases.at(-1)?.kind).toBe("terminal");
-    expect(Object.keys(flow.fields)).toEqual(["title"]);
+    expect(Object.keys(flow.fields)).toEqual(["title", "schedule", "next_run", "after_review"]);
+    expect(flow.polling.map((poll) => [poll.name, poll.phases, poll.agent])).toEqual([
+      ["due", ["todo", "done"], "fast"],
+    ]);
     expect(flow.seed).toEqual([
       {
         id: "onboarding",
@@ -638,7 +641,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     ]);
   });
 
-  test("the coordinator mentions onboarding in one NEXT line, then guides it to a gate, done and archive", () => {
+  test("the coordinator mentions onboarding in one NEXT line, then guides it to a gate, closed and archive", () => {
     expect(template("agents/wip.md")).toContain(
       "while\n`onboarding` is open, follow «Onboarding» in `wip-coordinate`",
     );
@@ -655,7 +658,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
       '`"$WIP_BIN" wait onboarding user --next "close the onboarding at its gate"`',
       "**Step 3 · the gate.**",
       '`"$WIP_BIN" gate open onboarding todo --question "Close the onboarding?" --detail <guide.md path>`',
-      '`"$WIP_BIN" phase onboarding done`, `"$WIP_BIN" archive onboarding`',
+      '`"$WIP_BIN" phase onboarding closed`, `"$WIP_BIN" archive onboarding`',
       "«try a task: ask for your first one»",
       "**Proactive:**",
     ];
@@ -709,7 +712,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     if (!flow) throw new Error("no flow");
     const names = [
       ...flow.phases.map((ph) => `\`${ph.name}\``),
-      ...new Set(flow.phases.map((ph) => `**${ph.stage}**`)),
+      ...new Set(flow.phases.map((ph) => `**${ph.name}**`)),
       ...GENERIC_AGENTS.map((a) => `\`${a}\``),
       "`/view/item/<flow>/<ID>/artifact/<name>`",
       "`?item=<flow>/<ID>`",
@@ -732,23 +735,27 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     }
   });
 
-  test("its stages pass the lint; a stage split in two does not", () => {
+  test("the tasks flow declares no stages; a staged flow passes lint, a stage split in two does not", () => {
     const project = initProject();
     const agentsDir = join(project.dir, ".claude", "agents");
-    const lint = (text: string): string[] =>
-      lintFlow({ name: DEFAULT_FLOW, text, agentsDir, skill: true, liveItems: [] }).problems;
-    expect(lint(template(FLOW_KEY))).toEqual([]);
-    const split = template(FLOW_KEY).replace(
-      "  - name: done\n    stage: done",
-      "  - name: done\n    stage: todo",
-    );
-    expect(split).not.toBe(template(FLOW_KEY));
-    expect(lint(split)).toEqual(["stages must be contiguous in phase order: todo → doing → todo"]);
+    const lint = (name: string, text: string): string[] =>
+      lintFlow({ name, text, agentsDir, skill: true, liveItems: [] }).problems;
+    const { flow } = parseFlow(DEFAULT_FLOW, template(FLOW_KEY));
+    expect(flow?.phases.every((ph) => ph.stage === null)).toBe(true);
+    expect(lint(DEFAULT_FLOW, template(FLOW_KEY))).toEqual([]);
+
+    const devKey = "skills/wip-flow-development/SKILL.md";
+    expect(lint("development", template(devKey))).toEqual([]);
+    const split = template(devKey).replace("    stage: plan\n", "    stage: build\n");
+    expect(split).not.toBe(template(devKey));
+    expect(lint("development", split)).toEqual([
+      "stages must be contiguous in phase order: build → plan → build → review",
+    ]);
   });
 
   test("## Subagents and a ### section for every phase are filled; there is no phase table", () => {
     const text = template(FLOW_KEY);
-    const phases = ["todo", "doing", "done"];
+    const phases = ["todo", "doing", "done", "closed"];
     const sections = extractSections(text, phases);
     expect((sections.subagents ?? "").length).toBeGreaterThan(200);
     for (const phase of phases) {
@@ -760,8 +767,8 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     expect(sections.phaseNotes.todo).toContain(
       "the deliverable (code, a report, a document, a decision)",
     );
-    expect(sections.phaseNotes.doing).toContain(
-      "each question of an investigation has an answer and",
+    expect((sections.phaseNotes.doing ?? "").replace(/\s+/g, " ")).toContain(
+      "each question of an investigation has an answer and a source",
     );
     expect(text).not.toContain("verify");
     expect(text.split("\n").some((line) => line.startsWith("|"))).toBe(false);

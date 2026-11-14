@@ -34,7 +34,7 @@ each phase with the rules, the model and the write scope you choose. Flows and a
 
 1. Read this guide and find the item on the kanban.
 2. Ask the coordinator anything about it, or tell it you have read it.
-3. Answer its gate «Close the onboarding?». Approve moves the item to `done` and archives it.
+3. Answer its gate «Close the onboarding?». Approve moves the item to `closed` and archives it.
 
 After that the coordinator suggests your first real task. The guide stays readable from the history of the kanban.
 
@@ -59,15 +59,20 @@ Write as you would to a colleague; there are no commands to learn:
 - `reports`: a search or a report, one-off or recurring, from the questions and the sources to the written report.
 - `tasks`: any task with a clear outcome.
 
-The `tasks` flow has three stages, one phase each, with the same names:
+The `tasks` flow has four phases — `todo`, `doing`, `done` and `closed`:
 
-- **todo** · `todo`: the coordinator saves your words; a subagent writes `request.md` and `plan.md` with what is
-  delivered and how it is checked, and you approve the plan.
-- **doing** · `doing`: a subagent produces the deliverable as the plan says and checks it against the plan's
-  criteria; you review the result.
-- **done** · `done`: closed, then archived.
+- **todo**: the coordinator saves your words; a subagent writes `request.md` and `v1.plan.md` with what is delivered
+  and how it is checked, and you approve the plan. A recurring task waits here for its next run.
+- **doing**: a subagent produces the deliverable as the plan says, checks it against the plan's criteria and writes
+  `v<N>.report.md`.
+- **done**: you review the run's report; a recurring task waits here for its next run when `after_review` says so.
+- **closed**: the item ends here and is archived.
 
-A typical task: you ask → `todo` (the plan, approved) → `doing` (the work and its check) → you review → `done`.
+A recurring task also carries `schedule` (a cron expression in local time, e.g. `0 9 * * 1` for Mondays at 09:00),
+`next_run` (when it runs next) and `after_review` (`todo` or `done`, where it waits between runs).
+
+A typical task: you ask → `todo` (the plan, approved) → `doing` (the work and its check) → `done` (your review) →
+`closed`, archived.
 
 ## Agents and models
 
