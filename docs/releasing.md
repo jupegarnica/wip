@@ -84,34 +84,31 @@ builds. If `jupegarnica/wip` becomes public, switch over:
 
 ## Release checklist
 
-1. `ci.yml` is green on the release branch. The CHANGELOG section `X.Y.Z (unreleased)` lists the changes and, when
-   the schema changes, an Upgrade notes entry.
+1. The CHANGELOG section `X.Y.Z (unreleased)` lists the changes and, when the schema changes, an Upgrade notes
+   entry.
 2. Bump `version` in the root `package.json`, change the CHANGELOG heading to `## X.Y.Z (YYYY-MM-DD)`, commit
    `chore(release): X.Y.Z`.
-3. Local dry run, on that commit:
+3. Tag and push (the maintainer runs it):
 
    ```sh
-   bun run typecheck && bun run lint && bun test
-   bun scripts/build.ts --out dist --pack
-   npm publish --dry-run dist/npm/wip      # lists LICENSE, README.md, bin/wip.mjs, dist/wip.mjs, package.json
-   WIP_TEST_BIN=$PWD/dist/npm/wip/bin/wip.mjs bun test test/e2e
-   WIP_PACK_DIR=$(mktemp -d) bun test test/e2e/pack.test.ts
+   git tag -a vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z
    ```
 
-4. Run `release.yml` by hand (Actions > Release > Run workflow) on the release branch. Every job must pass:
-   `publish` runs `npm publish --dry-run` and `github-release` prints the `gh release create` command.
-5. Tag and push (the maintainer runs it): `git tag -a vX.Y.Z -m "wip X.Y.Z" && git push origin vX.Y.Z`.
-6. If `publish` waits on the `npm-publish` environment, approve it: that happens only when the environment has
+   The pushed tag is the release: `release.yml` runs the tests (`ci.yml`: typecheck, lint, `bun test`, and the e2e
+   suite against the packed npm package) and then publishes the npm package and the GitHub Release. A red test
+   blocks the publish. Running the workflow by hand (`workflow_dispatch`) is still a dry run, if you want to check
+   something without publishing.
+4. If `publish` waits on the `npm-publish` environment, approve it: that happens only when the environment has
    required reviewers, and today it has none.
-7. Check the npm page and the GitHub Release: the CHANGELOG notes, and no assets.
-8. On your own machine, from a throwaway prefix:
+5. Check the npm page and the GitHub Release: the CHANGELOG notes, and no assets.
+6. On your own machine, from a throwaway prefix:
 
    ```sh
    npm i -g --prefix /tmp/wip-verify @garndev/wip@X.Y.Z
    /tmp/wip-verify/bin/wip --version
    ```
 
-9. Open the next `## X.Y.(Z+1) (unreleased)` section in the CHANGELOG.
+7. Open the next `## X.Y.(Z+1) (unreleased)` section in the CHANGELOG.
 
 ## First release
 
