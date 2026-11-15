@@ -4,6 +4,8 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.6.2 (unreleased)
+
 ## 0.6.1 (2026-11-13)
 
 - The `tasks` flow gains recurring tasks: four phases — `todo` plans and waits for the next run, `doing` does the
