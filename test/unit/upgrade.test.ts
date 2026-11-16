@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { BUILD_INFO } from "../../src/build-info.ts";
 import { run } from "../../src/cli.ts";
 import { setClockForTests } from "../../src/clock.ts";
 import {
@@ -10,6 +11,7 @@ import {
   setUpgradeRunnerForTests,
 } from "../../src/commands/upgrade.ts";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
+import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT, WipError } from "../../src/errors.ts";
 import type { IInstallInfo } from "../../src/install.ts";
 import type { ISpawnResult, TRun } from "../../src/upgrade/npm.ts";
@@ -49,6 +51,35 @@ function withMod(name: string): string {
   const out = run(["init", "--yes", "--kanban"], { cwd: dir, env: {} });
   if (out.code !== EXIT.OK) throw new Error(`init failed: ${out.stderr}`);
   return dir;
+}
+
+function initTasks(name: string): string {
+  const dir = tmp(name);
+  const out = run(["init", "--yes", "--flows", "tasks"], { cwd: dir, env: {} });
+  if (out.code !== EXIT.OK) throw new Error(`init failed: ${out.stderr}`);
+  return dir;
+}
+
+function template(key: string): string {
+  return TEMPLATES[key] as string;
+}
+
+/** Every file under `root`, by relative path, with its bytes: a folder stays byte-identical when the maps match. */
+function snapshot(root: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const walk = (dir: string): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const file = join(dir, entry.name);
+      if (entry.isDirectory()) walk(file);
+      else out[file.slice(root.length + 1)] = readFileSync(file, "utf8");
+    }
+  };
+  if (existsSync(root)) walk(root);
+  return out;
+}
+
+function defsOf(body: Record<string, unknown>): Record<string, unknown> | null {
+  return dataOf(body).defs as Record<string, unknown> | null;
 }
 
 function npmInfo(overrides: Partial<IInstallInfo> = {}): IInstallInfo {
@@ -451,8 +482,23 @@ describe("wip upgrade (fake npm)", () => {
     expect(readFileSync(config, "utf8")).toBe(before);
   });
 
-  test("--no-kanban writes no file and does not look for a project", () => {
+  test("--no-kanban --no-defs writes no file and does not look for a project", () => {
     const dir = withMod("no-kanban");
+    const before = settingsBytes(dir);
+    const copies = managed(dir);
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--no-kanban", "--no-defs"]);
+    expect(code).toBe(EXIT.OK);
+    expect(dataOf(body)).toMatchObject({ project: null, kanban: null, defs: null });
+    expect(settingsBytes(dir)).toEqual(before);
+    expect(managed(dir)).toEqual(copies);
+    expect(fake.calls.length).toBe(1);
+  });
+
+  test("--no-kanban alone resolves the project and reports the definitions", () => {
+    const dir = withMod("no-kanban-defs");
     const before = settingsBytes(dir);
     const copies = managed(dir);
     const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
@@ -460,7 +506,9 @@ describe("wip upgrade (fake npm)", () => {
     setUpgradeInstallForTests(npmInfo());
     const { code, body } = json(dir, ["upgrade", "--no-kanban"]);
     expect(code).toBe(EXIT.OK);
-    expect(dataOf(body)).toMatchObject({ project: null, kanban: null });
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(dataOf(body)).toMatchObject({ project: dir, kanban: null });
+    expect(defsOf(body)).toMatchObject({ action: "current", dir: ".claude", path: ".claude" });
     expect(settingsBytes(dir)).toEqual(before);
     expect(managed(dir)).toEqual(copies);
     expect(fake.calls.length).toBe(1);
@@ -668,6 +716,188 @@ describe("wip upgrade --apply-mod", () => {
   });
 });
 
+describe("wip upgrade definitions (fake npm)", () => {
+  test("--check with a current npm and edited definitions exits 1 with defs_outdated", () => {
+    const dir = initTasks("defs-check");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${template("agents/thinker.md")}edited\n`,
+    );
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--check"]);
+    expect(code).toBe(EXIT.FINDINGS);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(defsOf(body)).toMatchObject({
+      action: "outdated",
+      dir: ".claude",
+      path: ".claude",
+      changed: [".claude/agents/thinker.md"],
+      missing: [],
+      foreign: [],
+      reason: null,
+    });
+    expect((body.warnings as { code: string }[]).map((warning) => warning.code)).toContain(
+      "defs_outdated",
+    );
+    expect(body.message as string).toContain("definitions out of date: 1 file");
+    const out = run(["upgrade", "--check"], { cwd: dir, env: {} });
+    expect(out.stdout).toContain("defs: 1 out of date in .claude/ (1 changed)");
+    expect(out.stdout).toContain("changed .claude/agents/thinker.md");
+  });
+
+  test("--check with an update and current definitions, and --no-defs", () => {
+    const dir = initTasks("defs-check-update");
+    const fake = fakeRun(() => viewOf({ latest: "9.9.9" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const first = json(dir, ["upgrade", "--check"]);
+    expect(first.code).toBe(EXIT.FINDINGS);
+    expect(first.body.message).toBe("update available: 9.9.9");
+    expect(defsOf(first.body)).toMatchObject({ action: "current" });
+    const second = json(dir, ["upgrade", "--check", "--no-defs"]);
+    expect(second.code).toBe(EXIT.FINDINGS);
+    expect(validate(SCHEMA, second.body)).toEqual([]);
+    expect(defsOf(second.body)).toBeNull();
+    expect(
+      (second.body.warnings as { code: string }[]).map((warning) => warning.code),
+    ).not.toContain("defs_outdated");
+  });
+
+  test("--dry-run lists the plan, the custom definitions and writes nothing", () => {
+    const dir = initTasks("defs-dry-run");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${template("agents/thinker.md")}edited\n`,
+    );
+    writeFileSync(join(dir, ".claude/agents/custom.md"), "---\nname: custom\n---\n");
+    const before = snapshot(join(dir, ".claude"));
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const out = run(["upgrade", "--dry-run"], { cwd: dir, env: {} });
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.stdout).toContain("defs: would write 1 file in .claude/ (1 replaced, 0 created)");
+    expect(out.stdout).toContain("changed .claude/agents/thinker.md");
+    expect(out.stdout).toContain("kept 1 custom definition (not touched)");
+    expect(snapshot(join(dir, ".claude"))).toEqual(before);
+    const { body } = json(dir, ["upgrade", "--dry-run"]);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(defsOf(body)).toMatchObject({
+      action: "outdated",
+      changed: [".claude/agents/thinker.md"],
+    });
+  });
+
+  test("--apply-defs restores, recreates and backs up without npm, and is idempotent", () => {
+    const dir = initTasks("defs-apply");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${template("agents/thinker.md")}edited\n`,
+    );
+    rmSync(join(dir, ".claude/skills/wip-flow-tasks/guide.md"));
+    writeFileSync(join(dir, ".claude/agents/custom.md"), "---\nname: custom\n---\n");
+    const fake = fakeRun(() => ({ status: 0 }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--apply-defs"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(fake.calls).toEqual([]);
+    const defs = defsOf(body) as Record<string, unknown>;
+    expect(defs).toMatchObject({
+      action: "applied",
+      dir: ".claude",
+      path: ".claude",
+      version: BUILD_INFO.version,
+      changed: [".claude/agents/thinker.md"],
+      missing: [".claude/skills/wip-flow-tasks/guide.md"],
+      kept: [".claude/agents/custom.md"],
+    });
+    const files = defs.files as { path: string; action: string; backup: string | null }[];
+    expect(files.map((file) => [file.path, file.action])).toEqual([
+      [".claude/agents/thinker.md", "replaced"],
+      [".claude/skills/wip-flow-tasks/guide.md", "created"],
+    ]);
+    expect(files[0]?.backup).toContain(".wip/backups/defs/agents/thinker.md.");
+    expect(readFileSync(join(dir, ".claude/agents/thinker.md"), "utf8")).toBe(
+      template("agents/thinker.md"),
+    );
+    expect(readFileSync(join(dir, ".claude/skills/wip-flow-tasks/guide.md"), "utf8")).toBe(
+      template("skills/wip-flow-tasks/guide.md"),
+    );
+    expect(readFileSync(join(dir, ".claude/agents/custom.md"), "utf8")).toContain("custom");
+    expect(dataOf(body)).toMatchObject({
+      action: "current",
+      target: null,
+      update: null,
+      npm: null,
+      rollback: null,
+      kanban: null,
+      changelog: null,
+    });
+    expect(body.message as string).toBe("definitions written in .claude/");
+
+    const again = json(dir, ["upgrade", "--apply-defs"]);
+    expect(again.code).toBe(EXIT.OK);
+    expect(defsOf(again.body)).toMatchObject({ action: "current", files: [] });
+    expect(again.body.message as string).toBe("definitions up to date in .claude/");
+    expect(readdirSync(join(dir, ".wip/backups/defs/agents"))).toHaveLength(1);
+  });
+
+  test("--apply-defs refuses a foreign file with exit 3 and writes nothing", () => {
+    const dir = initTasks("defs-foreign");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${template("agents/thinker.md")}edited\n`,
+    );
+    writeFileSync(join(dir, ".claude/agents/fast.md"), "plain\n");
+    const { code, body } = json(dir, ["upgrade", "--apply-defs"]);
+    expect(code).toBe(EXIT.REJECTED);
+    expect(body.message as string).toContain("without a `wip:` mark");
+    expect(body.message as string).toContain(".claude/agents/fast.md");
+    expect(readFileSync(join(dir, ".claude/agents/fast.md"), "utf8")).toBe("plain\n");
+    expect(readFileSync(join(dir, ".claude/agents/thinker.md"), "utf8")).toContain("edited");
+    expect(existsSync(join(dir, ".wip/backups/defs"))).toBe(false);
+  });
+
+  test("--apply-defs outside a project exits 4 and works from a source run", () => {
+    const outside = bare("defs-no-project");
+    const missing = json(outside, ["upgrade", "--apply-defs"]);
+    expect(missing.code).toBe(EXIT.NOT_FOUND);
+    expect(missing.body.message as string).toContain("no .wip/");
+    expect(readdirSync(outside)).toEqual([]);
+
+    const dir = initTasks("defs-source");
+    setUpgradeInstallForTests(npmInfo({ kind: "source", root: null, prefix: null, bin: null }));
+    const { code, body } = json(dir, ["upgrade", "--apply-defs"]);
+    expect(code).toBe(EXIT.OK);
+    expect(defsOf(body)).toMatchObject({ action: "current" });
+    expect((dataOf(body).install as Record<string, unknown>).kind).toBe("source");
+  });
+
+  test("a successful upgrade proposes --apply-defs and never runs it", () => {
+    const dir = initTasks("defs-proposal");
+    const fake = fakeRun((call) => {
+      if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+      if (call.args.includes("version")) return envelope({ data: { version: "9.9.9" } });
+      return { status: 0 };
+    });
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const out = run(["upgrade", "--no-kanban"], { cwd: dir, env: {} });
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.stdout).toContain(
+      "defs: run `wip upgrade --apply-defs` to compare the definitions with wip 9.9.9",
+    );
+    expect(fake.calls.some((call) => call.args.includes("--apply-defs"))).toBe(false);
+    const { body } = json(dir, ["upgrade", "--no-kanban"]);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(defsOf(body)).toMatchObject({ version: BUILD_INFO.version });
+  });
+});
+
 describe("wip upgrade usage", () => {
   test("bad combinations and values exit 2", () => {
     const dir = bare("usage");
@@ -679,6 +909,12 @@ describe("wip upgrade usage", () => {
       ["upgrade", "--apply-mod", "--check"],
       ["upgrade", "--apply-mod", "--channel", "next"],
       ["upgrade", "--apply-mod", "--dry-run"],
+      ["upgrade", "--apply-defs", "--check"],
+      ["upgrade", "--apply-defs", "--dry-run"],
+      ["upgrade", "--apply-defs", "--channel", "next"],
+      ["upgrade", "--apply-defs", "--kanban"],
+      ["upgrade", "--apply-defs", "--no-defs"],
+      ["upgrade", "--apply-defs", "--apply-mod"],
     ];
     for (const argv of cases) {
       const { code } = json(dir, argv);
