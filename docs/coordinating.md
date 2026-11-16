@@ -12,9 +12,11 @@ first message of every session, whatever it says (with Claude Code, the coordina
 coordinator starts with `wip session start`, `wip state --attention` and `wip check`, and never relaunches a run it
 finds `orphaned`: it tells you. It also asks `fast`, in the background, to bring up the kanban: `wip web status` says
 whether this project's `wip web` is up; if it is, no second one starts. Otherwise `fast` runs `wip web --open`, which
-takes the first free port from 33333 and opens the browser. You get one line with the URL and the port, and a warning
-only when the start fails. When the watcher sees the `wip web` process gone, it starts it again, waits for
-`wip web status` and gives you the new URL; if it does not come back, it tells you and leaves it to you.
+takes the first free port from 33333 and opens the browser. You get one line with the LAN URL and the port, and a
+warning only when the start fails. When the watcher sees the `wip web` process gone, it starts it again, waits for
+`wip web status` and gives you the new LAN URL; if it does not come back, it tells you and leaves it to you. Every
+link the coordinator gives you — an item's panel, an artifact or a gate's details — uses that LAN URL and never
+`localhost`; it falls back to `Local:` only when the server has no LAN address (`--local`).
 
 While the seeded `onboarding` item is open and still not started, the closing message of every session also says in
 one line that the flows and agents are yours to change — edit one, disable one you do not use, or create a new flow

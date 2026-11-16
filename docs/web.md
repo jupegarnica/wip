@@ -100,8 +100,11 @@ Exit codes:
 
 **LAN:** without `--local`, `wip web` also listens on your private LAN address and prints it as `LAN:`. Anyone on
 that network can then read the board and the item artifacts, with no authentication. Use `--local` on networks you
-do not trust.
+do not trust. The coordinator shows you this `LAN:` URL and never `http://localhost…`, and falls back to `Local:`
+only when a server has no LAN address.
 
-The optional Claude Code pane is installed by `wip init`: see [The Kanban mod](init.md#the-kanban-mod---kanban) and its
-own reference, [`mods/wip-kanban/README.md`](../mods/wip-kanban/README.md). The rest of the command table is in
+The optional Claude Code pane is installed by `wip init`: its rows open the running server's `LAN` address
+(`lan_url`) when it has one, and its `Local` address otherwise; `webUrl` is only the fallback while no server
+answers. See [The Kanban mod](init.md#the-kanban-mod---kanban) and its own reference,
+[`mods/wip-kanban/README.md`](../mods/wip-kanban/README.md). The rest of the command table is in
 [Commands](commands.md).
