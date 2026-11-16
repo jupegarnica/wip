@@ -199,7 +199,7 @@ Recommended:
 
 **Details:**
     <absolute path of each relevant file>
-    <url of the item's detail in wip web, ?item=<flow>/<ID>>
+    <url of the item's detail in wip web, its LAN URL with ?item=<flow>/<ID>>
 ```
 
 **The block.** The header is followed by one blank line. `Summary` is one paragraph, not a list: what the
@@ -208,7 +208,8 @@ irreversible, visible to others or uncertain, what it does not cover and how to 
 Q1, Q2…: each question and `Recommended:`, the option this coordinator recommends and a one-line reason; the
 options and their consequences are in `AskUserQuestion`, not in the block. `If you approve` says exactly what
 happens next. `Details` lists the absolute path of each relevant file and, for an item gate, the item's URL in
-`wip web` (`?item=<flow>/<ID>`); a gate without an item lists the paths only. Keep the block's spacing: one
+`wip web` (`?item=<flow>/<ID>`): its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one
+says `off`, both built as «The kanban» in `<defs>/agents/wip.md` says; a gate without an item lists the paths only. Keep the block's spacing: one
 blank line before each bold title, no blank line between a title and its text, and four spaces of indentation
 for the inner text. Use bold titles (`**Summary:**`), not Markdown headings.
 

@@ -186,17 +186,19 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
     const start = section(coordinator, "## Start of every session");
     for (const clause of [
       'Delegate to `fast`, in the background, this task: run `"$WIP_BIN" web status`. Exit 0',
-      "start nothing and return its first `Local:` URL, its port and its `LAN:` URL",
+      "start nothing and return the `LAN:` URL and port of its first answering server, or its first `Local:` URL only when the `LAN:` one says `off`",
       'Exit 1: start\n   `"$WIP_BIN" web --open`, detached so it outlives the agent',
       '`nohup "$WIP_BIN" web --open >/dev/null 2>&1 &`',
       "it takes the first free port from 33333, records itself in `.wip/web/`",
       "until it exits 0, for 30 s at most",
-      "The answer is one line: `<local URL> · port <N> · LAN <lan URL>`, without the ` · LAN <lan URL>` part when the status has no `LAN:` line.",
+      "The answer is one line: `<LAN URL> · port <N>`, or `<local URL> · port <N>` only when the `LAN:` one says `off`.",
       'run `"$WIP_BIN" web log -n 20` and return its error',
       "do not wait for it: give its line when it arrives, a 🟨 only for its error",
     ]) {
       expect({ clause, found: start.includes(clause) }).toEqual({ clause, found: true });
     }
+    expect(start).not.toContain("LAN <lan URL>");
+    expect(start).toContain("or its Local URL only when the `LAN:` one says `off`");
     for (const gone of ["39100", "39109", "--port <N>", "for each port", ".wip/web.pid"]) {
       expect({ gone, found: coordinator.includes(gone) }).toEqual({ gone, found: false });
     }
@@ -217,12 +219,13 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       "«Your turn», open gates, the history (`?view=history`)",
       "panel of an item (`?item=<flow>/<ID>`) with its runs, gates and artifacts",
       "`view/item/<flow>/<ID>/artifact/<name>`",
-      '**Links:** run `"$WIP_BIN" web status`; on exit 0 append these to its first `Local:`',
-      "URL (the `LAN:` one only if the user asks), never another host or port",
+      '**Links:** run `"$WIP_BIN" web status`; on exit 0 append these to its first `LAN:` URL',
+      "never `localhost` — and to its first `Local:` URL only when the `LAN:` one says `off`",
       "otherwise give the artifact's file path",
     ]) {
       expect({ clause, found: kanban.includes(clause) }).toEqual({ clause, found: true });
     }
+    expect(kanban).not.toContain("only if the user asks");
   });
 
   test("the four generic agents carry wip: generic, spawn and questions denied, a model per level and the protocol", () => {
@@ -411,6 +414,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "Recommended:",
       "**If you approve:**",
       "**Details:**",
+      "its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one",
       "🟧 <ID> · <phase> → <next phase or action>",
       "🟪 NEXT ·",
       RUNTIME_SECTION,

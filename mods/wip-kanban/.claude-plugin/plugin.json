@@ -7,7 +7,7 @@
     "webUrl": {
       "type": "string",
       "title": "Web URL",
-      "description": "Base URL of the wip web that opens an item; an invalid URL leaves the IDs as plain text.",
+      "description": "Base URL only while no server of this project answers; a running server's LAN URL wins, then its Local URL. An invalid URL leaves the IDs as plain text.",
       "default": "http://localhost:33333/"
     },
     "colorScheme": {

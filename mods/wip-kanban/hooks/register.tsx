@@ -206,7 +206,22 @@ async function refresh($: EngineInterface, root: string): Promise<void> {
   }
 }
 
-/** The Local URL of a `wip web status --json` answer; anything else (exit 1 included) is no live server. */
+/** `value` when it is an http(s) URL, or null. */
+function httpUrlOf(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return null;
+  }
+  return url.protocol === "http:" || url.protocol === "https:" ? value : null;
+}
+
+/**
+ * The base URL of a `wip web status --json` answer: its LAN URL when it has one, its Local URL only
+ * when it does not (`LAN: off`); anything else (exit 1 included) is no live server.
+ */
 function statusUrl(stdout: string): string | null {
   let body: unknown;
   try {
@@ -217,21 +232,13 @@ function statusUrl(stdout: string): string | null {
   if (!isRecord(body) || body.ok !== true) return null;
   const data = body.data;
   if (!isRecord(data) || data.state !== "running") return null;
-  if (typeof data.url !== "string") return null;
-  let url: URL;
-  try {
-    url = new URL(data.url);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-  return data.url;
+  return httpUrlOf(data.lan_url) ?? httpUrlOf(data.url);
 }
 
 /**
- * One read of `wip web status --json`: this project's running server replaces the stored URL, and any other
- * outcome clears it so the pane falls back to the configured `webUrl`. It never shows an error: the board works
- * without the server.
+ * One read of `wip web status --json`: this project's running server replaces the stored URL with its LAN one
+ * (its Local one when it has no LAN), and any other outcome clears it so the pane falls back to the configured
+ * `webUrl`. It never shows an error: the board works without the server.
  */
 async function refreshWeb($: EngineInterface, root: string): Promise<void> {
   if (webInFlight) return;
@@ -275,11 +282,11 @@ async function toggle($: EngineInterface, root: string, flow: string): Promise<v
   await $.store.set(HIDDEN_KEY, { ...all, [root]: next });
 }
 
-/** The item's link into `wip web`, or null when `webUrl` is not an http(s) URL. */
-function itemHref(webUrl: string, flow: string, id: string): string | null {
+/** The item's link into `wip web`, or null when the base URL is not an http(s) URL. */
+function itemHref(base: string, flow: string, id: string): string | null {
   let url: URL;
   try {
-    url = new URL(webUrl);
+    url = new URL(base);
   } catch {
     return null;
   }

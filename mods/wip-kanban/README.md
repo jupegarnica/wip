@@ -2,13 +2,15 @@
 
 A read-only Kanban of the project's open [wip](https://github.com/jupegarnica/wip) items, drawn in a pane of
 Claude Code. Every row is `<id> <phase>`; its column follows the phase's place in the flow's declared order, and
-its colour follows the same stage ramp the wip web paints. Clicking a row opens that item's panel in the wip web.
+its colour follows the same stage ramp the wip web paints. Clicking a row opens that item's panel in the wip web,
+on the server's LAN address when it has one.
 
 The mod never changes wip's items or state: it reads `wip state --json` once at the start and once every five
 seconds, one process at a time, with a four-second timeout. A failed read keeps the last board on screen and shows
 the reason; a first read that fails shows only the reason. To link a row, it also asks this project's server where
-it listens with `wip web status --json`, at the start and then about every fifteen seconds; that command may remove
-a stale `.wip/web` entry, and nothing else in wip changes.
+it listens with `wip web status --json`, at the start and then about every fifteen seconds, and takes that answer's
+`lan_url` when it has one and its `url` otherwise; that command may remove a stale `.wip/web` entry, and nothing
+else in wip changes.
 
 ## Install
 
@@ -73,7 +75,9 @@ next session.
   other row uses its flow's colour at full opacity (the phase's alpha is not applied), so a late phase stays
   legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
 - Clicking a row opens this project's running `wip web`, found with `wip web status --json` (polled about every
-  15 s), at `?item=<flow>/<id>`; the web shows that item's panel. In `localhost`, clicking a row again does not
+  15 s): its `LAN` address (`lan_url`) at `?item=<flow>/<id>` when the server has one, or its `Local` address
+  (`url`) only when it has none (`--local` or no private IPv4); the web shows that item's panel. In `localhost`,
+  clicking a row again does not
   open a second tab of the same origin: the new tab asks the open one for the origin, the open tab hands it over and
   tries to close itself (best-effort: if the browser refuses, it stays with a notice and no ownership), so the item
   opens in the tab that was just clicked (each port has its own tab; on the LAN there is no deduplication). The rule
@@ -95,9 +99,10 @@ next session.
 
 - `webUrl` — default `http://localhost:33333/`, the first port `wip web` tries. It is the base only while no
   server of this project runs: a live server always wins, whatever port it listens on (`--port`, `WIP_WEB_PORT` or
-  the next free one). Use it for a remote or proxied URL, or for the port while no server answers. Only `http:` and
-  `https:` URLs are accepted; an invalid one leaves the IDs as plain text. `wip web status` may clean a stale
-  `.wip/web` entry; wip's items and state are untouched.
+  the next free one), and contributes its `lan_url` when it has one and its `url` otherwise. Use it for a remote or
+  proxied URL, or for the port while no server answers. Only `http:` and `https:` URLs are accepted; an invalid one
+  leaves the IDs as plain text. `wip web status` may clean a stale `.wip/web` entry; wip's items and state are
+  untouched.
 - `colorScheme` — `dark` (default) or `light`: which theme's solid colours and contrasting text the attention rows
   use, and which amber fallback a stageless attention row takes. Non-attention rows use the flow tone in both
   schemes. The pane API does not expose the active theme, so this choice is explicit.

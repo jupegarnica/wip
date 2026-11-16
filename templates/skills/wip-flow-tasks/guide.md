@@ -112,7 +112,8 @@ Only an explicit answer of yours approves. Open gates also show on the kanban, a
 ## The kanban
 
 `"$WIP_BIN" web` serves a read-only kanban of this project. The coordinator brings it up at the start of each session and
-gives you its address (`Local:`, by default `http://localhost:33333/` or the next free port).
+gives you its LAN address (`LAN:`, `http://<your-ip>:33333/` or the next free port), rather than `localhost`; when the
+server has no LAN address (`--local`) it gives you the `Local:` one instead.
 
 - **Boards:** one per flow, with a column per stage (Grouped) or per phase (Expanded).
 - **✋ Open gates** and **👉 Your turn** at the top: what waits on you.

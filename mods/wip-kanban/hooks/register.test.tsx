@@ -6,6 +6,8 @@ const ROOT = "/projects/demo";
 /** The filter row's marks: a fisheye when the flow is shown, a crossed circle when it is hidden. */
 const SHOWN = "\u{25C9}";
 const HIDDEN = "\u{2298}";
+/** The private IPv4 a running server reports as `lan_url` in the tests. */
+const LAN = "192.168.1.59";
 
 type TJson = Record<string, unknown>;
 
@@ -107,13 +109,17 @@ function stateJson(
   });
 }
 
-/** A `wip web status --json` answer for a running server on `port`. */
-function running(port: number): IRunReply {
+/** A `wip web status --json` answer for a running server on `port`, with a LAN address unless `lan` is null. */
+function running(port: number, lan: string | null = LAN): IRunReply {
   return {
     exitCode: 0,
     stdout: JSON.stringify({
       ok: true,
-      data: { state: "running", url: `http://localhost:${port}/` },
+      data: {
+        state: "running",
+        url: `http://localhost:${port}/`,
+        lan_url: lan === null ? null : `http://${lan}:${port}/`,
+      },
     }),
     stderr: "",
   };
@@ -955,7 +961,7 @@ test(
   },
 );
 
-test("a running wip web wins over webUrl: rows link to this project's Local URL", async ($, on) => {
+test("a running wip web wins over webUrl: rows link to its LAN URL", async ($, on) => {
   const w = world({
     reply: async () => ({
       exitCode: 0,
@@ -969,11 +975,27 @@ test("a running wip web wins over webUrl: rows link to this project's Local URL"
   await start($, w);
   const ui = await mount($, "terminal", 40);
   const link = await ui.find({ type: "Link" });
-  expect(link?.props.href).toBe("http://localhost:34002/?item=development%2Fkanban-mod");
+  expect(link?.props.href).toBe("http://192.168.1.59:34002/?item=development%2Fkanban-mod");
+});
+
+test("a server without a LAN address links to its Local URL", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "K1", flow: "development", phase: "plan" }]),
+      stderr: "",
+    }),
+    status: async () => running(34002, null),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+  const link = await (await mount($, "terminal", 40)).find({ type: "Link" });
+  expect(link?.props.href).toBe("http://localhost:34002/?item=development%2FK1");
 });
 
 test(
-  "a custom webUrl is only the fallback: a running server wins, no server leaves its host",
+  "a custom webUrl is only the fallback: a running server's LAN URL wins, no server leaves its host",
   { options: { webUrl: "https://wip.example.com/" } },
   async ($, on) => {
     const w = world({
@@ -989,7 +1011,7 @@ test(
     await start($, w);
     const live = await mount($, "terminal", 40);
     expect((await live.find({ type: "Link" }))?.props.href).toBe(
-      "http://localhost:34002/?item=development%2Fkanban-mod",
+      "http://192.168.1.59:34002/?item=development%2Fkanban-mod",
     );
     await live.unmount();
 
@@ -1021,7 +1043,7 @@ test("the link follows a server restart: the next poll after 15 s takes the new 
   await start($, w);
   const first = await mount($, "terminal", 40);
   expect((await first.find({ type: "Link" }))?.props.href).toBe(
-    "http://localhost:34002/?item=development%2FK1",
+    "http://192.168.1.59:34002/?item=development%2FK1",
   );
   await first.unmount();
 
@@ -1029,7 +1051,7 @@ test("the link follows a server restart: the next poll after 15 s takes the new 
   await clock.advance(15000);
   const second = await mount($, "terminal", 40);
   expect((await second.find({ type: "Link" }))?.props.href).toBe(
-    "http://localhost:34003/?item=development%2FK1",
+    "http://192.168.1.59:34003/?item=development%2FK1",
   );
 });
 
