@@ -2,13 +2,15 @@ import { join } from "node:path";
 import { allow, type IArgs } from "../args.ts";
 import { BUILD_INFO } from "../build-info.ts";
 import { compact } from "../clock.ts";
-import { readConfig } from "../config.ts";
+import { defsDirOf, HOME_PREFIX, readConfig } from "../config.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { KANBAN_MOD } from "../embedded/kanban.ts";
-import type { TEnv } from "../env.ts";
+import { defsPath, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, type TExitCode, usage, WipError } from "../errors.ts";
 import type { TSettingsFile } from "../init/claude-settings.ts";
+import { applyDefs, defsDrift, type IDefsDrift } from "../init/drift.ts";
 import { KanbanCopyFailed, kanbanPreflight, kanbanState } from "../init/kanban.ts";
+import type { IInitFile } from "../init/scaffold.ts";
 import { detectInstall, type IInstallInfo, INSTALL_KIND, type TInstallKind } from "../install.ts";
 import {
   formatNotes,
@@ -33,7 +35,7 @@ const CHANNELS = ["latest", "next"] as const;
 type TChannel = (typeof CHANNELS)[number];
 
 const USAGE =
-  "usage: wip upgrade [--channel latest|next] [--check | --dry-run] [--kanban | --no-kanban]";
+  "usage: wip upgrade [--channel latest|next] [--check | --dry-run] [--kanban | --no-kanban] [--apply-defs | --no-defs]";
 
 type TAction = "upgraded" | "current" | "available" | "would-upgrade" | "skipped" | "failed";
 
@@ -44,6 +46,24 @@ interface IUpgradeOptions {
   kanban: boolean;
   noKanban: boolean;
   applyMod: boolean;
+  applyDefs: boolean;
+  noDefs: boolean;
+}
+
+export interface IDefsData {
+  action: "current" | "outdated" | "applied" | "skipped";
+  /** `defs_dir` as configured; null when there is no project. */
+  dir: string | null;
+  /** Shown folder; null when there is no project. */
+  path: string | null;
+  /** The build whose templates were compared. */
+  version: string;
+  missing: string[];
+  changed: string[];
+  foreign: string[];
+  kept: string[];
+  files: { path: string; action: "created" | "replaced"; backup: string | null }[];
+  reason: "no-project" | null;
 }
 
 export interface IUpgradeData {
@@ -74,6 +94,8 @@ export interface IUpgradeData {
   /** The installed package's notes for `(running, target]`; null when it was not read or had none. */
   changelog: (IReleaseNotes & { truncated: boolean }) | null;
   pinned: string | null;
+  /** The definitions comparison of this build; null with `--no-defs`. */
+  defs: IDefsData | null;
 }
 
 // Test-only seams: the handler's two outside worlds. `null` restores the real ones.
@@ -105,12 +127,29 @@ function parseOptions(args: IArgs): IUpgradeOptions {
   const kanban = args.flags.has("kanban");
   const noKanban = args.flags.has("no-kanban");
   const applyMod = args.flags.has("apply-mod");
+  const applyDefs = args.flags.has("apply-defs");
+  const noDefs = args.flags.has("no-defs");
   if (check && dryRun) throw usage("--check and --dry-run are exclusive");
   if (kanban && noKanban) throw usage("--kanban and --no-kanban are exclusive");
+  if (applyDefs && applyMod) throw usage("--apply-defs and --apply-mod are exclusive");
+  if (applyDefs && (check || dryRun || args.opts.channel !== undefined || kanban || noDefs)) {
+    throw usage(
+      "--apply-defs is its own mode: it takes no --check, --dry-run, --channel, --kanban nor --no-defs",
+    );
+  }
   if (applyMod && (check || dryRun || args.opts.channel !== undefined)) {
     throw usage("--apply-mod is internal: it takes no --check, --dry-run nor --channel");
   }
-  return { channel: value as TChannel, check, dryRun, kanban, noKanban, applyMod };
+  return {
+    channel: value as TChannel,
+    check,
+    dryRun,
+    kanban,
+    noKanban,
+    applyMod,
+    applyDefs,
+    noDefs,
+  };
 }
 
 function projectOf(ctx: ICtx, required: boolean): string | null {
@@ -194,6 +233,7 @@ function dataOf(
     kanban?: IModResult | null;
     changelog?: IUpgradeData["changelog"];
     pinned?: string | null;
+    defs?: IDefsData | null;
   },
   check: boolean,
   dryRun: boolean,
@@ -212,6 +252,7 @@ function dataOf(
     kanban: publicMod(base.kanban ?? null),
     changelog: base.changelog ?? null,
     pinned: base.pinned ?? null,
+    defs: base.defs ?? null,
   };
 }
 
@@ -365,6 +406,186 @@ function pinnedOf(project: string | null, info: IInstallInfo, env: ICtx["env"]):
 function addWarning(ctx: ICtx, code: string, message: string): void {
   if (ctx.result.warnings.some((w) => w.code === code && w.message === message)) return;
   ctx.result.warnings.push({ code, message });
+}
+
+function defsLocation(project: string, env: TEnv): { dir: string; shown: string; root: string } {
+  const dir = defsDirOf(project);
+  return { dir, shown: shownDefsDir(dir, env), root: defsPath(project, dir, env) };
+}
+
+function defsDataOf(
+  drift: IDefsDrift,
+  action: IDefsData["action"],
+  files: readonly IInitFile[],
+): IDefsData {
+  const listed = (kind: "changed" | "missing" | "foreign"): string[] =>
+    drift.entries
+      .filter((entry) => entry.kind === kind)
+      .map((entry) => entry.path)
+      .sort();
+  return {
+    action,
+    dir: drift.dir,
+    path: drift.path,
+    version: BUILD_INFO.version,
+    missing: listed("missing"),
+    changed: listed("changed"),
+    foreign: listed("foreign"),
+    kept: [...drift.kept].sort(),
+    files: files
+      .filter((file) => file.action !== "exists")
+      .map((file) => ({
+        path: file.path,
+        action: (file.action === "created" ? "created" : "replaced") as "created" | "replaced",
+        backup: file.backup,
+      })),
+    reason: null,
+  };
+}
+
+function defsSkipped(): IDefsData {
+  return {
+    action: "skipped",
+    dir: null,
+    path: null,
+    version: BUILD_INFO.version,
+    missing: [],
+    changed: [],
+    foreign: [],
+    kept: [],
+    files: [],
+    reason: "no-project",
+  };
+}
+
+/** The detection of every path that does not write: `outdated` when anything differs, `skipped` without a project. */
+function defsDetection(project: string | null, env: TEnv): IDefsData {
+  if (project === null) return defsSkipped();
+  const location = defsLocation(project, env);
+  const data = defsDataOf(defsDrift(location.dir, location.shown, location.root), "current", []);
+  if (defsOutdated(data)) data.action = "outdated";
+  return data;
+}
+
+function defsOutdated(data: IDefsData): boolean {
+  return data.changed.length + data.missing.length + data.foreign.length > 0;
+}
+
+function defsCount(data: IDefsData): number {
+  return data.changed.length + data.missing.length + data.foreign.length;
+}
+
+function defsParts(data: IDefsData): string {
+  const parts: string[] = [];
+  if (data.changed.length > 0) parts.push(`${data.changed.length} changed`);
+  if (data.missing.length > 0) parts.push(`${data.missing.length} missing`);
+  if (data.foreign.length > 0) parts.push(`${data.foreign.length} foreign`);
+  return parts.join(", ");
+}
+
+function defsWarnings(ctx: ICtx, data: IDefsData): void {
+  const drift = data.changed.length + data.missing.length;
+  if (drift > 0) {
+    addWarning(
+      ctx,
+      "defs_outdated",
+      `defs_outdated: ${drift} ${drift === 1 ? "file differs" : "files differ"} from wip ${data.version} in ${data.path}/ (${defsParts(data)}); run \`wip upgrade --apply-defs\``,
+    );
+  }
+  if (data.foreign.length > 0) {
+    const n = data.foreign.length;
+    addWarning(
+      ctx,
+      "defs_foreign",
+      `defs_foreign: ${n} ${n === 1 ? "file is" : "files are"} another tool's (no \`wip:\` mark) and blocks the refresh: ${data.foreign.join(", ")}; rename or move ${n === 1 ? "it" : "them"} and run \`wip upgrade --apply-defs\``,
+    );
+  }
+}
+
+function defsEntryLines(lines: string[], data: IDefsData): void {
+  for (const path of data.changed) lines.push(`changed ${path}`);
+  for (const path of data.missing) lines.push(`missing ${path}`);
+  for (const path of data.foreign) lines.push(`foreign ${path}`);
+}
+
+function defsKeptLine(lines: string[], data: IDefsData): void {
+  const n = data.kept.length;
+  if (n > 0) {
+    lines.push(`kept ${n} custom ${n === 1 ? "definition" : "definitions"} (not touched)`);
+  }
+}
+
+/** Detection on a normal run and on `--check`. */
+function defsLines(lines: string[], data: IDefsData): void {
+  if (data.action === "skipped" || data.path === null) {
+    lines.push("defs: skipped (no .wip/ project)");
+    return;
+  }
+  if (!defsOutdated(data)) {
+    lines.push(`defs: up to date (${data.path}/)`);
+    return;
+  }
+  lines.push(
+    `defs: ${defsCount(data)} out of date in ${data.path}/ (${defsParts(data)}); run \`wip upgrade --apply-defs\``,
+  );
+  defsEntryLines(lines, data);
+  defsKeptLine(lines, data);
+}
+
+/** The plan `--dry-run` prints; writes nothing. */
+function defsPlanLines(lines: string[], data: IDefsData): void {
+  if (data.action === "skipped" || data.path === null) {
+    lines.push("defs: skipped (no .wip/ project)");
+    return;
+  }
+  const writes = data.changed.length + data.missing.length;
+  if (!defsOutdated(data)) {
+    lines.push(`defs: up to date (${data.path}/)`);
+    return;
+  }
+  if (writes > 0) {
+    lines.push(
+      `defs: would write ${writes} ${writes === 1 ? "file" : "files"} in ${data.path}/ (${data.changed.length} replaced, ${data.missing.length} created); run \`wip upgrade --apply-defs\` to apply`,
+    );
+  } else {
+    lines.push(
+      `defs: cannot write ${data.path}/: ${data.foreign.length} another tool's ${data.foreign.length === 1 ? "file" : "files"} (no \`wip:\` mark)`,
+    );
+  }
+  defsEntryLines(lines, data);
+  defsKeptLine(lines, data);
+}
+
+/** The result `--apply-defs` prints. */
+function defsAppliedLines(lines: string[], data: IDefsData): void {
+  if (data.path === null) {
+    lines.push("defs: skipped (no .wip/ project)");
+    return;
+  }
+  if (data.action === "current") {
+    lines.push(`defs: up to date (${data.path}/); nothing written`);
+    return;
+  }
+  const shared = data.dir?.startsWith(HOME_PREFIX) ?? false;
+  lines.push(
+    shared
+      ? `defs: ${data.path}/ (shared by every --global project; wip ${data.version})`
+      : `defs: ${data.path}/ (wip ${data.version})`,
+  );
+  for (const file of data.files) {
+    lines.push(`${file.action} ${file.path}${file.backup ? ` (backup ${file.backup})` : ""}`);
+  }
+  const created = data.files.filter((file) => file.action === "created").length;
+  const replaced = data.files.filter((file) => file.action === "replaced").length;
+  const kept = data.kept.length;
+  lines.push(
+    `defs: ${data.files.length} ${data.files.length === 1 ? "file" : "files"} written (${created} created, ${replaced} replaced)${kept > 0 ? `; ${kept} custom ${kept === 1 ? "definition" : "definitions"} kept` : ""}`,
+  );
+}
+
+/** The proposal after an npm upgrade: the old build's templates are not the installed version's. */
+function defsAfterUpgrade(target: string): string {
+  return `defs: run \`wip upgrade --apply-defs\` to compare the definitions with wip ${target}`;
 }
 
 function pushModWarnings(ctx: ICtx, mod: IModResult): void {
@@ -571,18 +792,63 @@ export function applyModCmd(ctx: ICtx, options: { channel: TChannel; kanban: boo
   }
 }
 
+/**
+ * `--apply-defs`: the definitions part of `wip init --force` in place. No registry, no npm, no install refusal; it
+ * works from a source run and a binary. Requires a project (exit 4) and refuses a foreign path (exit 3).
+ */
+function applyDefsCmd(ctx: ICtx, options: IUpgradeOptions): void {
+  const project = ctx.root.project;
+  const info = testInstall ?? detectInstall({ env: ctx.env, platform: process.platform });
+  const done = applyDefs(project, ctx.env, { stamp: compact() });
+  const data = defsDataOf(done.drift, done.files.length > 0 ? "applied" : "current", done.files);
+  const lines = ctx.result.lines;
+  lines.push(header(info));
+  defsAppliedLines(lines, data);
+  ctx.result.message =
+    data.action === "applied"
+      ? `definitions written in ${data.path}/`
+      : `definitions up to date in ${data.path}/`;
+  ctx.result.data = dataOf(
+    {
+      project,
+      info,
+      channel: options.channel,
+      target: null,
+      update: null,
+      action: "current",
+      defs: data,
+    },
+    false,
+    false,
+  );
+}
+
 function run(ctx: ICtx, args: IArgs): void {
-  allow(args, ["channel", "check", "dry-run", "kanban", "no-kanban", "apply-mod"]);
+  allow(args, [
+    "channel",
+    "check",
+    "dry-run",
+    "kanban",
+    "no-kanban",
+    "apply-mod",
+    "apply-defs",
+    "no-defs",
+  ]);
   const options = parseOptions(args);
   if (options.applyMod) {
     applyModCmd(ctx, options);
     return;
   }
+  if (options.applyDefs) {
+    applyDefsCmd(ctx, options);
+    return;
+  }
 
   const platform = process.platform;
   const info = testInstall ?? detectInstall({ env: ctx.env, platform });
-  const project = options.noKanban ? null : projectOf(ctx, options.kanban);
-  const pinned = options.noKanban ? null : pinnedOf(project, info, ctx.env);
+  const project =
+    options.noKanban && options.noDefs ? null : projectOf(ctx, options.kanban || options.applyDefs);
+  const pinned = project === null ? null : pinnedOf(project, info, ctx.env);
   if (pinned !== null) {
     ctx.result.warnings.push({
       code: "wip_bin_pinned",
@@ -616,6 +882,7 @@ function run(ctx: ICtx, args: IArgs): void {
   const resolved = resolveTarget(tags, options.channel, info.version);
   const lines = ctx.result.lines;
   lines.push(header(info));
+  const defs = options.noDefs ? null : defsDetection(project, ctx.env);
 
   if (options.check) {
     const update = resolved.update;
@@ -631,6 +898,12 @@ function run(ctx: ICtx, args: IArgs): void {
     if (info.kind !== "npm") {
       lines.push(`manual: ${manualCommand(info, resolved.target)}`);
     }
+    let outdated = false;
+    if (defs !== null) {
+      outdated = defsOutdated(defs);
+      defsWarnings(ctx, defs);
+      defsLines(lines, defs);
+    }
     ctx.result.data = dataOf(
       {
         project,
@@ -640,15 +913,24 @@ function run(ctx: ICtx, args: IArgs): void {
         update,
         action: update ? "available" : "current",
         pinned,
+        defs,
       },
       true,
       false,
     );
-    ctx.result.ok = !update;
-    ctx.result.code = update ? EXIT.FINDINGS : EXIT.OK;
-    ctx.result.message = update
-      ? `update available: ${resolved.target}`
-      : `wip ${info.version} is up to date (${options.channel})`;
+    ctx.result.ok = !update && !outdated;
+    ctx.result.code = update || outdated ? EXIT.FINDINGS : EXIT.OK;
+    const count = outdated && defs !== null ? defsCount(defs) : 0;
+    const drift =
+      count > 0 ? `definitions out of date: ${count} ${count === 1 ? "file" : "files"}` : null;
+    ctx.result.message =
+      update && drift !== null
+        ? `update available: ${resolved.target}; ${drift}`
+        : update
+          ? `update available: ${resolved.target}`
+          : drift !== null
+            ? drift
+            : `wip ${info.version} is up to date (${options.channel})`;
     return;
   }
 
@@ -673,6 +955,7 @@ function run(ctx: ICtx, args: IArgs): void {
       if (project === null) lines.push("kanban: skipped (no .wip/ project)");
       else lines.push(describeModPlan(project, options.kanban));
     }
+    if (defs !== null) defsPlanLines(lines, defs);
     ctx.result.data = dataOf(
       {
         project,
@@ -683,6 +966,7 @@ function run(ctx: ICtx, args: IArgs): void {
         action: resolved.update ? "would-upgrade" : "current",
         npm,
         pinned,
+        defs,
       },
       false,
       true,
@@ -704,6 +988,7 @@ function run(ctx: ICtx, args: IArgs): void {
   let action: TAction = resolved.update ? "upgraded" : "current";
   let modProblem: string | null = null;
   let unsupported = false;
+  let installOk = false;
 
   if (resolved.update) {
     const plan = installPlan(info, platform, resolved.target, ctx.env);
@@ -727,6 +1012,7 @@ function run(ctx: ICtx, args: IArgs): void {
     } else {
       const verified = verifyInstalled(info, resolved.target);
       if (verified.ok) {
+        installOk = true;
         lines.push(`upgraded wip ${info.version} -> ${resolved.target} (${options.channel})`);
         const markdown = readChangelog(info.root);
         if (markdown === null) {
@@ -852,6 +1138,16 @@ function run(ctx: ICtx, args: IArgs): void {
     if (kanban === null) lines.push("kanban: not touched (the CLI was not upgraded)");
     else if (!unsupported) modLines(lines, kanban, project);
   }
+  if (defs !== null) {
+    if (project === null) {
+      lines.push("defs: skipped (no .wip/ project)");
+    } else if (!resolved.update) {
+      defsWarnings(ctx, defs);
+      defsLines(lines, defs);
+    } else if (installOk) {
+      lines.push(defsAfterUpgrade(resolved.target));
+    }
+  }
   if (resolved.update && ok) {
     lines.push(
       "note: the next command of this version in a project may migrate its database; see docs/upgrade.md",
@@ -871,6 +1167,7 @@ function run(ctx: ICtx, args: IArgs): void {
       kanban,
       changelog,
       pinned,
+      defs,
     },
     false,
     false,

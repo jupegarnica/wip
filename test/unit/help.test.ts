@@ -120,6 +120,10 @@ describe("wip help upgrade", () => {
     expect(out.stdout).toContain("--no-kanban");
     expect(out.stdout).toContain("npm only");
     expect(out.stdout).toContain(".wip/backups/kanban/");
+    expect(out.stdout).toContain("--apply-defs");
+    expect(out.stdout).toContain("--no-defs");
+    expect(out.stdout).toContain("definitions");
+    expect(out.stdout).toContain(".wip/backups/defs/");
     expect(out.stdout).not.toContain("--apply-mod");
   });
 });

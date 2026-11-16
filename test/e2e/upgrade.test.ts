@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
+import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
-import { WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
+import { type IEnvelopeOut, WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
 
 const ID = "wip-kanban@skills-dir";
@@ -116,6 +117,87 @@ describe("wip upgrade --apply-mod (e2e)", () => {
       ["upgrade", "extra"],
     ]) {
       expect(wipJsonIn(dir, argv).code).toBe(EXIT.USAGE);
+    }
+  });
+});
+
+describe("wip upgrade --apply-defs (e2e)", () => {
+  function initTasks(name: string): string {
+    const dir = tmp(name);
+    const init = wipJsonIn(dir, ["init", "--yes", "--flows", "tasks"]);
+    if (init.code !== EXIT.OK) throw new Error(`init failed: ${init.body.message}`);
+    return dir;
+  }
+
+  interface IDefsBody {
+    action: string;
+    files: { path: string; action: string; backup: string | null }[];
+    changed: string[];
+    missing: string[];
+  }
+
+  const defsOf = (body: IEnvelopeOut["body"]): IDefsBody => (body.data as { defs: IDefsBody }).defs;
+
+  test("restores a body edit and a removed guide, backs up and is idempotent", () => {
+    const dir = initTasks("defs-apply");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${TEMPLATES["agents/thinker.md"]}edited\n`,
+    );
+    rmSync(join(dir, ".claude/skills/wip-flow-tasks/guide.md"));
+    const first = wipJsonIn(dir, ["upgrade", "--apply-defs"]);
+    expect(first.code).toBe(EXIT.OK);
+    const defs = defsOf(first.body);
+    expect(defs.action).toBe("applied");
+    expect(defs.changed).toEqual([".claude/agents/thinker.md"]);
+    expect(defs.missing).toEqual([".claude/skills/wip-flow-tasks/guide.md"]);
+    expect(defs.files.map((file) => [file.path, file.action])).toEqual([
+      [".claude/agents/thinker.md", "replaced"],
+      [".claude/skills/wip-flow-tasks/guide.md", "created"],
+    ]);
+    expect(defs.files[0]?.backup).toContain(".wip/backups/defs/agents/thinker.md.");
+    expect(readFileSync(join(dir, ".claude/agents/thinker.md"), "utf8")).toBe(
+      TEMPLATES["agents/thinker.md"] as string,
+    );
+    expect(readFileSync(join(dir, ".claude/skills/wip-flow-tasks/guide.md"), "utf8")).toBe(
+      TEMPLATES["skills/wip-flow-tasks/guide.md"] as string,
+    );
+
+    const again = wipJsonIn(dir, ["upgrade", "--apply-defs"]);
+    expect(again.code).toBe(EXIT.OK);
+    expect(defsOf(again.body)).toMatchObject({ action: "current", files: [] });
+    expect(readdirSync(join(dir, ".wip/backups/defs/agents"))).toHaveLength(1);
+  });
+
+  test("a foreign file exits 3 and writes nothing", () => {
+    const dir = initTasks("defs-foreign");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${TEMPLATES["agents/thinker.md"]}edited\n`,
+    );
+    writeFileSync(join(dir, ".claude/agents/fast.md"), "plain\n");
+    const { code, body } = wipJsonIn(dir, ["upgrade", "--apply-defs"]);
+    expect(code).toBe(EXIT.REJECTED);
+    expect(body.message as string).toContain("without a `wip:` mark");
+    expect(readFileSync(join(dir, ".claude/agents/fast.md"), "utf8")).toBe("plain\n");
+    expect(readFileSync(join(dir, ".claude/agents/thinker.md"), "utf8")).toContain("edited");
+    expect(existsSync(join(dir, ".wip/backups/defs"))).toBe(false);
+  });
+
+  test("without .wip/ exits 4 and its usage errors exit 2", () => {
+    const outside = tmp("defs-no-project");
+    const missing = wipJsonIn(outside, ["upgrade", "--apply-defs"]);
+    expect(missing.code).toBe(EXIT.NOT_FOUND);
+    expect(readdirSync(outside)).toEqual([]);
+    for (const argv of [
+      ["upgrade", "--apply-defs", "--check"],
+      ["upgrade", "--apply-defs", "--dry-run"],
+      ["upgrade", "--apply-defs", "--channel", "next"],
+      ["upgrade", "--apply-defs", "--kanban"],
+      ["upgrade", "--apply-defs", "--no-defs"],
+      ["upgrade", "--apply-defs", "--apply-mod"],
+    ]) {
+      expect(wipJsonIn(outside, argv).code).toBe(EXIT.USAGE);
     }
   });
 });

@@ -6,6 +6,15 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.6.2 (unreleased)
 
+- `wip upgrade` compares the project's definitions folder with the templates embedded in the running build and says
+  whether `wip init --force` would change anything (`defs: … out of date in .claude/ …`), with the warnings
+  `defs_outdated` and `defs_foreign` and the facts in `--json` as `data.defs`. The new public `--apply-defs` applies
+  that part of `wip init --force` in place — same writer, same `.wip/backups/defs/` backups, `model:` kept, another
+  tool's file refuses with exit 3 — without seeding items, adding unselected flows, switching `defs_dir` or editing
+  `.gitignore`; it needs no npm or registry, and `--no-defs` turns the comparison off. `--check` exits 1 when the npm
+  update is available or the definitions differ; a normal run only proposes, and after an npm upgrade it points at
+  `wip upgrade --apply-defs` for the freshly installed build.
+
 ## 0.6.1 (2026-11-13)
 
 - The `tasks` flow gains recurring tasks: four phases — `todo` plans and waits for the next run, `doing` does the

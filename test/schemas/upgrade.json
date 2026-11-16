@@ -32,7 +32,8 @@
         "rollback",
         "kanban",
         "changelog",
-        "pinned"
+        "pinned",
+        "defs"
       ],
       "additionalProperties": false,
       "properties": {
@@ -120,7 +121,47 @@
             "truncated": { "type": "boolean" }
           }
         },
-        "pinned": { "type": ["string", "null"] }
+        "pinned": { "type": ["string", "null"] },
+        "defs": {
+          "type": ["object", "null"],
+          "required": [
+            "action",
+            "dir",
+            "path",
+            "version",
+            "missing",
+            "changed",
+            "foreign",
+            "kept",
+            "files",
+            "reason"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "action": { "enum": ["current", "outdated", "applied", "skipped"] },
+            "dir": { "type": ["string", "null"] },
+            "path": { "type": ["string", "null"] },
+            "version": { "type": "string" },
+            "missing": { "type": "array", "items": { "type": "string" } },
+            "changed": { "type": "array", "items": { "type": "string" } },
+            "foreign": { "type": "array", "items": { "type": "string" } },
+            "kept": { "type": "array", "items": { "type": "string" } },
+            "files": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["path", "action", "backup"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string" },
+                  "action": { "enum": ["created", "replaced"] },
+                  "backup": { "type": ["string", "null"] }
+                }
+              }
+            },
+            "reason": { "enum": ["no-project", null] }
+          }
+        }
       }
     }
   }

@@ -126,7 +126,11 @@ function keepsModel(key: string, current: string): boolean {
   return key === COORDINATOR_KEY || (genericKeys.has(key) && hasGenericMark(current));
 }
 
-function desired(key: string, template: string, current: string): string {
+/**
+ * The text `wip init --force` writes at `key` given the current text; equal to `current` when it would write nothing.
+ * The one rule both the writer and the drift detector use, so the two can never disagree.
+ */
+export function forcedText(key: string, template: string, current: string): string {
   if (!keepsModel(key, current)) return template;
   const line = modelLine(current);
   return line === null ? template : withModelLine(template, line);
@@ -145,7 +149,7 @@ function placeTemplate(
     return { path: rel, action: "created", backup: null };
   }
   const current = readFileSync(file, "utf8");
-  const text = options.force ? desired(key, template, current) : current;
+  const text = options.force ? forcedText(key, template, current) : current;
   if (text === current) return { path: rel, action: "exists", backup: null };
   const backup = `${BACKUPS_DIR}/${key}.${options.stamp}`;
   write(join(project, backup), current);
