@@ -221,7 +221,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       "`view/item/<flow>/<ID>/artifact/<name>`",
       '**Links:** run `"$WIP_BIN" web status`; on exit 0 append these to its first `LAN:` URL',
       "never `localhost` — and to its first `Local:` URL only when the `LAN:` one says `off`",
-      "otherwise give the artifact's file path",
+      "otherwise give its path relative to the project root",
     ]) {
       expect({ clause, found: kanban.includes(clause) }).toEqual({ clause, found: true });
     }
@@ -411,7 +411,8 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "**Summary:**",
       "**Risk:**",
       "**Questions:**",
-      "Recommended:",
+      "- Q1 <question>",
+      "  (Recommended)  <option> (<one-line reason)>",
       "**If you approve:**",
       "**Details:**",
       "its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one",
@@ -423,6 +424,44 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       expect(skill).toContain(clause);
     }
     for (const icon of ["🟦", "🟩", "🟨", "🟧", "🟥"]) expect(skill).toContain(icon);
+  });
+
+  test("the gate block uses Markdown lists for its questions and files, links each artifact and the item panel, and uses relative paths", () => {
+    const skill = template("skills/wip-coordinate/SKILL.md");
+    const gates = section(skill, "## Gates");
+    for (const clause of [
+      "`Questions` is an unordered Markdown list",
+      "one `- Q1`, `- Q2`… line per question",
+      "- Q1 <question>",
+      "  (Recommended)  <option> (<one-line reason)>",
+      "two spaces under the `Q`",
+      "one blank line separates a question from the next",
+      "`Details` is an unordered Markdown list",
+      "one `- ` line per file, starting at the margin",
+      "- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)",
+      "- <relative path of each relevant file without a page>",
+      "- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
+      "never an absolute path",
+      "with no server it has no panel link",
+      "a gate without an item has no artifact page and no panel link",
+    ]) {
+      expect({ clause, found: gates.includes(clause) }).toEqual({ clause, found: true });
+    }
+    expect(gates).toContain(
+      "- Q1 <question>\n  (Recommended)  <option> (<one-line reason)>\n\n- Q2 <question>\n  (Recommended)  <option> (<one-line reason)>\n\n**If you approve:**",
+    );
+    expect(gates).toContain(
+      "**Details:**\n- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)\n- <relative path of each relevant file without a page>\n- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
+    );
+    expect(gates).not.toContain("Recommended:");
+    expect(gates).not.toMatch(/^Q[0-9]+$/m);
+    expect(gates).not.toMatch(/^    <question>$/m);
+    expect(gates).not.toContain("<absolute path of each relevant file>");
+    expect(gates).not.toContain("<url of the item's detail in wip web");
+    expect(gates).not.toMatch(/^    (- )?(\[<artifact name>\]|<relative path|<base>\?item=)/m);
+    expect(section(skill, "## Messages")).toContain(
+      "File paths in messages and `Details` are written relative to the project root",
+    );
   });
 
   test("wip-coordinate lets the coordinator run only wip by Bash and sends definition changes to a run without item", () => {

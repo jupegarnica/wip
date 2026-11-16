@@ -185,33 +185,42 @@ Block format, as text, before the `AskUserQuestion` call:
     <what is irreversible, visible to others or uncertain; what it does not cover; how to undo it>
 
 **Questions:**
-Q1
-    <question>
-Recommended:
-    <option> (<one-line reason)>
-Q2
-    <question>
-Recommended:
-    <option> (<one-line reason)>
+- Q1 <question>
+  (Recommended)  <option> (<one-line reason)>
+
+- Q2 <question>
+  (Recommended)  <option> (<one-line reason)>
 
 **If you approve:**
     <exactly what happens next: commands, or the literal text>
 
 **Details:**
-    <absolute path of each relevant file>
-    <url of the item's detail in wip web, its LAN URL with ?item=<flow>/<ID>>
+- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)
+- <relative path of each relevant file without a page>
+- [<flow>/<ID>](<base>?item=<flow>/<ID>)
 ```
 
 **The block.** The header is followed by one blank line. `Summary` is one paragraph, not a list: what the
 phase produced or proposes, green or red and why. `Risk` is always present, even «none known»: what is
-irreversible, visible to others or uncertain, what it does not cover and how to undo it. `Questions` lists
-Q1, Q2…: each question and `Recommended:`, the option this coordinator recommends and a one-line reason; the
-options and their consequences are in `AskUserQuestion`, not in the block. `If you approve` says exactly what
-happens next. `Details` lists the absolute path of each relevant file and, for an item gate, the item's URL in
-`wip web` (`?item=<flow>/<ID>`): its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one
-says `off`, both built as «The kanban» in `<defs>/agents/wip.md` says; a gate without an item lists the paths only. Keep the block's spacing: one
-blank line before each bold title, no blank line between a title and its text, and four spaces of indentation
-for the inner text. Use bold titles (`**Summary:**`), not Markdown headings.
+irreversible, visible to others or uncertain, what it does not cover and how to undo it.
+`Questions` is an unordered Markdown list, one `- Q1`, `- Q2`… line per question with the question on the same line;
+a question with a recommendation has the line `  (Recommended)  <option> (<one-line reason)>` as a continuation
+of its item — two spaces under the `Q`, `(Recommended)`, two spaces and the option — and one blank line separates a question from the next,
+also when it has no recommendation. The options and their consequences are in `AskUserQuestion`, not in the
+block; `(Recommended)` names the option sent first there. `If you approve` says exactly what happens next.
+`Details` is an unordered Markdown list, one `- ` line per file, starting at the margin: an artifact of the
+item as `- [<name>](<base>view/item/<flow>/<ID>/artifact/<name>)`; every other file as
+`- <its path relative to the project root>`, the folder that holds `.wip/`, and a definitions folder under
+`~/…` as `- ~/…`; never an absolute path. `<base>` is the URL «The kanban» in `<defs>/agents/wip.md` builds,
+trailing `/` included: its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one
+says `off`. With no server, or for a file without a page — not a regular file directly inside
+`.wip/items/<flow>/<ID>/`, or inside its `tmp/` — `Details` writes `- ` and that relative path instead of a
+link. With a server, an item gate ends with `- [<flow>/<ID>](<base>?item=<flow>/<ID>)`; with no server it has no panel link;
+a gate without an item has no artifact page and no panel link, so it lists relative paths only.
+Keep the block's spacing: one blank line before each bold title, no blank line between a title and its text,
+four spaces of indentation for the inner text except the `- ` lines of the `Questions` and `Details` lists,
+which start at the margin, and a question's recommendation line, indented two spaces to continue its item.
+Use bold titles (`**Summary:**`), not Markdown headings.
 
 ## Messages
 
@@ -232,7 +241,8 @@ Every message to the user starts with a header: `<icon> <TYPE> · <ID> · <phase
 - `🟪 NEXT` is a list of suggestions: it has no item header and always comes last.
 - A turn that opens a gate ends with the 🟧 block and its question and options; it has no `🟪 NEXT`. `🟪 NEXT` is for
   turns without an open gate.
-- File paths are written in full so the user can open them.
+- File paths in messages and `Details` are written relative to the project root (or `~/…` for a definitions
+  folder under home), never absolute, so the user can open them.
 
 ## Your turn
 
