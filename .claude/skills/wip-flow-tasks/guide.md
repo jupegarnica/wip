@@ -125,8 +125,8 @@ gives you its address (`Local:`, by default `http://localhost:33333/` or the nex
 - **LAN:** besides `Local:`, it listens on your private network address (`LAN:`), with no authentication. Start it
   with `--local` on networks you do not trust.
 
-The coordinator gives you these links ready to open. When the kanban is down it gives you the artifact's file path
-instead.
+The coordinator gives you these links ready to open. When the kanban is down it gives you each file's path relative
+to the project instead.
 
 ## Useful commands
 

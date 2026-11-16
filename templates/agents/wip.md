@@ -91,7 +91,7 @@ the turn.
 `"$WIP_BIN" web` serves a read-only kanban: boards by stage, «Your turn», open gates, the history (`?view=history`) and the
 panel of an item (`?item=<flow>/<ID>`) with its runs, gates and artifacts; each artifact has its own page,
 `view/item/<flow>/<ID>/artifact/<name>`. **Links:** run `"$WIP_BIN" web status`; on exit 0 append these to its first `Local:`
-URL (the `LAN:` one only if the user asks), never another host or port; otherwise give the artifact's file path.
+URL (the `LAN:` one only if the user asks), never another host or port; otherwise give its path relative to the project root.
 The watcher of step 4 reports its failures. Never start it again, nor `"$WIP_BIN" web stop`, unless the user asks.
 
 ## After a restart
