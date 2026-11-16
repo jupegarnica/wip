@@ -4,8 +4,11 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.6.2 (unreleased)
+## 0.6.2 (2026-11-16)
 
+- The coordinator prints the LAN address of `wip web` whenever it shows a URL and falls back to the `Local:` one
+  only when the server has none; the Kanban mod links each row to the server's `lan_url`, uses its `url` only
+  without a LAN, and keeps the configured `webUrl` as the fallback while no server answers.
 - `wip upgrade` compares the project's definitions folder with the templates embedded in the running build and says
   whether `wip init --force` would change anything (`defs: … out of date in .claude/ …`), with the warnings
   `defs_outdated` and `defs_foreign` and the facts in `--json` as `data.defs`. The new public `--apply-defs` applies
@@ -14,6 +17,16 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
   `.gitignore`; it needs no npm or registry, and `--no-defs` turns the comparison off. `--check` exits 1 when the npm
   update is available or the definitions differ; a normal run only proposes, and after an npm upgrade it points at
   `wip upgrade --apply-defs` for the freshly installed build.
+- The board's header shows the project's name in the centre, flanked by two chevrons that move the board to the
+  previous or next port in the same tab, changing only the port of the URL. The centre column keeps a fixed width so
+  it never grows, a long name is cut with an ellipsis, the chevrons are bare icons and not buttons, and on narrow
+  screens the header wraps with the view tabs on a second row.
+- The gate block of `wip-coordinate` writes `Questions` as a Markdown list, one `- Q1 <question>` item per question
+  with its recommendation as a two-space continuation line, and `Details` as a Markdown list, one `- ` line per
+  file: an item artifact linked to its page under the kanban base, every other file as a path relative to the
+  project root, and the item panel link when there is a server. The coordinator's Messages rule and the
+  `agents/wip.md` and tasks-guide fallbacks ask for relative paths too, and both copies of the three definitions
+  stay byte-identical.
 
 ## 0.6.1 (2026-11-13)
 
