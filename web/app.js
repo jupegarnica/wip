@@ -57,6 +57,9 @@ const historyPrev = document.getElementById("history-prev");
 const historyNext = document.getElementById("history-next");
 const tabNotice = document.getElementById("tab-notice");
 const tabLock = document.getElementById("tab-lock");
+const projectName = document.getElementById("project-name");
+const projectPrev = document.getElementById("project-prev");
+const projectNext = document.getElementById("project-next");
 const itemTabs = WipItemTabs.create({ onTakeOver: handOver });
 
 let view = initialView();
@@ -1410,6 +1413,52 @@ function setView(next) {
   else if (lastData) render(lastData);
 }
 
+// ---- Project name and port arrows -------------------------------------------------------------------------------
+
+const PORT_MIN = 1;
+const PORT_MAX = 65535;
+
+// The port in the address bar: the one the arrows move from. An empty one is the protocol's default.
+function portFrom(loc) {
+  if (loc.port) return Number(loc.port);
+  if (loc.protocol === "http:") return 80;
+  if (loc.protocol === "https:") return 443;
+  return null;
+}
+
+// One port down (step -1) or up (step +1), or null when there is no valid port to move to.
+function neighbourPort(loc, step) {
+  const port = portFrom(loc);
+  if (!Number.isInteger(port)) return null;
+  const next = port + step;
+  return next >= PORT_MIN && next <= PORT_MAX ? next : null;
+}
+
+// The same page on the neighbouring port: only the port changes, path, query and hash stay.
+function neighbourUrl(loc, step) {
+  const next = neighbourPort(loc, step);
+  if (next === null) return null;
+  const url = new URL(loc.href);
+  url.port = String(next);
+  return url.href;
+}
+
+// The arrows navigate this tab and nothing else; whether a board answers there is the browser's business.
+function goPort(step) {
+  const href = neighbourUrl(window.location, step);
+  if (href) window.location.assign(href);
+}
+
+// The title names the port each arrow goes to; at 1, at 65535 or without a port the arrow is inert.
+function paintPortNav() {
+  const prev = neighbourPort(window.location, -1);
+  const next = neighbourPort(window.location, 1);
+  projectPrev.disabled = prev === null;
+  projectNext.disabled = next === null;
+  if (prev !== null) projectPrev.title = `Previous project: port ${prev}`;
+  if (next !== null) projectNext.title = `Next project: port ${next}`;
+}
+
 async function loadProject() {
   try {
     const res = await fetch("/health", {
@@ -1418,7 +1467,11 @@ async function loadProject() {
     });
     const health = await res.json();
     const name = String(health.name || "");
-    if (name) document.title = name;
+    if (name) {
+      projectName.textContent = name;
+      projectName.title = name;
+      document.title = name;
+    }
   } catch (_) {
     // keep the default title
   }
@@ -1437,9 +1490,12 @@ tabLock.addEventListener("click", () => {
   writeLockState(itemTabs.isLocked());
   paintLock();
 });
+projectPrev.addEventListener("click", () => goPort(-1));
+projectNext.addEventListener("click", () => goPort(1));
 // setViewParam() already ran and kept history.state: read it after it so every load exercises replaceUrl().
 itemTabs.setLocked(readLockState());
 paintLock();
+paintPortNav();
 loadProject();
 poll();
 

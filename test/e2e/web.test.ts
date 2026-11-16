@@ -962,7 +962,7 @@ describe("wip web · a disabled flow", () => {
 });
 
 describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
-  test("the project name is only the browser tab title, with no wip prefix or placeholder", async () => {
+  test("the project name is the browser tab title and the header's centre, with no wip prefix or placeholder", async () => {
     const p = board();
     await serve(p);
     const health = await getJson("/health");
@@ -971,12 +971,15 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
 
     const html = WEB["index.html"] as string;
     expect(html).toContain("<title></title>");
+    expect(html).toContain('id="project-name"');
     expect(html).not.toContain('id="title"');
     expect(html).not.toContain("<h1");
     expect(html).not.toContain(">wip<");
 
     const app = WEB["app.js"] as string;
     expect(app).toContain("health.name");
+    expect(app).toContain("projectName.textContent = name;");
+    expect(app).toContain("projectName.title = name;");
     expect(app).toContain("document.title = name;");
     expect(app).not.toContain("titleEl");
     expect(app).not.toContain('getElementById("title")');
@@ -1156,16 +1159,50 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(topStart).toBeGreaterThan(header);
     expect(lock).toBeGreaterThan(topStart);
     expect(status).toBeGreaterThan(lock);
+    const nav = html.indexOf('<nav class="project-nav"');
+    const prev = html.indexOf('id="project-prev"');
+    const name = html.indexOf('id="project-name"');
+    const next = html.indexOf('id="project-next"');
+    expect(nav).toBeGreaterThan(status);
+    expect(prev).toBeGreaterThan(nav);
+    expect(name).toBeGreaterThan(prev);
+    expect(next).toBeGreaterThan(name);
+    expect(next).toBeLessThan(views);
     expect(views).toBeGreaterThan(status);
     expect(views).toBeLessThan(headerEnd);
     expect(lock).toBeLessThan(html.indexOf('<main id="board"'));
+    expect(html).toContain('aria-label="Previous project"');
+    expect(html).toContain('aria-label="Next project"');
+    expect(html).toContain("‹");
+    expect(html).toContain("›");
     expect(html).not.toContain('class="top-end"');
     expect(html).not.toContain('id="title"');
 
     const css = WEB["app.css"] as string;
     expect(css).toContain(".top-start");
+    for (const needle of [
+      ".project-nav",
+      ".project-name",
+      ".project-step",
+      ".project-step:disabled",
+    ]) {
+      expect(css).toContain(needle);
+    }
     expect(css).not.toContain(".top-end");
     expect(css).not.toContain(".top h1");
+    // The centre block keeps a fixed, non-growing width and the name is cut with an ellipsis inside it.
+    expect(css).toContain("minmax(0, 1fr) 32ch minmax(0, 1fr)");
+    expect(css).toContain("text-overflow: ellipsis");
+    // The chevrons are bare icons: no border, no background box.
+    const step = css.slice(css.indexOf(".project-step {"));
+    const stepRule = step.slice(0, step.indexOf("}"));
+    expect(stepRule).toContain("border: 0");
+    expect(stepRule).toContain("background: none");
+    expect(stepRule).not.toContain("border-radius");
+    expect(stepRule).not.toContain("var(--surface)");
+    // On a narrow screen the header wraps and the views move to their own row.
+    expect(css).toContain("@media (max-width: 840px)");
+    expect(css).toContain('"views views views"');
 
     const button = html.slice(lock, html.indexOf("</button>", lock));
     for (const needle of [
@@ -1352,6 +1389,50 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(panelTotals({ ...totals, running: 2 }).children[2]?.textContent).toBe(
       "3 runs (2 running) · 2 gates",
     );
+  });
+
+  test("the port arrows move one port and nothing else, in the same tab", () => {
+    const app = WEB["app.js"] as string;
+    const source = app.slice(app.indexOf("const PORT_MIN"), app.indexOf("function goPort("));
+    const context: Record<string, unknown> = { URL };
+    runInNewContext(
+      `${source}\nglobalThis.neighbourUrl = neighbourUrl; globalThis.neighbourPort = neighbourPort;`,
+      context,
+      { filename: "app.js" },
+    );
+    type TLoc = { href: string; port: string; protocol: string };
+    const { neighbourUrl, neighbourPort } = context as unknown as {
+      neighbourUrl: (loc: TLoc, step: number) => string | null;
+      neighbourPort: (loc: TLoc, step: number) => number | null;
+    };
+    const at = (port: string, protocol = "http:", path = "/"): TLoc => ({
+      href: `${protocol}//localhost${port ? `:${port}` : ""}${path}`,
+      port,
+      protocol,
+    });
+
+    expect(neighbourUrl(at("33333"), -1)).toBe("http://localhost:33332/");
+    expect(neighbourUrl(at("33333"), 1)).toBe("http://localhost:33334/");
+    expect(neighbourUrl(at("33333", "http:", "/?view=history&item=a%2Fb#x"), -1)).toBe(
+      "http://localhost:33332/?view=history&item=a%2Fb#x",
+    );
+    expect(neighbourUrl(at("1"), -1)).toBeNull();
+    expect(neighbourUrl(at("65535"), 1)).toBeNull();
+    expect(neighbourPort(at("1"), 1)).toBe(2);
+    expect(neighbourPort(at("65535"), -1)).toBe(65534);
+    expect(neighbourPort(at("", "http:"), -1)).toBe(79);
+    expect(neighbourPort(at("", "http:"), 1)).toBe(81);
+    expect(neighbourPort(at("", "https:"), -1)).toBe(442);
+    expect(neighbourPort(at("", "https:"), 1)).toBe(444);
+    expect(neighbourPort(at("", "file:"), 1)).toBeNull();
+    expect(neighbourUrl(at("", "file:"), 1)).toBeNull();
+    expect(neighbourPort(at("abc"), 1)).toBeNull();
+
+    const go = app.slice(app.indexOf("function goPort("), app.indexOf("function paintPortNav("));
+    expect(go).toContain("window.location.assign(href)");
+    for (const gone of ["fetch(", "web status", "_blank", "window.open"]) {
+      expect({ gone, found: go.includes(gone) }).toEqual({ gone, found: false });
+    }
   });
 
   test("the page files and the vendored marked bundle are served as embedded, with their types", async () => {
@@ -1551,6 +1632,26 @@ describe("wip web · rendered Markdown (F-WEB-02)", () => {
     writeFileSync(join(dir, "big.md"), `# Big\n\n${"x".repeat(520 * 1024)}\n`);
     return p;
   }
+
+  test("the header shows the project's name between the two port arrows", async () => {
+    const p = board();
+    const dom = await page(p, "/");
+    const doc = dom.window.document;
+    try {
+      const el = await until(() => {
+        const name = doc.getElementById("project-name");
+        return name?.textContent ? name : null;
+      });
+      const base = String(p.dir).split(/[\\/]/).pop() ?? "";
+      expect(el.textContent).toBe(base);
+      expect(doc.title).toBe(base);
+      const port = Number(dom.window.location.port);
+      expect(doc.getElementById("project-prev")?.title).toBe(`Previous project: port ${port - 1}`);
+      expect(doc.getElementById("project-next")?.title).toBe(`Next project: port ${port + 1}`);
+    } finally {
+      dom.window.close();
+    }
+  });
 
   test("GFM renders, raw HTML and links pass, javascript: is cancelled, over 512 KB is plain text", async () => {
     const dom = await page(withArtifacts());

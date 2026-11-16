@@ -29,6 +29,11 @@
         </button>
         <span id="status" class="status status--wait" role="status" aria-live="polite">loading…</span>
       </div>
+      <nav class="project-nav" aria-label="Project">
+        <button type="button" id="project-prev" class="project-step" aria-label="Previous project" title="Previous project"><span aria-hidden="true">‹</span></button>
+        <span id="project-name" class="project-name"></span>
+        <button type="button" id="project-next" class="project-step" aria-label="Next project" title="Next project"><span aria-hidden="true">›</span></button>
+      </nav>
       <fieldset class="views" aria-label="View">
         <button type="button" data-view="grouped" aria-pressed="true" title="Open items: one column per stage">Grouped</button>
         <button type="button" data-view="expanded" aria-pressed="false" title="Open items: one column per phase, with every detail">Expanded</button>

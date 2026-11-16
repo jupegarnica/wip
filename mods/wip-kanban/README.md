@@ -83,14 +83,14 @@ next session.
   opens in the tab that was just clicked (each port has its own tab; on the LAN there is no deduplication). The rule
   covers any URL of the board, with or without an item; the artifact page (`/view/...`) is outside it and can stay
   open beside the board. The
-  board page also shows the padlock and the poll status in the top-left of its header (the project name is the
-  browser tab title), with the padlock open by default. With it closed the page refuses the takeover, keeps its
-  item and is never closed automatically; the tab that asked shows its item with “This project is locked in
-  another tab.” and stays. The padlock is kept in the tab's history entry, so a reload keeps it closed and a new
-  tab starts open (duplicating the tab can copy it); it does not stop closing the tab by hand. When no
-  server of this project runs, the row uses
-  `webUrl` (default `http://localhost:33333/`) instead, so two projects on different ports each link to their own.
-  The board works without the server, but the link needs `wip web` running (terminal link opening may need
+  board page also shows the padlock and the poll status on the left of its header and the project name in the
+  centre, between the two port chevrons (the name is also the browser tab title), with the padlock open by default.
+  On a narrow screen the tabs drop below the name. With it closed the page refuses the takeover, keeps its item and
+  is never closed automatically; the tab that asked shows its item with “This project is locked in another tab.”
+  and stays. The padlock is kept in the tab's history entry, so a reload keeps it closed and a new tab starts open
+  (duplicating the tab can copy it); it does not stop closing the tab by hand. When no server of this project runs,
+  the row uses `webUrl` (default `http://localhost:33333/`) instead, so two projects on different ports each link to
+  their own. The board works without the server, but the link needs `wip web` running (terminal link opening may need
   Cmd/Ctrl).
 
 ## Configuration
