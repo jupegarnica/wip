@@ -229,11 +229,10 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .top-row {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 32ch minmax(0, 1fr);
   gap: 8px 16px;
   align-items: center;
-  justify-content: space-between;
 }
 /* The padlock and the poll status lead the header where the project title used to be; the name is the tab title. */
 .top-start {
@@ -242,6 +241,54 @@ body {
   align-items: center;
   gap: 8px;
   min-width: 0;
+}
+/* The padlock and the status, the project's name between its two port chevrons, and the views share the header.
+   The two side columns are equal and the middle one has a fixed width that never grows, so the centre stays
+   centred and a long name is cut with an ellipsis instead of pushing the sides apart; the views hug the right. */
+.views {
+  justify-self: end;
+}
+.project-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+/* The chevrons are bare icons, not buttons: no border and no box. Their 20px width is the whole hit area. */
+.project-step {
+  display: inline-flex;
+  flex: 0 0 20px;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+.project-step:hover:not(:disabled) {
+  color: var(--text);
+}
+.project-step:disabled {
+  color: var(--muted);
+  opacity: 0.35;
+  cursor: default;
+}
+.project-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  /* The fixed width minus the two 20px chevrons and the two 6px gaps. */
+  max-width: calc(100% - 52px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
 }
 /* Open gates: above «Your turn», one line each; the section is hidden without gates. */
 .gates {
@@ -446,7 +493,8 @@ ol.env-list {
 .linkish:focus-visible,
 .flow-toggle:focus-visible,
 .card:focus-visible,
-.tab-lock:focus-visible {
+.tab-lock:focus-visible,
+.project-step:focus-visible {
   outline: 2px solid var(--ok);
   outline-offset: 1px;
 }
@@ -1123,5 +1171,35 @@ html:has(.page-view) {
 @media (min-width: 1200px) {
   body.with-panel .history {
     margin-right: 560px;
+  }
+}
+/* Narrow screens: the header wraps and the views drop to their own row so the tabs are never clipped, while the
+   name keeps its fixed width and stays centred in the row above them. */
+@media (max-width: 840px) {
+  .top-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) min(32ch, 42vw) minmax(0, 1fr);
+    grid-template-areas:
+      "start nav ."
+      "views views views";
+    gap: 8px 12px;
+  }
+  .top-start {
+    grid-area: start;
+  }
+  .project-nav {
+    grid-area: nav;
+    justify-self: stretch;
+  }
+  .views {
+    grid-area: views;
+    justify-self: start;
+    justify-content: flex-start;
+    max-width: 100%;
+    overflow: visible;
+  }
+  .history-filters input[type="search"] {
+    width: 100%;
+    max-width: 260px;
   }
 }

@@ -70,17 +70,21 @@ browser without BroadcastChannel) never closes itself: it keeps its URL and show
 tab.». The artifact page (`/view/item/.../artifact/...`) is deliberately outside the rule: it takes no lock and has
 no padlock, so the board and an artifact can stay open together. Origins are scheme, host and port, so another port
 has its own tab, and `localhost` and `127.0.0.1` do not share one. Every view of the board shows the padlock and the
-poll status in the top-left of its header, where the project title used to be; the project name is only the browser
-tab title. The padlock is open by default: open means another tab may take the origin over and close this one;
-clicking it closes the padlock, and that tab then refuses the takeover, keeps its item and is never closed
-automatically. The tab that asked opens its item without focus, if it has one, shows the notice «This project is
-locked in another tab.» and stays open. The padlock is kept in this tab's history entry, so reloading the tab keeps
-it closed; a new tab (including one opened with `window.open`) starts open, the state is not shared with other tabs,
-and a duplicated tab may inherit it when the browser copies the history entry. It only blocks the automatic close,
-and closing the tab by hand always works (whether `window.close()` works at all still depends on the browser). On the
+poll status on the left of its header, the project name in the centre between two small chevron icons (`‹` and `›`,
+not buttons: no border and no box, the name keeps a fixed width and a long one is cut with an ellipsis), and the
+tabs on the right. `‹` goes to the previous project, one port less, and `›` to the next one, one port more: only the
+port of the URL changes (same scheme, host, path, query and hash) and the page navigates in the same tab, without
+checking whether a board answers there. On port 1, on port 65535 or without a port to move from, the chevron does
+nothing and is disabled. On a narrow screen the header wraps and the tabs drop to a second line below the name.
+The padlock is open by default: open means another tab may take the origin over and close this one; clicking it
+closes the padlock, and that tab then refuses the takeover, keeps its item and is never closed automatically. The
+tab that asked opens its item without focus, if it has one, shows the notice «This project is locked in another
+tab.» and stays open. The padlock is kept in this tab's history entry, so reloading the tab keeps it closed; a new
+tab (including one opened with `window.open`) starts open, the state is not shared with other tabs, and a
+duplicated tab may inherit it when the browser copies the history entry. It only blocks the automatic close, and
+closing the tab by hand always works (whether `window.close()` works at all still depends on the browser). On the
 LAN (`http://<ip>`, where Web Locks is unavailable) and in browsers without Web Locks every tab is its own page, as
-before: no deduplication, no message, no notice, and the padlock has
-no effect.
+before: no deduplication, no message, no notice, and the padlock has no effect.
 
 While it serves, each server records its PID and port in `.wip/web/<port>.json`, and `.wip/logs/web.log` gets the
 start with its addresses, every port skipped, every response with status ≥ 400, every error and the stop; past 1 MB
