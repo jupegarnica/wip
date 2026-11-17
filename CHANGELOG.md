@@ -6,6 +6,11 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.6.3 (unreleased)
 
+- The coordinator writes every project-relative file path in a message or `Details` starting with `./`, including a
+  path that already starts with a dot (`.wip/…` becomes `./.wip/…`); a definitions folder under home stays `~/…`. The
+  `Details` template, the Messages rule, the kanban fallback in `agents/wip.md` and the tasks guide follow, in both
+  `.claude/` and `templates/`, and `test/unit/templates.test.ts` quotes the new wording.
+
 ## 0.6.2 (2026-11-16)
 
 - The coordinator prints the LAN address of `wip web` whenever it shows a URL and falls back to the `Local:` one

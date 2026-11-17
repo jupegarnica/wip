@@ -221,7 +221,7 @@ describe("agent templates (F-AGE-01, F-AGE-02, F-AGE-14)", () => {
       "`view/item/<flow>/<ID>/artifact/<name>`",
       '**Links:** run `"$WIP_BIN" web status`; on exit 0 append these to its first `LAN:` URL',
       "never `localhost` — and to its first `Local:` URL only when the `LAN:` one says `off`",
-      "otherwise give its path relative to the project root",
+      "otherwise give its path relative to the project root, starting with `./`",
     ]) {
       expect({ clause, found: kanban.includes(clause) }).toEqual({ clause, found: true });
     }
@@ -426,7 +426,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     for (const icon of ["🟦", "🟩", "🟨", "🟧", "🟥"]) expect(skill).toContain(icon);
   });
 
-  test("the gate block uses Markdown lists for its questions and files, links each artifact and the item panel, and uses relative paths", () => {
+  test("the gate block uses Markdown lists for its questions and files, links each artifact and the item panel, and uses project-relative paths that start with `./`", () => {
     const skill = template("skills/wip-coordinate/SKILL.md");
     const gates = section(skill, "## Gates");
     for (const clause of [
@@ -439,7 +439,7 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "`Details` is an unordered Markdown list",
       "one `- ` line per file, starting at the margin",
       "- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)",
-      "- <relative path of each relevant file without a page>",
+      "- ./<path of each relevant file without a page>",
       "- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
       "never an absolute path",
       "with no server it has no panel link",
@@ -451,16 +451,16 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "- Q1 <question>\n  (Recommended)  <option> (<one-line reason)>\n\n- Q2 <question>\n  (Recommended)  <option> (<one-line reason)>\n\n**If you approve:**",
     );
     expect(gates).toContain(
-      "**Details:**\n- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)\n- <relative path of each relevant file without a page>\n- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
+      "**Details:**\n- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)\n- ./<path of each relevant file without a page>\n- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
     );
     expect(gates).not.toContain("Recommended:");
     expect(gates).not.toMatch(/^Q[0-9]+$/m);
     expect(gates).not.toMatch(/^    <question>$/m);
     expect(gates).not.toContain("<absolute path of each relevant file>");
     expect(gates).not.toContain("<url of the item's detail in wip web");
-    expect(gates).not.toMatch(/^    (- )?(\[<artifact name>\]|<relative path|<base>\?item=)/m);
+    expect(gates).not.toMatch(/^    (- )?(\[<artifact name>\]|<path|<base>\?item=)/m);
     expect(section(skill, "## Messages")).toContain(
-      "File paths in messages and `Details` are written relative to the project root",
+      "File paths in messages and `Details` are written relative to the project root and start with `./`",
     );
   });
 
@@ -776,6 +776,7 @@ describe("the tasks flow template (F-NEW-03, F-FLC-03, F-FLU-15)", () => {
     for (const name of names) {
       expect({ name, found: guide.includes(name) }).toEqual({ name, found: true });
     }
+    expect(guide).toContain("starting with `./`");
   });
 
   test("the tasks flow declares no stages; a staged flow passes lint, a stage split in two does not", () => {

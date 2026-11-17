@@ -196,7 +196,7 @@ Block format, as text, before the `AskUserQuestion` call:
 
 **Details:**
 - [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)
-- <relative path of each relevant file without a page>
+- ./<path of each relevant file without a page>
 - [<flow>/<ID>](<base>?item=<flow>/<ID>)
 ```
 
@@ -210,13 +210,13 @@ also when it has no recommendation. The options and their consequences are in `A
 block; `(Recommended)` names the option sent first there. `If you approve` says exactly what happens next.
 `Details` is an unordered Markdown list, one `- ` line per file, starting at the margin: an artifact of the
 item as `- [<name>](<base>view/item/<flow>/<ID>/artifact/<name>)`; every other file as
-`- <its path relative to the project root>`, the folder that holds `.wip/`, and a definitions folder under
-`~/…` as `- ~/…`; never an absolute path. `<base>` is the URL «The kanban» in `<defs>/agents/wip.md` builds,
+`- ./<its path relative to the project root>`, the folder that holds `.wip/` included, and a definitions
+folder under `~/…` as `- ~/…`; never an absolute path. `<base>` is the URL «The kanban» in `<defs>/agents/wip.md` builds,
 trailing `/` included: its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one
 says `off`. With no server, or for a file without a page — not a regular file directly inside
-`.wip/items/<flow>/<ID>/`, or inside its `tmp/` — `Details` writes `- ` and that relative path instead of a
-link. With a server, an item gate ends with `- [<flow>/<ID>](<base>?item=<flow>/<ID>)`; with no server it has no panel link;
-a gate without an item has no artifact page and no panel link, so it lists relative paths only.
+`.wip/items/<flow>/<ID>/`, or inside its `tmp/` — `Details` writes `- ` and that path, starting with `./`,
+instead of a link. With a server, an item gate ends with `- [<flow>/<ID>](<base>?item=<flow>/<ID>)`; with no server it has no panel link;
+a gate without an item has no artifact page and no panel link, so it lists paths only, each starting with `./`.
 Keep the block's spacing: one blank line before each bold title, no blank line between a title and its text,
 four spaces of indentation for the inner text except the `- ` lines of the `Questions` and `Details` lists,
 which start at the margin, and a question's recommendation line, indented two spaces to continue its item.
@@ -241,8 +241,9 @@ Every message to the user starts with a header: `<icon> <TYPE> · <ID> · <phase
 - `🟪 NEXT` is a list of suggestions: it has no item header and always comes last.
 - A turn that opens a gate ends with the 🟧 block and its question and options; it has no `🟪 NEXT`. `🟪 NEXT` is for
   turns without an open gate.
-- File paths in messages and `Details` are written relative to the project root (or `~/…` for a definitions
-  folder under home), never absolute, so the user can open them.
+- File paths in messages and `Details` are written relative to the project root and start with `./`
+  (`./src/main.ts`, `./.wip/items/<flow>/<ID>/v1.plan.md`); a definitions folder under home is `~/…`. Never
+  write an absolute path, so the user can open them.
 
 ## Your turn
 
@@ -378,7 +379,7 @@ onboarding item, and this section does nothing.
    one line that «Start of every session» adds while it is still not started.
 2. **Step 1 · the guide.** When the user wants to start: `"$WIP_BIN" log onboarding "<their words>" --kind user`, then one 🟦
    message with the link to `guide.md` and the link to the item's panel, built as «The kanban» in
-   `<defs>/agents/wip.md` says (with the kanban down, the full path of `guide.md` in its `artifact_dir`), then
+   `<defs>/agents/wip.md` says (with the kanban down, its path relative to the project root, `./.wip/items/tasks/onboarding/guide.md`), then
    `"$WIP_BIN" wait onboarding user --next "read the guide and find this task on the kanban"`.
    In the same 🟦, one line more: the flows and agents are yours to change — edit one, disable one you do not use, or
    create a new flow or agent by asking; «Your own flows and agents» in the guide says how.
