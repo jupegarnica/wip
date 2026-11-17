@@ -76,13 +76,12 @@ next session.
   legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
 - Clicking a row opens this project's running `wip web`, found with `wip web status --json` (polled about every
   15 s): its `LAN` address (`lan_url`) at `?item=<flow>/<id>` when the server has one, or its `Local` address
-  (`url`) only when it has none (`--local` or no private IPv4); the web shows that item's panel. In `localhost`,
-  clicking a row again does not
-  open a second tab of the same origin: the new tab asks the open one for the origin, the open tab hands it over and
-  tries to close itself (best-effort: if the browser refuses, it stays with a notice and no ownership), so the item
-  opens in the tab that was just clicked (each port has its own tab; on the LAN there is no deduplication). The rule
-  covers any URL of the board, with or without an item; the artifact page (`/view/...`) is outside it and can stay
-  open beside the board. The
+  (`url`) only when it has none (`--local` or no private IPv4); the web shows that item's panel. Clicking it
+  again does not open a second tab of the same origin, `localhost` or the LAN address alike: the new tab asks the
+  open one for the origin, the open tab hands it over and tries to close itself (best-effort: if the browser
+  refuses, it stays with a notice and no ownership), so the item opens in the tab that was just clicked (each port
+  and each origin has its own tab). The rule covers any URL of the board, with or without an item; the artifact
+  page (`/view/...`) is outside it and can stay open beside the board. The
   board page also shows the padlock and the poll status on the left of its header and the project name in the
   centre, between the two port chevrons (the name is also the browser tab title), with the padlock open by default.
   On a narrow screen the tabs drop below the name. With it closed the page refuses the takeover, keeps its item and

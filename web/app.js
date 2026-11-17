@@ -1482,7 +1482,10 @@ paintView();
 setViewParam();
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible") poll();
+  if (document.visibilityState === "visible") {
+    itemTabs.beat();
+    poll();
+  }
 });
 setInterval(paintStatus, 1000);
 tabLock.addEventListener("click", () => {
@@ -1495,11 +1498,15 @@ projectNext.addEventListener("click", () => goPort(1));
 // setViewParam() already ran and kept history.state: read it after it so every load exercises replaceUrl().
 itemTabs.setLocked(readLockState());
 paintLock();
+window.addEventListener("pagehide", () => itemTabs.release());
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) itemTabs.resume();
+});
 paintPortNav();
 loadProject();
 poll();
 
-// One tab per origin in `localhost`: any board URL asks the open tab for the handover, item or not.
+// One tab per origin, in `localhost` and on the LAN: any board URL asks the open tab for the handover, item or not.
 async function start() {
   const linked = (new URLSearchParams(window.location.search).get("item") || "").split("/");
   const wanted =

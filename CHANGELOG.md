@@ -6,6 +6,12 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.6.4 (unreleased)
 
+- `wip web` keeps one tab per origin on `localhost` and on the LAN address: ownership travels over
+  `BroadcastChannel` instead of Web Locks, so a plain-HTTP `http://<ip>` board deduplicates too. The owner hears
+  a claim, gives up the origin and tries to close itself (best-effort, with the moved notice); padlocked tabs
+  refuse and survive, a heartbeat and a stale-owner timeout replace a crashed or throttled owner, `pagehide`
+  frees the origin at once, and without `BroadcastChannel` every tab is its own page as before.
+
 ## 0.6.3 (2026-11-17)
 
 - The coordinator writes every project-relative file path in a message or `Details` starting with `./`, including a
