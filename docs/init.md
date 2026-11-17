@@ -35,10 +35,10 @@ It never overwrites: a second run says `exists` for each file and changes nothin
 carry a `wip:` mark in their frontmatter (every file `wip init` writes), copying each one first to
 `.wip/backups/defs/`, and keeps the `model:` line of the generic agents and the coordinator; any other edit stays
 only in the backup. A file at one of those paths without a `wip:` mark is another tool's: `wip init` exits 3 without
-writing anything and names it, also with `--force`. To refresh only the definitions, with the same writer, backups and
-`model:` preservation but no seeding of items, no unselected flow, no `defs_dir` switch and no `.gitignore` change, use
-[`wip upgrade --apply-defs`](upgrade.md#the-definitions): it applies the templates of the running build to the folder in
-place, and `wip upgrade` says first whether `--force` would change anything.
+writing anything and names it, also with `--force`. A normal [`wip upgrade`](upgrade.md) asks before writing them in a
+terminal, and `wip upgrade --apply-defs` does the same with the same writer, backups and `model:` preservation but no
+seeding of items, no unselected flow, no `defs_dir` switch and no `.gitignore` change: it applies the templates of the
+running build to the folder in place, and `wip upgrade` says first whether `--force` would change anything.
 
 `wip init` also creates the items a flow lists under `seed` in its block, and copies each seed's `files` from the
 flow's skill folder into the item's artifact directory. The `tasks` flow, when the run writes it, seeds one,
@@ -77,9 +77,10 @@ to in full (`/Users/you/.claude/agents/fast.md`), resolved from `HOME`. `.wip/co
 every command resolves it against the home folder of whoever runs it (`HOME`, or `USERPROFILE` on Windows; without
 either, exit 3). The definitions are one copy shared by every project initialised with `--global`: the second project
 says `exists` on each file, and `wip init --global --force` from any project refreshes them for all, with the backup in
-`.wip/backups/defs/` of the project you ran it from. `wip upgrade --apply-defs` writes that shared folder too, also in
-place and with the backup in the running project. The rules about files without a `wip:` mark and about other tools'
-files in the folder are the same. A project is either local or global and wip never mixes the two folders nor switches
+`.wip/backups/defs/` of the project you ran it from. `wip upgrade` writes that shared folder too when you accept its
+question (or with `--apply-defs`), also in place and with the backup in the running project. The rules about files
+without a `wip:` mark and about other tools' files in the folder are the same. A project is either local or global and
+wip never mixes the two folders nor switches
 one scope to the other (`--global` on a local project, or the reverse, exits 3 and says which command to run, also
 with `--force`); within a scope, `--force` switches the folder as described above. Whoever
 clones the repository needs their own `wip init` (with or without `--global`).

@@ -5,11 +5,11 @@
 `wip upgrade` brings the npm install of `@garndev/wip` you are running to the newest version of a channel and, using
 that new version, refreshes the Kanban mod of the current project. It also compares the project's definitions folder
 with the templates embedded in the running build and says whether [`wip init --force`](init.md) would change anything;
-it writes them only when you ask with `--apply-defs`. It never touches a project database and never installs or
-enables the mod where it was absent unless you pass `--kanban`.
+it writes them only when you answer the terminal question or pass `--apply-defs`. It never touches a project database
+and never installs or enables the mod where it was absent unless you pass `--kanban`.
 
 ```sh
-wip upgrade                 # the CLI, an existing wip-owned Kanban copy, and the definitions comparison
+wip upgrade                 # the CLI, an existing wip-owned Kanban copy, the definitions comparison and the question
 wip upgrade --check         # is there a newer version or outdated definitions? exit 1 when there is; writes nothing
 wip upgrade --dry-run       # the npm command, the mod step and the definition files, writing nothing
 wip upgrade --channel next  # prereleases instead of latest
@@ -99,6 +99,29 @@ custom agent or skill that no template writes is `kept`: it is listed and never 
 `defs_outdated` (changed plus missing) and `defs_foreign`; `--json` carries the same facts in `data.defs`, with the
 version of the build that compared.
 
+In a terminal, a normal run asks before writing:
+
+```text
+defs: 2 out of date in .claude/ (1 changed, 1 missing)
+kept 1 custom definition (not touched)
+
+Apply the definitions?
+  1) apply   (write them into .claude/ with a backup per replaced file; after an upgrade, the installed build's)
+  2) cancel  (leave them as they are; run `wip upgrade --apply-defs` later)
+  choose [1]
+```
+
+`apply` is the default (Enter takes it); `apply` or `cancel` (any case) and `1` or `2` answer it, and anything else is
+asked again. `cancel` leaves the report and proposal as they are. Ctrl+C or the end of input aborts the whole command
+with exit 130: nothing is upgraded and nothing is written. A `~/…` folder adds `(shared by every --global project)` to
+the hint and to the answer's description. It never asks with `--json`, without a terminal on stdin and stdout, or with
+`--check`, `--dry-run`, `--no-defs`, `--apply-defs` or the internal flags, so an automated run never waits for input;
+`--no-defs` and `--apply-defs` are the documented paths for scripts. After an upgrade the accepted answer applies the
+**installed** build's templates (the freshly installed CLI runs its own `--apply-defs --json`); otherwise the running
+build's. An accepted step that cannot be applied (another tool's file, or a failure in the installed CLI) warns
+`defs_failed`, prints the reason and exits 1, because the CLI and maybe the mod already changed; the standalone
+`--apply-defs` keeps exit 3.
+
 A shipped flow is compared only when its `skills/wip-flow-<name>/` folder exists; a folder with **no** `wip-flow-*`
 folder at all scopes every shipped flow, so a wiped folder can be repaired. A project initialised with
 `--flows tasks` is therefore never offered the development, ideas or reports flows. The target is the configured
@@ -124,10 +147,12 @@ defs: 2 files written (1 created, 1 replaced); 1 custom definition kept
 A second run says `defs: up to date (.claude/); nothing written`. `--dry-run` prints the same plan as `defs: would
 write …` and writes nothing. `--no-defs` turns the comparison off and `data.defs` is null.
 
-A normal run only proposes: it prints the comparison and warns, and never writes. When an npm update is available, the
-templates embedded in the old build are not the target version's, so the run does not print the old build's drift;
-after a successful install it prints ``defs: run `wip upgrade --apply-defs` to compare the definitions with wip
-<target>`` and leaves the comparison to the freshly installed CLI.
+A normal run in a terminal asks (above); with `cancel` it only proposes: it prints the comparison and warns, and never
+writes. Without a terminal, with `--json`, or with `--check`/`--dry-run`, it also only proposes. When an npm update is
+available, the templates embedded in the old build are not the target version's, so the run does not print the old
+build's drift; after a successful install it prints ``defs: run `wip upgrade --apply-defs` to compare the definitions
+with wip <target>`` and leaves the comparison to the freshly installed CLI (an accepted `apply` has that CLI write
+them).
 
 ## What it does not touch
 
@@ -137,8 +162,8 @@ after a successful install it prints ``defs: run `wip upgrade --apply-defs` to c
 - `.wip/config.json`: not `wip_bin`, not `start`, not `defs_dir`, not `flow_order`. If the project's `wip_bin` points
   somewhere else, the command warns (`wip_bin_pinned`) and leaves the value as it is. Run `wip upgrade` there, or
   re-point `wip_bin` by hand.
-- The definitions folder (`<defs>/agents`, `<defs>/skills`): read by the comparison, and written only by
-  `--apply-defs`; `wip init --force` remains the broader refresh.
+- The definitions folder (`<defs>/agents`, `<defs>/skills`): read by the comparison, and written only by the
+  answered question or `--apply-defs`; `wip init --force` remains the broader refresh.
 - Other projects: there is no project registry. Run `wip upgrade` in each project, or `wip init --force` to refresh
   its definitions and copy together.
 - A standalone binary, or a source run (`bun run dev`): the CLI update is npm only. `--check` and `--dry-run` still
@@ -164,13 +189,14 @@ the release notes ([What's new](#whats-new)), what happened to the mod and its b
 ([The definitions](#the-definitions)), and the reload note. `--json` carries the same facts in `data` (see
 [Commands](commands.md) for the envelope), with the notes in `data.changelog` and the comparison in `data.defs`.
 
-| Code | When                                                                                                                                                 |
-| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0    | upgraded, already up to date, `--dry-run` printed, `--apply-defs` applied or current, or the internal mod step done                                  |
-| 1    | `--check` found an update or outdated definitions; the install, the verification or the rollback failed; the CLI was upgraded but the mod was not    |
-| 2    | usage: a positional argument, `--check --dry-run`, `--kanban --no-kanban`, an unknown `--channel`, `--apply-defs` with its exclusive flags           |
-| 3    | refused before any write: this install, the registry or tag, a network or npm failure, `--kanban`'s preflight, or a foreign file with `--apply-defs` |
-| 4    | `--kanban`, `--apply-defs` or the internal mod step in a directory without `.wip/`                                                                   |
+| Code | When                                                                                                                                                                                                                  |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | upgraded, already up to date, `--dry-run` printed, `--apply-defs` or the accepted definitions step applied or current, or the internal mod step done                                                                  |
+| 1    | `--check` found an update or outdated definitions; the install, the verification or the rollback failed; the CLI was upgraded but the mod was not; the accepted definitions step could not be applied (`defs_failed`) |
+| 2    | usage: a positional argument, `--check --dry-run`, `--kanban --no-kanban`, an unknown `--channel`, `--apply-defs` with its exclusive flags, or the internal flags with theirs                                         |
+| 3    | refused before any write: this install, the registry or tag, a network or npm failure, `--kanban`'s preflight, or a foreign file with `--apply-defs`                                                                  |
+| 4    | `--kanban`, `--apply-defs` or the internal mod step in a directory without `.wip/`                                                                                                                                    |
+| 130  | Ctrl+C or the end of input at `Apply the definitions?`: nothing upgraded and nothing written                                                                                                                          |
 
 A failed npm install leaves the CLI as npm left it: the command never retries as root and never widens permissions.
 
@@ -193,14 +219,18 @@ refreshes it with the older embedded copy.
 
 `--check` resolves the channel, writes nothing and exits 1 when a newer version exists **or** the definitions differ
 (changed, missing or foreign; `--no-defs` restores the old meaning, for scripts). It is the script path, so it needs
-the registry: the offline path is `--apply-defs`. `--dry-run` prints the exact npm command, the mod step and the
-definition files and exits 0.
+the registry: the offline path is `--apply-defs`, and `--check` never asks the question. `--dry-run` prints the exact
+npm command, the mod step and the definition files and exits 0.
 
-`--apply-defs` is the public definitions mode described in [The definitions](#the-definitions): no registry, no npm,
-no install refusal, a backup per replaced file, exit 3 on another tool's file.
+`--apply-defs` is the public definitions mode described in [The definitions](#the-definitions): no question, no
+registry, no npm, no install refusal, a backup per replaced file, exit 3 on another tool's file. It is the path for
+scripts that want the definitions applied.
 
 `--apply-mod` is internal: after an install, `wip upgrade` runs the new CLI's own copy of it so the mod comes from
 the new code. It takes no `--check`, `--dry-run` or `--channel`, and users never type it.
+
+An internal `--apply-defs-after` carries the accepted answer of the terminal question; users never type it either. It
+takes no `--check`, `--dry-run`, `--apply-defs`, `--apply-mod` nor `--no-defs` (exit 2).
 
 The command is safe to repeat: a second run sees the running version, runs no npm install, and reports the mod as
 `exists` when nothing changed.

@@ -6,6 +6,13 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.6.4 (unreleased)
 
+- `wip upgrade` now asks `Apply the definitions?` in a terminal after showing the comparison, with `apply` (the
+  default) and `cancel`, and writes the definitions when you accept; `--apply-defs` keeps applying without asking and
+  `--no-defs` stays the opt-out. Nothing outside a terminal, with `--json`, `--check` or `--dry-run` asks, so a script
+  never blocks. An accepted answer after an npm upgrade applies the freshly installed build's templates; a step that
+  cannot be applied (another tool's file or a failure in the installed CLI) warns `defs_failed` and exits 1, and
+  Ctrl+C at the question exits 130 with nothing upgraded.
+
 ## 0.6.3 (2026-11-17)
 
 - The coordinator writes every project-relative file path in a message or `Details` starting with `./`, including a

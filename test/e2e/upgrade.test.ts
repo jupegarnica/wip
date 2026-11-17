@@ -115,6 +115,8 @@ describe("wip upgrade --apply-mod (e2e)", () => {
       ["upgrade", "--kanban", "--no-kanban"],
       ["upgrade", "--channel", "beta"],
       ["upgrade", "extra"],
+      ["upgrade", "--apply-defs-after", "--check"],
+      ["upgrade", "--apply-defs-after", "--no-defs"],
     ]) {
       expect(wipJsonIn(dir, argv).code).toBe(EXIT.USAGE);
     }

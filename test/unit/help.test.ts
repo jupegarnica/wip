@@ -124,7 +124,9 @@ describe("wip help upgrade", () => {
     expect(out.stdout).toContain("--no-defs");
     expect(out.stdout).toContain("definitions");
     expect(out.stdout).toContain(".wip/backups/defs/");
+    expect(out.stdout).toContain("Apply the definitions?");
     expect(out.stdout).not.toContain("--apply-mod");
+    expect(out.stdout).not.toContain("--apply-defs-after");
   });
 });
 

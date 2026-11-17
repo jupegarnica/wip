@@ -1,15 +1,16 @@
 import { join } from "node:path";
-import { allow, type IArgs } from "../args.ts";
+import { allow, type IArgs, parseArgs } from "../args.ts";
 import { BUILD_INFO } from "../build-info.ts";
 import { compact } from "../clock.ts";
 import { defsDirOf, HOME_PREFIX, readConfig } from "../config.ts";
 import type { ICtx, IHandler } from "../context.ts";
 import { KANBAN_MOD } from "../embedded/kanban.ts";
-import { defsPath, shownDefsDir, type TEnv } from "../env.ts";
+import { defsPath, findRoot, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, type TExitCode, usage, WipError } from "../errors.ts";
 import type { TSettingsFile } from "../init/claude-settings.ts";
 import { applyDefs, defsDrift, type IDefsDrift } from "../init/drift.ts";
 import { KanbanCopyFailed, kanbanPreflight, kanbanState } from "../init/kanban.ts";
+import { Aborted, askSelect, type IAsker, terminalAsker } from "../init/prompt.ts";
 import type { IInitFile } from "../init/scaffold.ts";
 import { detectInstall, type IInstallInfo, INSTALL_KIND, type TInstallKind } from "../install.ts";
 import {
@@ -30,6 +31,7 @@ import {
   viewCommand,
 } from "../upgrade/npm.ts";
 import { compareVersions, isNewer, parseVersion } from "../upgrade/version.ts";
+import { COMMANDS } from "./help.ts";
 
 const CHANNELS = ["latest", "next"] as const;
 type TChannel = (typeof CHANNELS)[number];
@@ -47,6 +49,7 @@ interface IUpgradeOptions {
   noKanban: boolean;
   applyMod: boolean;
   applyDefs: boolean;
+  applyDefsAfter: boolean;
   noDefs: boolean;
 }
 
@@ -128,6 +131,7 @@ function parseOptions(args: IArgs): IUpgradeOptions {
   const noKanban = args.flags.has("no-kanban");
   const applyMod = args.flags.has("apply-mod");
   const applyDefs = args.flags.has("apply-defs");
+  const applyDefsAfter = args.flags.has("apply-defs-after");
   const noDefs = args.flags.has("no-defs");
   if (check && dryRun) throw usage("--check and --dry-run are exclusive");
   if (kanban && noKanban) throw usage("--kanban and --no-kanban are exclusive");
@@ -140,6 +144,11 @@ function parseOptions(args: IArgs): IUpgradeOptions {
   if (applyMod && (check || dryRun || args.opts.channel !== undefined)) {
     throw usage("--apply-mod is internal: it takes no --check, --dry-run nor --channel");
   }
+  if (applyDefsAfter && (check || dryRun || applyDefs || applyMod || noDefs)) {
+    throw usage(
+      "--apply-defs-after is internal: it takes no --check, --dry-run, --apply-defs, --apply-mod nor --no-defs",
+    );
+  }
   return {
     channel: value as TChannel,
     check,
@@ -148,6 +157,7 @@ function parseOptions(args: IArgs): IUpgradeOptions {
     noKanban,
     applyMod,
     applyDefs,
+    applyDefsAfter,
     noDefs,
   };
 }
@@ -588,6 +598,19 @@ function defsAfterUpgrade(target: string): string {
   return `defs: run \`wip upgrade --apply-defs\` to compare the definitions with wip ${target}`;
 }
 
+/** The comparison the terminal question shows: the summary and the kept line, without the `--apply-defs` tail. */
+function defsHintLines(lines: string[], data: IDefsData): void {
+  if (data.path === null) return;
+  const shared = data.dir?.startsWith(HOME_PREFIX) ?? false;
+  const where = shared ? " (shared by every --global project)" : "";
+  if (!defsOutdated(data)) {
+    lines.push(`defs: up to date (${data.path}/)${where}`);
+    return;
+  }
+  lines.push(`defs: ${defsCount(data)} out of date in ${data.path}/ (${defsParts(data)})${where}`);
+  defsKeptLine(lines, data);
+}
+
 function pushModWarnings(ctx: ICtx, mod: IModResult): void {
   for (const warning of mod.warnings) addWarning(ctx, warning.code, warning.message);
 }
@@ -823,6 +846,181 @@ function applyDefsCmd(ctx: ICtx, options: IUpgradeOptions): void {
   );
 }
 
+interface IDefsAfter {
+  data: IDefsData;
+  failed: boolean;
+}
+
+function notApplied(ctx: ICtx, problem: string): void {
+  ctx.result.warnings.push({
+    code: "defs_failed",
+    message: `defs_failed: the definitions were not applied: ${problem}; run \`wip upgrade --apply-defs\``,
+  });
+  ctx.result.lines.push(`defs: not applied (${problem})`);
+}
+
+/** Runs the freshly installed CLI's own `upgrade --apply-defs --json`, so the files come from the new embedded copy. */
+function installedDefs(
+  info: IInstallInfo,
+  project: string,
+): { data: IDefsData | null; problem: string | null } {
+  if (info.root === null || info.entry === null) {
+    return { data: null, problem: "the installed package has no bin to run" };
+  }
+  const out = call(
+    runner(),
+    process.execPath,
+    [join(info.root, info.entry), "upgrade", "--apply-defs", "--json"],
+    project,
+    30_000,
+  );
+  const text = `${out.stdout}\n${out.stderr}`;
+  if (out.error !== null) return { data: null, problem: out.error };
+  if (out.status !== 0) {
+    return { data: null, problem: tail(text) || `the installed CLI exited ${out.status}` };
+  }
+  let body: { data?: { defs?: IDefsData } };
+  try {
+    body = JSON.parse(out.stdout) as typeof body;
+  } catch {
+    return { data: null, problem: `the installed CLI printed no JSON: ${tail(out.stdout)}` };
+  }
+  const data = body.data?.defs;
+  if (data === undefined || data === null || typeof data.action !== "string") {
+    return { data: null, problem: "the installed CLI printed no definitions result" };
+  }
+  return { data, problem: null };
+}
+
+/** The accepted definitions step: the installed build's templates after an upgrade, the running ones otherwise. */
+function applyDefsAfter(
+  ctx: ICtx,
+  info: IInstallInfo,
+  project: string,
+  update: boolean,
+  installOk: boolean,
+  detected: IDefsData,
+): IDefsAfter {
+  const lines = ctx.result.lines;
+  if (update && !installOk) {
+    lines.push("defs: not applied (the CLI was not upgraded)");
+    return { data: detected, failed: false };
+  }
+  if (update) {
+    const child = installedDefs(info, project);
+    if (child.data === null) {
+      notApplied(ctx, child.problem ?? "the installed CLI did not apply them");
+      return { data: detected, failed: true };
+    }
+    defsAppliedLines(lines, child.data);
+    return { data: child.data, failed: false };
+  }
+  try {
+    const done = applyDefs(project, ctx.env, { stamp: compact() });
+    const data = defsDataOf(done.drift, done.files.length > 0 ? "applied" : "current", done.files);
+    defsAppliedLines(lines, data);
+    return { data, failed: false };
+  } catch (err) {
+    if (!(err instanceof WipError)) throw err;
+    defsWarnings(ctx, detected);
+    ctx.result.warnings.push({
+      code: "defs_failed",
+      message: `defs_failed: the definitions were not applied: ${err.message}; run \`wip upgrade --apply-defs\``,
+    });
+    lines.push(`defs: not applied: ${err.message}`);
+    return { data: detected, failed: true };
+  }
+}
+
+const UPGRADE_NO_PROMPT = ["--json", "--help", "-h"];
+
+/** `wip upgrade` asks the definitions question only in a terminal, on a normal run, in a usable install. */
+export function isUpgradeDefsPrompt(argv: readonly string[], tty: boolean): boolean {
+  if (!tty || argv[0] !== "upgrade") return false;
+  const rest = argv.slice(1);
+  const dashdash = rest.indexOf("--");
+  const head = dashdash < 0 ? rest : rest.slice(0, dashdash);
+  if (head.some((a) => UPGRADE_NO_PROMPT.includes(a))) return false;
+  const spec = COMMANDS.find((c) => c.name === "upgrade");
+  let options: IUpgradeOptions;
+  try {
+    const args = parseArgs(argv.slice(1), spec?.flags ?? []);
+    allow(args, [...(spec?.options ?? []), ...(spec?.flags ?? [])]);
+    options = parseOptions(args);
+  } catch {
+    return false; // the command reports the usage error itself
+  }
+  return !(
+    options.check ||
+    options.dryRun ||
+    options.noDefs ||
+    options.applyDefs ||
+    options.applyMod ||
+    options.applyDefsAfter
+  );
+}
+
+export interface IUpgradePrompt {
+  /** The argv to run: the user's plus `--apply-defs-after`; `null` when nothing is to be upgraded. */
+  argv: string[] | null;
+  /** 130 on Ctrl+C or end of input. */
+  code: number;
+}
+
+/** Shows the comparison, asks whether to apply the definitions, and returns the argv for the run. */
+export async function promptUpgradeDefs(
+  argv: readonly string[],
+  cwd: string,
+  env: TEnv,
+  asker: IAsker = terminalAsker(),
+): Promise<IUpgradePrompt> {
+  const unchanged: IUpgradePrompt = { argv: [...argv], code: 0 };
+  if (!isUpgradeDefsPrompt(argv, true)) return unchanged;
+  const info = testInstall ?? detectInstall({ env, platform: process.platform });
+  if (installRefusal(info) !== null) return unchanged; // the run refuses before it could write
+  let data: IDefsData;
+  try {
+    const project = findRoot(cwd, env).project;
+    const location = defsLocation(project, env);
+    data = defsDataOf(defsDrift(location.dir, location.shown, location.root), "current", []);
+    if (defsOutdated(data)) data.action = "outdated";
+  } catch {
+    return unchanged; // no project, or an unreadable folder: the command reports it
+  }
+  try {
+    const hint: string[] = [];
+    defsHintLines(hint, data);
+    for (const line of hint) asker.say(line);
+    const shared = data.dir?.startsWith(HOME_PREFIX) ?? false;
+    const answer = await askSelect(asker, {
+      question: "Apply the definitions?",
+      initial: 0,
+      options: [
+        {
+          value: "apply",
+          label: "apply",
+          hint: `write them into ${data.path}/${shared ? " (shared by every --global project)" : ""} with a backup per replaced file; after an upgrade, the installed build's`,
+        },
+        {
+          value: "cancel",
+          label: "cancel",
+          hint: "leave them as they are; run `wip upgrade --apply-defs` later",
+        },
+      ],
+    });
+    if (answer === "apply") return { argv: [...argv, "--apply-defs-after"], code: 0 };
+    return unchanged;
+  } catch (err) {
+    if (err instanceof Aborted) {
+      asker.say("aborted: nothing upgraded");
+      return { argv: null, code: 130 };
+    }
+    throw err;
+  } finally {
+    asker.close();
+  }
+}
+
 function run(ctx: ICtx, args: IArgs): void {
   allow(args, [
     "channel",
@@ -832,6 +1030,7 @@ function run(ctx: ICtx, args: IArgs): void {
     "no-kanban",
     "apply-mod",
     "apply-defs",
+    "apply-defs-after",
     "no-defs",
   ]);
   const options = parseOptions(args);
@@ -1138,9 +1337,18 @@ function run(ctx: ICtx, args: IArgs): void {
     if (kanban === null) lines.push("kanban: not touched (the CLI was not upgraded)");
     else if (!unsupported) modLines(lines, kanban, project);
   }
+  let defsData = defs;
   if (defs !== null) {
     if (project === null) {
       lines.push("defs: skipped (no .wip/ project)");
+    } else if (options.applyDefsAfter) {
+      const applied = applyDefsAfter(ctx, info, project, resolved.update, installOk, defs);
+      defsData = applied.data;
+      if (applied.failed) {
+        ok = false;
+        code = EXIT.FINDINGS;
+        ctx.result.message = "the definitions were not applied";
+      }
     } else if (!resolved.update) {
       defsWarnings(ctx, defs);
       defsLines(lines, defs);
@@ -1167,7 +1375,7 @@ function run(ctx: ICtx, args: IArgs): void {
       kanban,
       changelog,
       pinned,
-      defs,
+      defs: defsData,
     },
     false,
     false,

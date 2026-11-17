@@ -5,6 +5,7 @@ import { BUILD_INFO } from "../../src/build-info.ts";
 import { run } from "../../src/cli.ts";
 import { setClockForTests } from "../../src/clock.ts";
 import {
+  type IDefsData,
   installPlan,
   resolveTarget,
   setUpgradeInstallForTests,
@@ -898,6 +899,127 @@ describe("wip upgrade definitions (fake npm)", () => {
   });
 });
 
+describe("wip upgrade --apply-defs-after (fake npm)", () => {
+  test("the accepted step writes the definitions with a backup and exits 0", () => {
+    const dir = initTasks("defs-accepted");
+    const file = join(dir, ".claude/agents/thinker.md");
+    writeFileSync(file, `${template("agents/thinker.md")}edited\n`);
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--no-kanban", "--apply-defs-after"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    const defs = defsOf(body) as Record<string, unknown>;
+    expect(defs).toMatchObject({
+      action: "applied",
+      changed: [".claude/agents/thinker.md"],
+    });
+    const files = defs.files as { path: string; action: string; backup: string | null }[];
+    expect(files.map((file) => [file.path, file.action])).toEqual([
+      [".claude/agents/thinker.md", "replaced"],
+    ]);
+    expect(files[0]?.backup).toContain(".wip/backups/defs/agents/thinker.md.");
+    expect(readFileSync(file, "utf8")).toBe(template("agents/thinker.md"));
+    expect(fake.calls.length).toBe(1);
+    expect(fake.calls[0]?.args).toEqual(["view", "@garndev/wip", "dist-tags", "--json"]);
+  });
+
+  test("the accepted step on current definitions writes nothing", () => {
+    const dir = initTasks("defs-accepted-current");
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const out = run(["upgrade", "--no-kanban", "--apply-defs-after"], { cwd: dir, env: {} });
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.stdout).toContain("defs: up to date (.claude/); nothing written");
+    const { body } = json(dir, ["upgrade", "--no-kanban", "--apply-defs-after"]);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(defsOf(body)).toMatchObject({ action: "current", files: [] });
+    expect(existsSync(join(dir, ".wip/backups/defs"))).toBe(false);
+  });
+
+  test("a foreign file fails the accepted step with exit 1, warning and nothing written", () => {
+    const dir = initTasks("defs-accepted-foreign");
+    const thinker = join(dir, ".claude/agents/thinker.md");
+    const foreign = join(dir, ".claude/agents/fast.md");
+    writeFileSync(thinker, `${template("agents/thinker.md")}edited\n`);
+    writeFileSync(foreign, "plain\n");
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--no-kanban", "--apply-defs-after"]);
+    expect(code).toBe(EXIT.FINDINGS);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    const codes = (body.warnings as { code: string }[]).map((warning) => warning.code);
+    expect(codes).toContain("defs_foreign");
+    expect(codes).toContain("defs_failed");
+    expect(body.message).toBe("the definitions were not applied");
+    expect(readFileSync(thinker, "utf8")).toContain("edited");
+    expect(readFileSync(foreign, "utf8")).toBe("plain\n");
+    expect(existsSync(join(dir, ".wip/backups/defs"))).toBe(false);
+  });
+
+  test("after an upgrade the installed CLI applies its own definitions", () => {
+    const dir = initTasks("defs-accepted-upgrade");
+    const applied: IDefsData = {
+      action: "applied",
+      dir: ".claude",
+      path: ".claude",
+      version: "9.9.9",
+      missing: [".claude/skills/wip-flow-tasks/guide.md"],
+      changed: [],
+      foreign: [],
+      kept: [],
+      files: [
+        {
+          path: ".claude/skills/wip-flow-tasks/guide.md",
+          action: "created",
+          backup: null,
+        },
+      ],
+      reason: null,
+    };
+    const fake = fakeRun((call) => {
+      if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+      if (call.args[0] === "install") return { status: 0 };
+      if (call.args.includes("version")) return envelope({ data: { version: "9.9.9" } });
+      if (call.args.includes("--apply-defs")) return envelope({ data: { defs: applied } });
+      return { status: 0 };
+    });
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const out = run(["upgrade", "--no-kanban", "--apply-defs-after"], { cwd: dir, env: {} });
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.stdout).toContain("created .claude/skills/wip-flow-tasks/guide.md");
+    const child = fake.calls.find((call) => call.args.includes("--apply-defs"));
+    expect(child?.command).toBe(process.execPath);
+    expect(child?.args).toEqual([
+      "/opt/prefix/lib/node_modules/@garndev/wip/bin/wip.mjs",
+      "upgrade",
+      "--apply-defs",
+      "--json",
+    ]);
+    const { body } = json(dir, ["upgrade", "--no-kanban", "--apply-defs-after"]);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(defsOf(body)).toMatchObject({ action: "applied", version: "9.9.9" });
+  });
+
+  test("a failed npm install reports the definitions as not applied", () => {
+    const dir = initTasks("defs-accepted-install-fails");
+    const fake = fakeRun((call) => {
+      if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+      return { status: 1, stderr: "npm ERR! EACCES" };
+    });
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const out = run(["upgrade", "--no-kanban", "--apply-defs-after"], { cwd: dir, env: {} });
+    expect(out.code).toBe(EXIT.FINDINGS);
+    expect(out.stdout).toContain("defs: not applied (the CLI was not upgraded)");
+    expect(fake.calls.some((call) => call.args.includes("--apply-defs"))).toBe(false);
+  });
+});
+
 describe("wip upgrade usage", () => {
   test("bad combinations and values exit 2", () => {
     const dir = bare("usage");
@@ -915,6 +1037,11 @@ describe("wip upgrade usage", () => {
       ["upgrade", "--apply-defs", "--kanban"],
       ["upgrade", "--apply-defs", "--no-defs"],
       ["upgrade", "--apply-defs", "--apply-mod"],
+      ["upgrade", "--apply-defs-after", "--check"],
+      ["upgrade", "--apply-defs-after", "--dry-run"],
+      ["upgrade", "--apply-defs-after", "--apply-defs"],
+      ["upgrade", "--apply-defs-after", "--apply-mod"],
+      ["upgrade", "--apply-defs-after", "--no-defs"],
     ];
     for (const argv of cases) {
       const { code } = json(dir, argv);

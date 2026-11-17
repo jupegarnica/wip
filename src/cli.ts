@@ -26,7 +26,7 @@ import { setCmd } from "./commands/set.ts";
 import { showCmd } from "./commands/show.ts";
 import { canLaunchBare, startCmd, startLaunch } from "./commands/start.ts";
 import { stateCmd } from "./commands/state.ts";
-import { upgradeCmd } from "./commands/upgrade.ts";
+import { isUpgradeDefsPrompt, promptUpgradeDefs, upgradeCmd } from "./commands/upgrade.ts";
 import { waitCmd } from "./commands/wait.ts";
 import { webMain } from "./commands/web.ts";
 import { envelope, type ICtx, type IHandler, type IResult, newResult } from "./context.ts";
@@ -252,6 +252,11 @@ export async function main(argv: readonly string[]): Promise<number> {
   let toRun = argv;
   if (isInitPrompt(argv, tty)) {
     const asked = await promptInit(argv, cwd, process.env);
+    if (asked.argv === null) return asked.code;
+    toRun = asked.argv;
+  }
+  if (isUpgradeDefsPrompt(argv, tty)) {
+    const asked = await promptUpgradeDefs(argv, cwd, process.env);
     if (asked.argv === null) return asked.code;
     toRun = asked.argv;
   }
