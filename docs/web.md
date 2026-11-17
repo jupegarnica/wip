@@ -60,16 +60,24 @@ exactly N: this project's `wip web` there exits 0, another project's or another 
 `wip web stop` stops it. If no browser opens (`open`, `xdg-open` or `start` fails), `--open` prints a warning and the
 server keeps serving.
 
-In `localhost`, `wip web` keeps one tab per origin, and the rule covers any URL of the board (`/`,
-`/?view=history`, `?item=<flow>/<ID>`, for example from the Kanban), with or without an item: the first board page
-takes a Web Locks lock and keeps it until it closes. A board page that finds the origin owned asks the open tab to
-hand it over; the open tab yields, confirms and tries to close itself, so the user stays in the tab they just
-opened. Closing the old tab is best-effort: when the browser refuses, it stays with the notice «This project moved
-to another tab.» and no ownership. A new board page that does not get the handover (a locked owner, no answer, or a
-browser without BroadcastChannel) never closes itself: it keeps its URL and shows «This project is open in another
-tab.». The artifact page (`/view/item/.../artifact/...`) is deliberately outside the rule: it takes no lock and has
-no padlock, so the board and an artifact can stay open together. Origins are scheme, host and port, so another port
-has its own tab, and `localhost` and `127.0.0.1` do not share one. Every view of the board shows the padlock and the
+In `localhost` and on the LAN address, `wip web` keeps one tab per origin, and the rule covers any URL of the
+board (`/`, `/?view=history`, `?item=<flow>/<ID>`, for example from the Kanban), with or without an item.
+Ownership travels over `BroadcastChannel`, so it works in a secure context and on a plain-HTTP LAN address
+alike: the first board page owns the origin, a later one announces itself, and the owner gives the origin up,
+confirms and tries to close itself, so the user stays in the tab they just opened. Two tabs opened at the same
+instant resolve the election by opening time, ties broken by their random id; the loser asks the winner for the
+origin, which always yields, so the last one opened survives. The owner answers a heartbeat every couple of
+seconds; an owner that stops answering (a crashed tab, or a hidden one whose timers the browser froze) is
+replaced by the next board page that asks, and a former owner that wakes up and finds a newer owner in charge
+demotes itself and tries to close. Closing the old tab is best-effort: when the browser refuses, it stays with
+the notice «This project moved to another tab.» and no ownership. A board page that does not get the handover
+(a locked owner, or one that does not answer) never closes itself: it keeps its URL and shows «This project is
+open in another tab.». Closing a tab, reloading it or putting it in the back/forward cache frees the origin, and
+a restored page rejoins the election. The artifact page (`/view/item/.../artifact/...`) is deliberately outside
+the rule: it loads no `tabs.js` and has no padlock, so the board and an artifact can stay open together.
+Origins are scheme, host and port, so another port has its own tab, `localhost` and `127.0.0.1` do not share
+one, and two devices on the LAN never share a tab: the channel is per browser.
+Every view of the board shows the padlock and the
 poll status on the left of its header, the project name in the centre between two small chevron icons (`‹` and `›`,
 not buttons: no border and no box, the name keeps a fixed width and a long one is cut with an ellipsis), and the
 tabs on the right. `‹` goes to the previous project, one port less, and `›` to the next one, one port more: only the
@@ -82,9 +90,9 @@ tab that asked opens its item without focus, if it has one, shows the notice «T
 tab.» and stays open. The padlock is kept in this tab's history entry, so reloading the tab keeps it closed; a new
 tab (including one opened with `window.open`) starts open, the state is not shared with other tabs, and a
 duplicated tab may inherit it when the browser copies the history entry. It only blocks the automatic close, and
-closing the tab by hand always works (whether `window.close()` works at all still depends on the browser). On the
-LAN (`http://<ip>`, where Web Locks is unavailable) and in browsers without Web Locks every tab is its own page, as
-before: no deduplication, no message, no notice, and the padlock has no effect.
+closing the tab by hand always works (whether `window.close()` works at all still depends on the browser). Without
+`BroadcastChannel` (Safari before 15.4, or a browser that disables it) every tab is its own page: no
+deduplication, no message, no notice, and the padlock has no effect.
 
 While it serves, each server records its PID and port in `.wip/web/<port>.json`, and `.wip/logs/web.log` gets the
 start with its addresses, every port skipped, every response with status ≥ 400, every error and the stop; past 1 MB

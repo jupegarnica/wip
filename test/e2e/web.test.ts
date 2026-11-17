@@ -1048,7 +1048,7 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(app).toContain("setItemParam(null)");
   });
 
-  test("one tab per origin: Web Locks owns it and the owner hands it over", () => {
+  test("one tab per origin: BroadcastChannel owns it and the owner hands it over", () => {
     const html = WEB["index.html"] as string;
     const tabsAt = html.indexOf('<script src="/tabs.js" defer></script>');
     const appAt = html.indexOf('<script src="/app.js" defer></script>');
@@ -1062,20 +1062,33 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
 
     const tabs = WEB["tabs.js"] as string;
     for (const needle of [
-      "navigator?.locks",
       "BroadcastChannel",
-      "ifAvailable: true",
-      "wip-web:tab",
       "wip-web.tabs",
+      'type: "claim"',
+      'type: "beat"',
+      'type: "yield"',
+      'type: "deny"',
+      'type: "bye"',
+      "HEARTBEAT_MS",
+      "STALE_MS",
       "release",
       "takeOver()",
       "setLocked",
       "isLocked",
+    ]) {
+      expect(tabs).toContain(needle);
+    }
+    for (const gone of [
+      "navigator?.locks",
+      "ifAvailable",
+      "wip-web:tab",
       'type: "takeover"',
       'type: "yielded"',
       'type: "locked"',
+      "crypto.randomUUID",
+      "tabId",
     ]) {
-      expect(tabs).toContain(needle);
+      expect({ gone, found: tabs.includes(gone) }).toEqual({ gone, found: false });
     }
 
     const app = WEB["app.js"] as string;
@@ -1104,9 +1117,6 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
       '"here"',
       '"open-ack"',
       "HELLO_MS",
-      "tabId",
-      "pagehide",
-      "pageshow",
       "itemTabs.reclaim",
     ]) {
       expect({ gone, found: tabs.includes(gone) || app.includes(gone) }).toEqual({
@@ -1114,6 +1124,12 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
         found: false,
       });
     }
+    // A per-tab id, and the browser wiring that frees the origin on pagehide and rejoins on pageshow.
+    expect(tabs).toContain("selfId");
+    expect(app).toContain('addEventListener("pagehide"');
+    expect(app).toContain('addEventListener("pageshow"');
+    expect(app).toContain("itemTabs.release()");
+    expect(app).toContain("itemTabs.resume()");
   });
 
   test("any board page asks for the handover, with or without an item", () => {
@@ -1131,16 +1147,15 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(start).toContain('outcome === "locked" ? TAB_NOTICE_LOCKED : TAB_NOTICE_OPEN');
   });
 
-  test("the handover releases the lock before it confirms and tries to close the old tab", () => {
+  test("the handover gives up ownership before it confirms and tries to close the old tab", () => {
     const tabs = WEB["tabs.js"] as string;
-    const handler = tabs.slice(
-      tabs.indexOf('if (msg.type !== "takeover"'),
-      tabs.indexOf("function claim"),
-    );
-    expect(handler).toContain("!held");
-    expect(handler).toContain("yielding");
-    expect(handler.indexOf("release()")).toBeGreaterThan(-1);
-    expect(handler.indexOf("release()")).toBeLessThan(handler.indexOf('post({ type: "yielded" })'));
+    const handler = tabs.slice(tabs.indexOf('case "claim":'), tabs.indexOf('case "owner":'));
+    expect(handler).toContain("giveUpTo(");
+    const give = tabs.slice(tabs.indexOf("function giveUpTo"), tabs.indexOf("function demote"));
+    expect(give.indexOf('state = "idle"')).toBeGreaterThan(-1);
+    expect(give.indexOf("stopHeartbeat()")).toBeGreaterThan(-1);
+    expect(give.indexOf('state = "idle"')).toBeLessThan(give.indexOf('post({ type: "yield"'));
+    expect(give.indexOf("stopHeartbeat()")).toBeLessThan(give.indexOf('post({ type: "yield"'));
 
     const app = WEB["app.js"] as string;
     const hand = app.slice(app.indexOf("function handOver"), app.indexOf("function showTabNotice"));
@@ -1231,7 +1246,7 @@ describe("wip web · page and embedded files (F-WEB-10, F-WEB-13, D15)", () => {
     expect(app.split("window.close()").length - 1).toBe(1);
 
     const tabs = WEB["tabs.js"] as string;
-    for (const needle of ["setLocked", "isLocked", 'type: "locked"']) {
+    for (const needle of ["setLocked", "isLocked", 'type: "deny"']) {
       expect(tabs).toContain(needle);
     }
     expect(WEB["view.html"]).not.toContain("tab-lock");

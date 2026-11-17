@@ -12,6 +12,11 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
   never blocks. An accepted answer after an npm upgrade applies the freshly installed build's templates; a step that
   cannot be applied (another tool's file or a failure in the installed CLI) warns `defs_failed` and exits 1, and
   Ctrl+C at the question exits 130 with nothing upgraded.
+- `wip web` keeps one tab per origin on `localhost` and on the LAN address: ownership travels over
+  `BroadcastChannel` instead of Web Locks, so a plain-HTTP `http://<ip>` board deduplicates too. The owner hears
+  a claim, gives up the origin and tries to close itself (best-effort, with the moved notice); padlocked tabs
+  refuse and survive, a heartbeat and a stale-owner timeout replace a crashed or throttled owner, `pagehide`
+  frees the origin at once, and without `BroadcastChannel` every tab is its own page as before.
 
 ## 0.6.3 (2026-11-17)
 
