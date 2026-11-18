@@ -26,10 +26,22 @@ import { setCmd } from "./commands/set.ts";
 import { showCmd } from "./commands/show.ts";
 import { canLaunchBare, startCmd, startLaunch } from "./commands/start.ts";
 import { stateCmd } from "./commands/state.ts";
-import { isUpgradeDefsPrompt, promptUpgradeDefs, upgradeCmd } from "./commands/upgrade.ts";
+import {
+  isUpgradeDefsPrompt,
+  promptDefsAfterInstall,
+  promptUpgradeDefs,
+  upgradeCmd,
+} from "./commands/upgrade.ts";
 import { waitCmd } from "./commands/wait.ts";
 import { webMain } from "./commands/web.ts";
-import { envelope, type ICtx, type IHandler, type IResult, newResult } from "./context.ts";
+import {
+  envelope,
+  type IAfterRun,
+  type ICtx,
+  type IHandler,
+  type IResult,
+  newResult,
+} from "./context.ts";
 import { type IOpenOptions, openDb, openForRead, type TDatabase } from "./db.ts";
 import { findRoot, type IRoot, type TEnv } from "./env.ts";
 import { EXIT, type TExitCode, usage, WipError } from "./errors.ts";
@@ -108,11 +120,15 @@ export interface IRunOutput {
   code: TExitCode;
   stdout: string;
   stderr: string;
+  /** A main()-level step left for after the output; never part of the JSON envelope. */
+  after?: IAfterRun;
 }
 
 export interface IRunOptions extends IOpenOptions {
   cwd?: string;
   env?: TEnv;
+  /** main() may ask the definitions question after the run. */
+  interactive?: boolean;
   /** Test-only: commands added to the catalogue, each with its handler. */
   extra?: readonly { spec: ICommandSpec; handler: IHandler }[];
 }
@@ -194,6 +210,7 @@ function execute(handler: IHandler, args: IArgs, result: IResult, options: IRunO
       if (h.readDb === undefined) h.readDb = openForRead(ctx.root.db, open);
       return h.readDb;
     },
+    interactive: options.interactive ?? false,
   };
   try {
     handler.run(ctx, args);
@@ -216,6 +233,7 @@ function output(result: IResult, json: boolean): IRunOutput {
     code: result.code,
     stdout: lines.map((line) => `${line}\n`).join(""),
     stderr: result.warnings.map((w) => `warning: ${w.message}\n`).join(""),
+    ...(result.after === undefined ? {} : { after: result.after }),
   };
 }
 
@@ -250,6 +268,7 @@ export async function main(argv: readonly string[]): Promise<number> {
     return startLaunch(rest, cwd, process.env, tty);
   }
   let toRun = argv;
+  let defsAsked = false;
   if (isInitPrompt(argv, tty)) {
     const asked = await promptInit(argv, cwd, process.env);
     if (asked.argv === null) return asked.code;
@@ -259,9 +278,20 @@ export async function main(argv: readonly string[]): Promise<number> {
     const asked = await promptUpgradeDefs(argv, cwd, process.env);
     if (asked.argv === null) return asked.code;
     toRun = asked.argv;
+    defsAsked = asked.asked; // the question was actually put, not merely possible
   }
-  const out = run(toRun);
+  const out = run(toRun, { interactive: tty && !defsAsked && !argv.includes("--json") });
   if (out.stdout) writeAll(1, out.stdout);
   if (out.stderr) writeAll(2, out.stderr);
-  return out.code;
+  let code = out.code;
+  const step = out.after?.defsAfterInstall;
+  if (step !== undefined) {
+    const after = await promptDefsAfterInstall(step);
+    if (after.lines.length > 0) writeAll(1, after.lines.map((line) => `${line}\n`).join(""));
+    if (after.warnings.length > 0) {
+      writeAll(2, after.warnings.map((warning) => `warning: ${warning.message}\n`).join(""));
+    }
+    if (after.code !== EXIT.OK && code === EXIT.OK) code = after.code;
+  }
+  return code;
 }

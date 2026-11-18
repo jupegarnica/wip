@@ -127,6 +127,7 @@ describe("wip help upgrade", () => {
     expect(out.stdout).toContain("Apply the definitions?");
     expect(out.stdout).not.toContain("--apply-mod");
     expect(out.stdout).not.toContain("--apply-defs-after");
+    expect(out.stdout).not.toContain("--defs-status");
   });
 });
 
