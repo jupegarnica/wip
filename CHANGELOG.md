@@ -4,7 +4,7 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.6.5 (unreleased)
+## 0.6.5 (2026-11-18)
 
 - `wip upgrade` asks `Apply the definitions?` only when the comparison found files to write: a definitions folder
   that is up to date, or one whose only differences are another tool's files (which `apply` refuses anyway), is
