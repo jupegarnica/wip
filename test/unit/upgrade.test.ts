@@ -889,6 +889,7 @@ describe("wip upgrade definitions (fake npm)", () => {
     setUpgradeInstallForTests(npmInfo());
     const out = run(["upgrade", "--no-kanban"], { cwd: dir, env: {} });
     expect(out.code).toBe(EXIT.OK);
+    expect(out.after).toBeUndefined();
     expect(out.stdout).toContain(
       "defs: run `wip upgrade --apply-defs` to compare the definitions with wip 9.9.9",
     );
@@ -896,6 +897,109 @@ describe("wip upgrade definitions (fake npm)", () => {
     const { body } = json(dir, ["upgrade", "--no-kanban"]);
     expect(validate(SCHEMA, body)).toEqual([]);
     expect(defsOf(body)).toMatchObject({ version: BUILD_INFO.version });
+  });
+
+  test("a successful upgrade leaves the question to main() when interactive", () => {
+    const dir = initTasks("defs-hook");
+    const fake = fakeRun((call) => {
+      if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+      if (call.args.includes("version")) return envelope({ data: { version: "9.9.9" } });
+      return { status: 0 };
+    });
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const out = run(["upgrade", "--no-kanban"], { cwd: dir, env: {}, interactive: true });
+    expect(out.code).toBe(EXIT.OK);
+    expect(out.after?.defsAfterInstall).toEqual({
+      project: dir,
+      root: npmInfo().root,
+      entry: "bin/wip.mjs",
+    });
+    expect(out.stdout).not.toContain("defs: run `wip upgrade --apply-defs`");
+    expect(fake.calls.some((call) => call.args.includes("--defs-status"))).toBe(false);
+    expect(fake.calls.some((call) => call.args.includes("--apply-defs"))).toBe(false);
+  });
+
+  test("no hook with --no-defs, with --apply-defs-after or after a failed install", () => {
+    const cases = [
+      { name: "no-defs", argv: ["upgrade", "--no-kanban", "--no-defs"] },
+      { name: "apply-defs-after", argv: ["upgrade", "--no-kanban", "--apply-defs-after"] },
+      { name: "install-fails", argv: ["upgrade", "--no-kanban"] },
+    ];
+    for (const { name, argv } of cases) {
+      const dir = initTasks(`defs-no-hook-${name}`);
+      const applied: IDefsData = {
+        action: "applied",
+        dir: ".claude",
+        path: ".claude",
+        version: "9.9.9",
+        missing: [],
+        changed: [".claude/agents/thinker.md"],
+        foreign: [],
+        kept: [],
+        files: [
+          { path: ".claude/agents/thinker.md", action: "replaced", backup: ".wip/backups/defs" },
+        ],
+        reason: null,
+      };
+      const fake = fakeRun((call) => {
+        if (name === "install-fails" && call.args[0] === "install") return { status: 1 };
+        if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+        if (call.args.includes("version")) return envelope({ data: { version: "9.9.9" } });
+        if (call.args.includes("--apply-defs")) return envelope({ data: { defs: applied } });
+        return { status: 0 };
+      });
+      setUpgradeRunnerForTests(fake.run);
+      setUpgradeInstallForTests(npmInfo());
+      const out = run(argv, { cwd: dir, env: {}, interactive: true });
+      expect(out.after).toBeUndefined();
+      expect(fake.calls.some((call) => call.args.includes("--defs-status"))).toBe(false);
+      if (name === "no-defs") {
+        expect(out.stdout).not.toContain("defs:");
+      } else if (name === "apply-defs-after") {
+        expect(out.stdout).toContain("replaced .claude/agents/thinker.md");
+      } else {
+        expect(out.stdout).toContain("npm install failed");
+        expect(out.stdout).not.toContain("defs: run `wip upgrade --apply-defs`");
+      }
+    }
+  });
+
+  test("--defs-status prints the installed comparison and never reaches the registry", () => {
+    const dir = initTasks("defs-status");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${template("agents/thinker.md")}edited\n`,
+    );
+    const fake = fakeRun(() => ({ status: 1 }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--defs-status"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(defsOf(body)).toMatchObject({
+      action: "outdated",
+      changed: [".claude/agents/thinker.md"],
+      version: BUILD_INFO.version,
+    });
+    expect(body.message as string).toBe("definitions out of date in .claude/");
+    expect(fake.calls).toEqual([]);
+  });
+
+  test("--defs-status outside a project exits 4 and with any other flag exits 2", () => {
+    const outside = bare("defs-status-no-project");
+    const missing = json(outside, ["upgrade", "--defs-status"]);
+    expect(missing.code).toBe(EXIT.NOT_FOUND);
+    expect(missing.body.message as string).toContain("no .wip/");
+    const dir = initTasks("defs-status-usage");
+    for (const argv of [
+      ["upgrade", "--defs-status", "--check"],
+      ["upgrade", "--defs-status", "--apply-defs"],
+      ["upgrade", "--defs-status", "--channel", "next"],
+      ["upgrade", "--defs-status", "--no-defs"],
+    ]) {
+      expect(json(dir, argv).code).toBe(EXIT.USAGE);
+    }
   });
 });
 

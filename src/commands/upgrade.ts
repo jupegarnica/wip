@@ -3,7 +3,7 @@ import { allow, type IArgs, parseArgs } from "../args.ts";
 import { BUILD_INFO } from "../build-info.ts";
 import { compact } from "../clock.ts";
 import { defsDirOf, HOME_PREFIX, readConfig } from "../config.ts";
-import type { ICtx, IHandler } from "../context.ts";
+import type { IAfterRun, ICtx, IDefsAfterInstall, IHandler } from "../context.ts";
 import { KANBAN_MOD } from "../embedded/kanban.ts";
 import { defsPath, findRoot, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, type TExitCode, usage, WipError } from "../errors.ts";
@@ -50,6 +50,7 @@ interface IUpgradeOptions {
   applyMod: boolean;
   applyDefs: boolean;
   applyDefsAfter: boolean;
+  defsStatus: boolean;
   noDefs: boolean;
 }
 
@@ -132,6 +133,7 @@ function parseOptions(args: IArgs): IUpgradeOptions {
   const applyMod = args.flags.has("apply-mod");
   const applyDefs = args.flags.has("apply-defs");
   const applyDefsAfter = args.flags.has("apply-defs-after");
+  const defsStatus = args.flags.has("defs-status");
   const noDefs = args.flags.has("no-defs");
   if (check && dryRun) throw usage("--check and --dry-run are exclusive");
   if (kanban && noKanban) throw usage("--kanban and --no-kanban are exclusive");
@@ -149,6 +151,20 @@ function parseOptions(args: IArgs): IUpgradeOptions {
       "--apply-defs-after is internal: it takes no --check, --dry-run, --apply-defs, --apply-mod nor --no-defs",
     );
   }
+  if (
+    defsStatus &&
+    (check ||
+      dryRun ||
+      kanban ||
+      noKanban ||
+      applyMod ||
+      applyDefs ||
+      applyDefsAfter ||
+      noDefs ||
+      args.opts.channel !== undefined)
+  ) {
+    throw usage("--defs-status is internal: it takes no other flag");
+  }
   return {
     channel: value as TChannel,
     check,
@@ -158,6 +174,7 @@ function parseOptions(args: IArgs): IUpgradeOptions {
     applyMod,
     applyDefs,
     applyDefsAfter,
+    defsStatus,
     noDefs,
   };
 }
@@ -481,6 +498,11 @@ function defsOutdated(data: IDefsData): boolean {
   return data.changed.length + data.missing.length + data.foreign.length > 0;
 }
 
+/** Whether the question has a write to perform: the files `applyDefs` would write and no foreign file that blocks it. */
+function defsWritable(data: IDefsData): boolean {
+  return data.changed.length + data.missing.length > 0 && data.foreign.length === 0;
+}
+
 function defsCount(data: IDefsData): number {
   return data.changed.length + data.missing.length + data.foreign.length;
 }
@@ -493,23 +515,28 @@ function defsParts(data: IDefsData): string {
   return parts.join(", ");
 }
 
-function defsWarnings(ctx: ICtx, data: IDefsData): void {
+/** The warnings of a comparison, for the handler (through `addWarning`) and for the post-install step. */
+function defsWarningList(data: IDefsData): { code: string; message: string }[] {
+  const warnings: { code: string; message: string }[] = [];
   const drift = data.changed.length + data.missing.length;
   if (drift > 0) {
-    addWarning(
-      ctx,
-      "defs_outdated",
-      `defs_outdated: ${drift} ${drift === 1 ? "file differs" : "files differ"} from wip ${data.version} in ${data.path}/ (${defsParts(data)}); run \`wip upgrade --apply-defs\``,
-    );
+    warnings.push({
+      code: "defs_outdated",
+      message: `defs_outdated: ${drift} ${drift === 1 ? "file differs" : "files differ"} from wip ${data.version} in ${data.path}/ (${defsParts(data)}); run \`wip upgrade --apply-defs\``,
+    });
   }
   if (data.foreign.length > 0) {
     const n = data.foreign.length;
-    addWarning(
-      ctx,
-      "defs_foreign",
-      `defs_foreign: ${n} ${n === 1 ? "file is" : "files are"} another tool's (no \`wip:\` mark) and blocks the refresh: ${data.foreign.join(", ")}; rename or move ${n === 1 ? "it" : "them"} and run \`wip upgrade --apply-defs\``,
-    );
+    warnings.push({
+      code: "defs_foreign",
+      message: `defs_foreign: ${n} ${n === 1 ? "file is" : "files are"} another tool's (no \`wip:\` mark) and blocks the refresh: ${data.foreign.join(", ")}; rename or move ${n === 1 ? "it" : "them"} and run \`wip upgrade --apply-defs\``,
+    });
   }
+  return warnings;
+}
+
+function defsWarnings(ctx: ICtx, data: IDefsData): void {
+  for (const warning of defsWarningList(data)) addWarning(ctx, warning.code, warning.message);
 }
 
 function defsEntryLines(lines: string[], data: IDefsData): void {
@@ -846,6 +873,39 @@ function applyDefsCmd(ctx: ICtx, options: IUpgradeOptions): void {
   );
 }
 
+/**
+ * The hidden `--defs-status`: the running build's comparison and nothing else. No registry, no npm, no install
+ * refusal, no write and no warning; the post-install step runs it in the freshly installed CLI. Requires a project.
+ */
+function defsStatusCmd(ctx: ICtx, options: IUpgradeOptions): void {
+  const project = ctx.root.project;
+  const info = testInstall ?? detectInstall({ env: ctx.env, platform: process.platform });
+  const data = defsDetection(project, ctx.env);
+  const lines = ctx.result.lines;
+  lines.push(header(info));
+  defsLines(lines, data);
+  ctx.result.message =
+    data.path === null
+      ? "definitions skipped (no .wip/ project)"
+      : defsOutdated(data)
+        ? `definitions out of date in ${data.path}/`
+        : `definitions up to date in ${data.path}/`;
+  ctx.result.data = dataOf(
+    {
+      project,
+      info,
+      channel: options.channel,
+      target: null,
+      update: null,
+      action: "current",
+      defs: data,
+    },
+    false,
+    false,
+  );
+  ctx.result.code = EXIT.OK;
+}
+
 interface IDefsAfter {
   data: IDefsData;
   failed: boolean;
@@ -861,16 +921,49 @@ function notApplied(ctx: ICtx, problem: string): void {
 
 /** Runs the freshly installed CLI's own `upgrade --apply-defs --json`, so the files come from the new embedded copy. */
 function installedDefs(
-  info: IInstallInfo,
+  bin: { root: string | null; entry: string | null },
   project: string,
 ): { data: IDefsData | null; problem: string | null } {
-  if (info.root === null || info.entry === null) {
+  if (bin.root === null || bin.entry === null) {
     return { data: null, problem: "the installed package has no bin to run" };
   }
   const out = call(
     runner(),
     process.execPath,
-    [join(info.root, info.entry), "upgrade", "--apply-defs", "--json"],
+    [join(bin.root, bin.entry), "upgrade", "--apply-defs", "--json"],
+    project,
+    30_000,
+  );
+  const text = `${out.stdout}\n${out.stderr}`;
+  if (out.error !== null) return { data: null, problem: out.error };
+  if (out.status !== 0) {
+    return { data: null, problem: tail(text) || `the installed CLI exited ${out.status}` };
+  }
+  let body: { data?: { defs?: IDefsData } };
+  try {
+    body = JSON.parse(out.stdout) as typeof body;
+  } catch {
+    return { data: null, problem: `the installed CLI printed no JSON: ${tail(out.stdout)}` };
+  }
+  const data = body.data?.defs;
+  if (data === undefined || data === null || typeof data.action !== "string") {
+    return { data: null, problem: "the installed CLI printed no definitions result" };
+  }
+  return { data, problem: null };
+}
+
+/** Runs the freshly installed CLI's own `upgrade --defs-status --json`: the new build's comparison, no writes. */
+function installedDefsStatus(
+  bin: { root: string | null; entry: string | null },
+  project: string,
+): { data: IDefsData | null; problem: string | null } {
+  if (bin.root === null || bin.entry === null) {
+    return { data: null, problem: "the installed package has no bin to run" };
+  }
+  const out = call(
+    runner(),
+    process.execPath,
+    [join(bin.root, bin.entry), "upgrade", "--defs-status", "--json"],
     project,
     30_000,
   );
@@ -907,7 +1000,7 @@ function applyDefsAfter(
     return { data: detected, failed: false };
   }
   if (update) {
-    const child = installedDefs(info, project);
+    const child = installedDefs({ root: info.root, entry: info.entry }, project);
     if (child.data === null) {
       notApplied(ctx, child.problem ?? "the installed CLI did not apply them");
       return { data: detected, failed: true };
@@ -956,7 +1049,8 @@ export function isUpgradeDefsPrompt(argv: readonly string[], tty: boolean): bool
     options.noDefs ||
     options.applyDefs ||
     options.applyMod ||
-    options.applyDefsAfter
+    options.applyDefsAfter ||
+    options.defsStatus
   );
 }
 
@@ -965,6 +1059,8 @@ export interface IUpgradePrompt {
   argv: string[] | null;
   /** 130 on Ctrl+C or end of input. */
   code: number;
+  /** Whether the question was actually put to the user (not merely possible). */
+  asked: boolean;
 }
 
 /** Shows the comparison, asks whether to apply the definitions, and returns the argv for the run. */
@@ -974,7 +1070,7 @@ export async function promptUpgradeDefs(
   env: TEnv,
   asker: IAsker = terminalAsker(),
 ): Promise<IUpgradePrompt> {
-  const unchanged: IUpgradePrompt = { argv: [...argv], code: 0 };
+  const unchanged: IUpgradePrompt = { argv: [...argv], code: 0, asked: false };
   if (!isUpgradeDefsPrompt(argv, true)) return unchanged;
   const info = testInstall ?? detectInstall({ env, platform: process.platform });
   if (installRefusal(info) !== null) return unchanged; // the run refuses before it could write
@@ -986,6 +1082,78 @@ export async function promptUpgradeDefs(
     if (defsOutdated(data)) data.action = "outdated";
   } catch {
     return unchanged; // no project, or an unreadable folder: the command reports it
+  }
+  if (!defsWritable(data)) return unchanged; // nothing to write, or `applyDefs` would refuse the folder
+  let asked = false;
+  try {
+    const hint: string[] = [];
+    defsHintLines(hint, data);
+    for (const line of hint) asker.say(line);
+    const shared = data.dir?.startsWith(HOME_PREFIX) ?? false;
+    asked = true;
+    const answer = await askSelect(asker, {
+      question: "Apply the definitions?",
+      initial: 0,
+      options: [
+        {
+          value: "apply",
+          label: "apply",
+          hint: `write them into ${data.path}/${shared ? " (shared by every --global project)" : ""} with a backup per replaced file; after an upgrade, the installed build's`,
+        },
+        {
+          value: "cancel",
+          label: "cancel",
+          hint: "leave them as they are; run `wip upgrade --apply-defs` later",
+        },
+      ],
+    });
+    if (answer === "apply") return { argv: [...argv, "--apply-defs-after"], code: 0, asked };
+    return { ...unchanged, asked };
+  } catch (err) {
+    if (err instanceof Aborted) {
+      asker.say("aborted: nothing upgraded");
+      return { argv: null, code: 130, asked };
+    }
+    throw err;
+  } finally {
+    asker.close();
+  }
+}
+
+export interface IDefsAfterInstallResult {
+  lines: string[];
+  warnings: { code: string; message: string }[];
+  code: TExitCode;
+}
+
+/**
+ * The post-upgrade step: the freshly installed build compares the folder with its own templates and, only when it has
+ * files to write, asks the same question. `apply` writes through that build's own `--apply-defs --json`; Ctrl+C is a
+ * cancel, because the upgrade already happened.
+ */
+export async function promptDefsAfterInstall(
+  step: IDefsAfterInstall,
+  asker: IAsker = terminalAsker(),
+): Promise<IDefsAfterInstallResult> {
+  const lines: string[] = [];
+  const status = installedDefsStatus(step, step.project);
+  if (status.data === null) {
+    const problem = status.problem ?? "the installed CLI did not compare them";
+    lines.push(`defs: not compared (${problem}); run \`wip upgrade --apply-defs\``);
+    return { lines, warnings: [], code: EXIT.OK };
+  }
+  const data = status.data;
+  if (data.path === null) {
+    lines.push("defs: skipped (no .wip/ project)");
+    return { lines, warnings: [], code: EXIT.OK };
+  }
+  if (!defsWritable(data)) {
+    if (!defsOutdated(data)) {
+      lines.push(`defs: up to date (${data.path}/) (wip ${data.version})`);
+      return { lines, warnings: [], code: EXIT.OK };
+    }
+    defsLines(lines, data);
+    return { lines, warnings: defsWarningList(data), code: EXIT.OK };
   }
   try {
     const hint: string[] = [];
@@ -1008,12 +1176,31 @@ export async function promptUpgradeDefs(
         },
       ],
     });
-    if (answer === "apply") return { argv: [...argv, "--apply-defs-after"], code: 0 };
-    return unchanged;
+    if (answer === "apply") {
+      const child = installedDefs(step, step.project);
+      if (child.data === null) {
+        const problem = child.problem ?? "the installed CLI did not apply them";
+        lines.push(`defs: not applied (${problem}); run \`wip upgrade --apply-defs\``);
+        return {
+          lines,
+          warnings: [
+            {
+              code: "defs_failed",
+              message: `defs_failed: the definitions were not applied: ${problem}; run \`wip upgrade --apply-defs\``,
+            },
+          ],
+          code: EXIT.FINDINGS,
+        };
+      }
+      defsAppliedLines(lines, child.data);
+      return { lines, warnings: [], code: EXIT.OK };
+    }
+    lines.push("defs: left as they are; run `wip upgrade --apply-defs` to write them");
+    return { lines, warnings: [], code: EXIT.OK };
   } catch (err) {
     if (err instanceof Aborted) {
-      asker.say("aborted: nothing upgraded");
-      return { argv: null, code: 130 };
+      lines.push("defs: left as they are; run `wip upgrade --apply-defs` to write them");
+      return { lines, warnings: [], code: EXIT.OK };
     }
     throw err;
   } finally {
@@ -1031,6 +1218,7 @@ function run(ctx: ICtx, args: IArgs): void {
     "apply-mod",
     "apply-defs",
     "apply-defs-after",
+    "defs-status",
     "no-defs",
   ]);
   const options = parseOptions(args);
@@ -1040,6 +1228,10 @@ function run(ctx: ICtx, args: IArgs): void {
   }
   if (options.applyDefs) {
     applyDefsCmd(ctx, options);
+    return;
+  }
+  if (options.defsStatus) {
+    defsStatusCmd(ctx, options);
     return;
   }
 
@@ -1338,6 +1530,7 @@ function run(ctx: ICtx, args: IArgs): void {
     else if (!unsupported) modLines(lines, kanban, project);
   }
   let defsData = defs;
+  let after: IAfterRun | undefined;
   if (defs !== null) {
     if (project === null) {
       lines.push("defs: skipped (no .wip/ project)");
@@ -1353,7 +1546,11 @@ function run(ctx: ICtx, args: IArgs): void {
       defsWarnings(ctx, defs);
       defsLines(lines, defs);
     } else if (installOk) {
-      lines.push(defsAfterUpgrade(resolved.target));
+      if (ctx.interactive) {
+        after = { defsAfterInstall: { project, root: info.root, entry: info.entry } };
+      } else {
+        lines.push(defsAfterUpgrade(resolved.target));
+      }
     }
   }
   if (resolved.update && ok) {
@@ -1362,6 +1559,7 @@ function run(ctx: ICtx, args: IArgs): void {
     );
   }
 
+  if (after !== undefined) ctx.result.after = after;
   ctx.result.data = dataOf(
     {
       project,

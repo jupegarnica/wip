@@ -6,6 +6,7 @@ import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
 import { type IEnvelopeOut, WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
 import { scratch } from "../helpers/project.ts";
+import { loadSchema, validate } from "../helpers/schema.ts";
 
 const ID = "wip-kanban@skills-dir";
 
@@ -200,6 +201,51 @@ describe("wip upgrade --apply-defs (e2e)", () => {
       ["upgrade", "--apply-defs", "--apply-mod"],
     ]) {
       expect(wipJsonIn(outside, argv).code).toBe(EXIT.USAGE);
+    }
+  });
+});
+
+describe("wip upgrade --defs-status (e2e)", () => {
+  function initTasks(name: string): string {
+    const dir = tmp(name);
+    const init = wipJsonIn(dir, ["init", "--yes", "--flows", "tasks"]);
+    if (init.code !== EXIT.OK) throw new Error(`init failed: ${init.body.message}`);
+    return dir;
+  }
+
+  interface IDefsBody {
+    action: string;
+    changed: string[];
+  }
+
+  const defsOf = (body: IEnvelopeOut["body"]): IDefsBody => (body.data as { defs: IDefsBody }).defs;
+
+  test("prints the comparison and never touches the registry", () => {
+    const dir = initTasks("defs-status");
+    writeFileSync(
+      join(dir, ".claude/agents/thinker.md"),
+      `${TEMPLATES["agents/thinker.md"]}edited\n`,
+    );
+    const { code, body } = wipJsonIn(dir, ["upgrade", "--defs-status"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(loadSchema("upgrade"), body)).toEqual([]);
+    const defs = defsOf(body);
+    expect(defs.action).toBe("outdated");
+    expect(defs.changed).toEqual([".claude/agents/thinker.md"]);
+  });
+
+  test("without .wip/ exits 4 and its usage errors exit 2", () => {
+    const outside = tmp("defs-status-no-project");
+    expect(wipJsonIn(outside, ["upgrade", "--defs-status"]).code).toBe(EXIT.NOT_FOUND);
+    expect(readdirSync(outside)).toEqual([]);
+    const dir = initTasks("defs-status-usage");
+    for (const argv of [
+      ["upgrade", "--defs-status", "--check"],
+      ["upgrade", "--defs-status", "--apply-defs"],
+      ["upgrade", "--defs-status", "--channel", "next"],
+      ["upgrade", "--defs-status", "--no-defs"],
+    ]) {
+      expect(wipJsonIn(dir, argv).code).toBe(EXIT.USAGE);
     }
   });
 });

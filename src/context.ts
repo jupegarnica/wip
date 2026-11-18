@@ -9,6 +9,18 @@ export interface IWarning {
   [key: string]: unknown;
 }
 
+/** The post-upgrade definitions question main() asks with the installed build; never part of the JSON envelope. */
+export interface IDefsAfterInstall {
+  project: string;
+  root: string | null;
+  entry: string | null;
+}
+
+/** A main()-level step a handler leaves for after its output; never part of the JSON envelope. */
+export interface IAfterRun {
+  defsAfterInstall?: IDefsAfterInstall;
+}
+
 export interface IResult {
   ok: boolean;
   code: TExitCode;
@@ -19,6 +31,8 @@ export interface IResult {
   data: unknown;
   /** Text-mode output; `--json` prints the envelope instead. */
   lines: string[];
+  /** A step main() runs after writing the output; never in `envelope()`. */
+  after?: IAfterRun;
 }
 
 export interface IEnvelope {
@@ -43,6 +57,8 @@ export interface ICtx {
   readonly db: TDatabase;
   /** Only for `read` commands; `null` while the database does not exist. */
   readonly readDb: TDatabase | null;
+  /** main() has a terminal and has not asked the definitions question: a handler may leave it to main(). */
+  readonly interactive: boolean;
 }
 
 export interface IHandler {

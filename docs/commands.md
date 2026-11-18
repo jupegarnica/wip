@@ -31,8 +31,8 @@ Every command accepts `--json` (envelope `{ok, item, events, warnings, message, 
 another project, only if that directory contains a `.wip/`. `wip upgrade --json` adds `data.changelog`, the release
 notes of the installed version or `null` (see [`wip upgrade`](upgrade.md#whats-new)), and `data.defs`, the definitions
 comparison or `null` with `--no-defs` (see [The definitions](upgrade.md#the-definitions)). Only a terminal run without
-`--json` asks `Apply the definitions?`; scripts use `--no-defs` (change nothing) or `--apply-defs` (apply, no
-question).
+`--json` asks `Apply the definitions?` (before an upgrade against the running build, after one against the installed
+build); scripts use `--no-defs` (change nothing) or `--apply-defs` (apply, no question).
 
 Each group has its own page: [`wip init`](init.md), [`wip upgrade`](upgrade.md), [`wip start`](start.md),
 [Flows](flows.md), [`wip prune`](prune.md), [`wip web`](web.md), [Polling](polling.md) and [Cron](cron.md).

@@ -6,6 +6,15 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.6.5 (unreleased)
 
+- `wip upgrade` asks `Apply the definitions?` only when the comparison found files to write: a definitions folder
+  that is up to date, or one whose only differences are another tool's files (which `apply` refuses anyway), is
+  reported without a question. After an npm upgrade the freshly installed build now compares the definitions with
+  its own templates and asks then, so a folder that was current for the old build still gets the new version's
+  definitions; a run asks at most once, and the pre-upgrade question is unchanged. A post-upgrade step that cannot
+  be applied warns `defs_failed` and exits 1 without rolling back the installed CLI, and Ctrl+C at that question
+  only leaves the definitions as they are. `--apply-defs`, `--apply-defs-after`, `--check`, `--dry-run` and the
+  other non-interactive paths are unchanged.
+
 ## 0.6.4 (2026-11-17)
 
 - `wip upgrade` now asks `Apply the definitions?` in a terminal after showing the comparison, with `apply` (the
