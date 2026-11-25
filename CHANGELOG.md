@@ -4,7 +4,12 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.6.6 (unreleased)
+## 0.6.6 (2026-11-25)
+
+- The gate block of `wip-coordinate` is shorter and easier to answer: `Summary` is one phrase, a new `Context`
+  section carries what the questions need, each question lists its options as `(a)`, `(b)`, `(c)`… in priority
+  order with the recommended one first and a one-line reason on each, and `Risk` becomes `Risks`. Both copies of
+  the skill stay byte-identical and `test/unit/templates.test.ts` quotes the new literals.
 
 ## 0.6.5 (2026-11-18)
 
