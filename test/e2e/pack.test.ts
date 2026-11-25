@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, test } from "bun:test";
 import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
+import { QUIET_MOD } from "../../src/embedded/quiet.ts";
 import { EXIT } from "../../src/errors.ts";
 import { scratch } from "../helpers/project.ts";
 
@@ -20,6 +21,7 @@ const NPM = WINDOWS ? "npm.cmd" : "npm";
 const NO_NODE_PATH = WINDOWS ? "C:\\Windows\\System32" : "/usr/bin:/bin";
 
 const ID = "wip-kanban@skills-dir";
+const QUIET_ID = "wip-quiet@skills-dir";
 
 /** The installed copy, keyed by its path under `.claude/skills/wip-kanban/`. */
 function modFiles(project: string): Record<string, string> {
@@ -30,6 +32,23 @@ function modFiles(project: string): Record<string, string> {
       .map((key) => [key, readFileSync(join(dir, key), "utf8")]),
   );
 }
+
+/** The installed Quiet copy, keyed by its path under `.claude/skills/wip-quiet/`. */
+function quietFiles(project: string): Record<string, string> {
+  const dir = join(project, ".claude", "skills", "wip-quiet");
+  return Object.fromEntries(
+    Object.keys(QUIET_MOD)
+      .sort()
+      .map((key) => [key, readFileSync(join(dir, key), "utf8")]),
+  );
+}
+
+const expected = (files: Readonly<Record<string, string>>): Record<string, string> =>
+  Object.fromEntries(
+    Object.keys(files)
+      .sort()
+      .map((key) => [key, files[key] as string]),
+  );
 
 const VERSION_LINE = new RegExp(
   `^${VERSION.replaceAll(".", "\\.")} \\(.+, built \\d{4}-\\d\\d-\\d\\dT\\d\\d:\\d\\d:\\d\\dZ\\)\n$`,
@@ -164,23 +183,19 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
     expect(readFileSync(join(dir, "release", "SHA256SUMS"), "utf8")).toContain(basename(archive));
   });
 
-  test("init --kanban installs the same copy and entry from the npm package, with no network", () => {
+  test("init --kanban installs both copies and entries from the npm package, with no network", () => {
     const wip = installedWip(prefix);
     const project = scratch("pack-kanban");
     try {
       const out = exec([wip, "init", "--yes", "--kanban"], project);
       expect(out.code).toBe(EXIT.OK);
-      expect(modFiles(project)).toEqual(
-        Object.fromEntries(
-          Object.keys(KANBAN_MOD)
-            .sort()
-            .map((key) => [key, KANBAN_MOD[key] as string]),
-        ),
-      );
+      expect(modFiles(project)).toEqual(expected(KANBAN_MOD));
+      expect(quietFiles(project)).toEqual(expected(QUIET_MOD));
       const settings = JSON.parse(
         readFileSync(join(project, ".claude", "settings.json"), "utf8"),
       ) as { enabledPlugins: Record<string, boolean> };
       expect(settings.enabledPlugins[ID]).toBe(true);
+      expect(settings.enabledPlugins[QUIET_ID]).toBe(true);
       expect(existsSync(join(project, ".claude", "settings.local.json"))).toBe(false);
     } finally {
       rmSync(realpathSync(project), { recursive: true, force: true });
@@ -201,6 +216,28 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
         readFileSync(join(project, ".claude", "settings.local.json"), "utf8"),
       ) as { enabledPlugins: Record<string, boolean> };
       expect(settings.enabledPlugins[ID]).toBe(true);
+      expect(settings.enabledPlugins[QUIET_ID]).toBe(true);
+    } finally {
+      rmSync(realpathSync(project), { recursive: true, force: true });
+    }
+  });
+
+  test("init --mods-settings-file settings.local.json writes both entries in the personal file", () => {
+    const wip = installedWip(prefix);
+    const project = scratch("pack-mods-local");
+    try {
+      const out = exec(
+        [wip, "init", "--yes", "--mods-settings-file", "settings.local.json"],
+        project,
+      );
+      expect(out.code).toBe(EXIT.OK);
+      expect(existsSync(join(project, ".claude", "settings.json"))).toBe(false);
+      const settings = JSON.parse(
+        readFileSync(join(project, ".claude", "settings.local.json"), "utf8"),
+      ) as { enabledPlugins: Record<string, boolean> };
+      expect(settings.enabledPlugins[ID]).toBe(true);
+      expect(settings.enabledPlugins[QUIET_ID]).toBe(true);
+      expect(quietFiles(project)).toEqual(expected(QUIET_MOD));
     } finally {
       rmSync(realpathSync(project), { recursive: true, force: true });
     }
@@ -241,17 +278,13 @@ describe.skipIf(PACK_DIR === null)("the npm package and the binary (set WIP_PACK
       const env = { PATH: NO_NODE_PATH };
       const out = exec([binary, "init", "--yes", "--kanban"], project, env);
       expect(out.code).toBe(EXIT.OK);
-      expect(modFiles(project)).toEqual(
-        Object.fromEntries(
-          Object.keys(KANBAN_MOD)
-            .sort()
-            .map((key) => [key, KANBAN_MOD[key] as string]),
-        ),
-      );
+      expect(modFiles(project)).toEqual(expected(KANBAN_MOD));
+      expect(quietFiles(project)).toEqual(expected(QUIET_MOD));
       const settings = JSON.parse(
         readFileSync(join(project, ".claude", "settings.json"), "utf8"),
       ) as { enabledPlugins: Record<string, boolean> };
       expect(settings.enabledPlugins[ID]).toBe(true);
+      expect(settings.enabledPlugins[QUIET_ID]).toBe(true);
     } finally {
       rmSync(realpathSync(project), { recursive: true, force: true });
     }

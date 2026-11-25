@@ -12,8 +12,10 @@ import { join } from "node:path";
 import { EXIT } from "../../src/errors.ts";
 import {
   applySettings,
+  applySettingsMany,
   fileKind,
   KANBAN_PLUGIN_ID,
+  QUIET_PLUGIN_ID,
   readEntry,
   readSettings,
   SETTINGS_FILES,
@@ -53,6 +55,7 @@ describe("the settings editor (claude-settings)", () => {
     expect(settingsRel("settings.local.json")).toBe(".claude/settings.local.json");
     expect(settingsAbs("/p", "settings.local.json")).toBe("/p/.claude/settings.local.json");
     expect(KANBAN_PLUGIN_ID).toBe("wip-kanban@skills-dir");
+    expect(QUIET_PLUGIN_ID).toBe("wip-quiet@skills-dir");
   });
 
   for (const file of SETTINGS_FILES) {
@@ -234,5 +237,132 @@ describe("the settings editor (claude-settings)", () => {
     expect(json).toMatchObject({ file: "settings.json", path: ".claude/settings.json" });
     expect(json.entry.state).toBe("missing");
     expect(local.entry).toEqual({ state: "ok", value: true, problem: null });
+  });
+});
+
+describe("applySettingsMany", () => {
+  test("a missing file is created with both ids in order, one write and no backup", () => {
+    const dir = project();
+    const result = applySettingsMany(dir, "settings.json", [KANBAN_PLUGIN_ID, QUIET_PLUGIN_ID], {
+      stamp: STAMP,
+    });
+    expect(result).toEqual({
+      backup: null,
+      actions: { [KANBAN_PLUGIN_ID]: "created", [QUIET_PLUGIN_ID]: "created" },
+    });
+    const text = read(dir, "settings.json");
+    expect(JSON.parse(text)).toEqual({
+      $schema: "https://json.schemastore.org/claude-code-settings.json",
+      enabledPlugins: { [KANBAN_PLUGIN_ID]: true, [QUIET_PLUGIN_ID]: true },
+    });
+    expect(Object.keys(JSON.parse(text).enabledPlugins)).toEqual([
+      KANBAN_PLUGIN_ID,
+      QUIET_PLUGIN_ID,
+    ]);
+    expect(JSON.parse(text)).not.toHaveProperty("quiet");
+  });
+
+  test("it preserves keys and plugin order, writes once and backs the old text up once", () => {
+    const dir = project();
+    const before = `{
+  "permissions": { "allow": ["Bash"] },
+  "enabledPlugins": { "other@market": true, "${KANBAN_PLUGIN_ID}": false },
+  "env": { "A": "1" }
+}
+`;
+    write(dir, "settings.json", before);
+    const result = applySettingsMany(dir, "settings.json", [KANBAN_PLUGIN_ID, QUIET_PLUGIN_ID], {
+      stamp: STAMP,
+    });
+    expect(result.actions).toEqual({
+      [KANBAN_PLUGIN_ID]: "updated",
+      [QUIET_PLUGIN_ID]: "added",
+    });
+    expect(result.backup).toBe(`.wip/backups/claude-settings/settings.json.${STAMP}`);
+    expect(read(dir, "settings.json")).not.toBe(before);
+    expect(readFileSync(join(dir, result.backup as string), "utf8")).toBe(before);
+    const after = JSON.parse(read(dir, "settings.json"));
+    expect(after).toEqual({
+      permissions: { allow: ["Bash"] },
+      enabledPlugins: {
+        "other@market": true,
+        [KANBAN_PLUGIN_ID]: true,
+        [QUIET_PLUGIN_ID]: true,
+      },
+      env: { A: "1" },
+    });
+    expect(Object.keys(after)).toEqual(["permissions", "enabledPlugins", "env"]);
+    expect(Object.keys(after.enabledPlugins)).toEqual([
+      "other@market",
+      KANBAN_PLUGIN_ID,
+      QUIET_PLUGIN_ID,
+    ]);
+    expect(readdirSync(join(dir, ".wip", "backups", "claude-settings"))).toEqual([
+      `settings.json.${STAMP}`,
+    ]);
+  });
+
+  test("when every id is true it writes and backs up nothing", () => {
+    const dir = project();
+    write(
+      dir,
+      "settings.json",
+      `${JSON.stringify({
+        enabledPlugins: { [KANBAN_PLUGIN_ID]: true, [QUIET_PLUGIN_ID]: true },
+      })}\n`,
+    );
+    const before = read(dir, "settings.json");
+    const result = applySettingsMany(dir, "settings.json", [KANBAN_PLUGIN_ID, QUIET_PLUGIN_ID], {
+      stamp: STAMP,
+    });
+    expect(result).toEqual({
+      backup: null,
+      actions: { [KANBAN_PLUGIN_ID]: "exists", [QUIET_PLUGIN_ID]: "exists" },
+    });
+    expect(read(dir, "settings.json")).toBe(before);
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+  });
+
+  test("one unusable id refuses the whole write and leaves the file as it was", () => {
+    const dir = project();
+    const before = `${JSON.stringify({ enabledPlugins: { [QUIET_PLUGIN_ID]: "yes" } })}\n`;
+    write(dir, "settings.json", before);
+    expect(() =>
+      applySettingsMany(dir, "settings.json", [KANBAN_PLUGIN_ID, QUIET_PLUGIN_ID], {
+        stamp: STAMP,
+      }),
+    ).toThrow("is not a boolean");
+    expect(read(dir, "settings.json")).toBe(before);
+    expect(existsSync(join(dir, ".wip"))).toBe(false);
+  });
+
+  test("a not-file path or invalid JSON is refused, writing nothing", () => {
+    const dir = project();
+    mkdirSync(join(dir, ".claude", "settings.json"), { recursive: true });
+    expect(() =>
+      applySettingsMany(dir, "settings.json", [KANBAN_PLUGIN_ID, QUIET_PLUGIN_ID], {
+        stamp: STAMP,
+      }),
+    ).toThrow("is not a regular file");
+
+    const bad = project();
+    write(bad, "settings.local.json", "{oops");
+    expect(() =>
+      applySettingsMany(bad, "settings.local.json", [KANBAN_PLUGIN_ID, QUIET_PLUGIN_ID], {
+        stamp: STAMP,
+      }),
+    ).toThrow("is not valid JSON");
+    expect(read(bad, "settings.local.json")).toBe("{oops");
+  });
+
+  test("applySettings is the one-id case", () => {
+    const dir = project();
+    expect(applySettings(dir, "settings.json", { stamp: STAMP, id: QUIET_PLUGIN_ID })).toEqual({
+      action: "created",
+      backup: null,
+    });
+    expect(JSON.parse(read(dir, "settings.json")).enabledPlugins).toEqual({
+      [QUIET_PLUGIN_ID]: true,
+    });
   });
 });

@@ -3,21 +3,23 @@
 [← Back to the README](../README.md)
 
 `wip upgrade` brings the npm install of `@garndev/wip` you are running to the newest version of a channel and, using
-that new version, refreshes the Kanban mod of the current project. It also compares the project's definitions folder
+that new version, refreshes the project's mods, Kanban and Quiet. It also compares the project's definitions folder
 with the templates embedded in the running build and says whether [`wip init --force`](init.md) would change anything;
 it writes them only when you answer a terminal question — before the upgrade when the running build finds files to
 write, or after it against the installed build's templates — or pass `--apply-defs`. It never touches a project
-database and never installs or enables the mod where it was absent unless you pass `--kanban`.
+database and never installs or enables a mod where it was absent unless you pass `--kanban` or `--quiet`.
 
 ```sh
-wip upgrade                 # the CLI, an existing wip-owned Kanban copy, the definitions comparison and the question
+wip upgrade                 # the CLI, every wip-owned mod copy, the definitions comparison and the question
 wip upgrade --check         # is there a newer version or outdated definitions? exit 1 when there is; writes nothing
 wip upgrade --dry-run       # the npm command, the mod step and the definition files, writing nothing
 wip upgrade --channel next  # prereleases instead of latest
-wip upgrade --kanban        # also install the mod and its enabledPlugins entry where missing or disabled
-wip upgrade --no-kanban     # the CLI and the definitions, not the mod
+wip upgrade --kanban        # also install the Kanban mod and its entry where missing or disabled
+wip upgrade --no-kanban     # the CLI and the definitions, not the Kanban mod
+wip upgrade --quiet         # also install the Quiet mod and its entry where missing or disabled
+wip upgrade --no-quiet      # the CLI and the definitions, not the Quiet mod
 wip upgrade --apply-defs    # the definitions part of `wip init --force`, in place and with backups
-wip upgrade --no-defs       # the CLI only (and the mod, unless --no-kanban)
+wip upgrade --no-defs       # the CLI only (and the mods, unless --no-kanban --no-quiet)
 ```
 
 ## What it updates
@@ -42,15 +44,18 @@ The rollback restores the CLI only: a database the new version already migrated 
 A target older than the running version is reported, never installed, so moving from `next` back to `latest` does
 not downgrade.
 
-**The Kanban mod of the current project, with the new embedded copy.** The mod is not a package: the files to install
-travel inside whichever `wip` process has them, so the CLI is upgraded first and the mod is refreshed by the
-installed CLI. By default only an existing copy marked as wip's is replaced; edited files and extra files inside it
+**The project's mods, with the new embedded copies.** A mod is not a package: the files to install travel inside
+whichever `wip` process has them, so the CLI is upgraded first and each mod is refreshed by the installed CLI. By
+default only an existing copy marked as wip's is replaced, for **both** mods; edited files and extra files inside it
 are replaced (`.claude-plugin/types/` is kept) after copying the folder to
-`.wip/backups/kanban/wip-kanban.<stamp>/`, and neither settings file is read for writing, so a disabled plugin stays
-disabled. A missing or foreign folder is skipped with the reason. `--kanban` installs the copy and merges
-`"enabledPlugins": {"wip-kanban@skills-dir": true}` into the settings file that already wins the entry (else
-`.claude/settings.json`), with the same preflight, backups and warnings as [`wip init`](init.md); a foreign folder or
-settings that cannot take the entry exit 3 with nothing written. There is no merge of your edits.
+`.wip/backups/kanban/wip-kanban.<stamp>/` or `.wip/backups/quiet/wip-quiet.<stamp>/`, and neither settings file is
+read for writing, so a disabled plugin stays disabled. A missing or foreign folder is skipped with the reason.
+`--kanban`/`--quiet` install that mod's copy and merge its `"enabledPlugins"` entry into the settings file that
+already wins it (else `.claude/settings.json`), with the same preflight, backups and warnings as [`wip
+init`](init.md); `--no-kanban`/`--no-quiet` skip that mod. A foreign folder or settings that cannot take the entry
+exit 3 with nothing written. There is no merge of your edits. `data.kanban` and `data.quiet` carry each mod's result
+(`action`, `path`, `backup`, `removed`, `settings` or `reason`). Upgrade has no shared settings-file flag, so a run
+that installs both may write the file twice, with a backup each time.
 
 After a mod change, run `/reload-plugins` or start a new Claude Code session.
 
@@ -144,7 +149,7 @@ refreshed like any other flow's and the flow stays disabled.
 preservation, the same `.wip/backups/defs/` backup per replaced file, the same refusal of another tool's file (exit 3,
 nothing written). It seeds no items, adds no flow you did not select, never switches `defs_dir`, never migrates a
 legacy folder and never edits `.gitignore`. It is public (unlike the internal `--apply-mod`), it is its own mode (it
-takes no `--check`, `--dry-run`, `--channel`, `--kanban` nor `--no-defs`), it needs a project (exit 4 outside one) and
+takes no `--check`, `--dry-run`, `--channel`, `--kanban`, `--quiet` nor `--no-defs`), it needs a project (exit 4 outside one) and
 it works from a source run and from a binary, without npm or the registry.
 
 ```text
@@ -196,18 +201,18 @@ install and prints the ``defs: run `wip upgrade --apply-defs` …`` proposal ins
 ## Output and exit codes
 
 Text mode names the running install, the resolved target, the npm command when it runs, the old and new version,
-the release notes ([What's new](#whats-new)), what happened to the mod and its backup, the definitions comparison
+the release notes ([What's new](#whats-new)), what happened to each mod and its backup, the definitions comparison
 ([The definitions](#the-definitions)), and the reload note. `--json` carries the same facts in `data` (see
 [Commands](commands.md) for the envelope), with the notes in `data.changelog` and the comparison in `data.defs`.
 
-| Code | When                                                                                                                                                                                                                                                                           |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0    | upgraded, already up to date, `--dry-run` printed, `--apply-defs` or the accepted definitions step applied or current, the post-install answer applied or current, or the internal mod step done                                                                               |
-| 1    | `--check` found an update or outdated definitions; the install, the verification or the rollback failed; the CLI was upgraded but the mod was not; the accepted definitions step could not be applied (`defs_failed`, before or after the install; the CLI is not rolled back) |
-| 2    | usage: a positional argument, `--check --dry-run`, `--kanban --no-kanban`, an unknown `--channel`, `--apply-defs` with its exclusive flags, or the internal flags with theirs                                                                                                  |
-| 3    | refused before any write: this install, the registry or tag, a network or npm failure, `--kanban`'s preflight, or a foreign file with `--apply-defs`                                                                                                                           |
-| 4    | `--kanban`, `--apply-defs` or an internal step in a directory without `.wip/`                                                                                                                                                                                                  |
-| 130  | Ctrl+C or the end of input at the pre-upgrade `Apply the definitions?`: nothing upgraded and nothing written; at the post-upgrade question it only leaves the definitions as they are                                                                                          |
+| Code | When                                                                                                                                                                                                                                                                         |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0    | upgraded, already up to date, `--dry-run` printed, `--apply-defs` or the accepted definitions step applied or current, the post-install answer applied or current, or the internal mod step done                                                                             |
+| 1    | `--check` found an update or outdated definitions; the install, the verification or the rollback failed; the CLI was upgraded but a mod was not; the accepted definitions step could not be applied (`defs_failed`, before or after the install; the CLI is not rolled back) |
+| 2    | usage: a positional argument, `--check --dry-run`, `--kanban --no-kanban`, `--quiet --no-quiet`, an unknown `--channel`, `--apply-defs` with its exclusive flags, or the internal flags with theirs                                                                          |
+| 3    | refused before any write: this install, the registry or tag, a network or npm failure, `--kanban`/`--quiet`'s preflight, or a foreign file with `--apply-defs`                                                                                                               |
+| 4    | `--kanban`, `--quiet`, `--apply-defs` or an internal step in a directory without `.wip/`                                                                                                                                                                                     |
+| 130  | Ctrl+C or the end of input at the pre-upgrade `Apply the definitions?`: nothing upgraded and nothing written; at the post-upgrade question it only leaves the definitions as they are                                                                                        |
 
 A failed npm install leaves the CLI as npm left it: the command never retries as root and never widens permissions.
 

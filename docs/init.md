@@ -24,8 +24,8 @@ wip init --global                 # definitions in ~/.claude/, shared by every -
 | `<defs>/skills/wip-flow-reports/`                | the `reports` flow: a search or a report, one-off or recurring, from the questions and sources to the written report                                                                                                                                                                                                                                                                                   |
 | `<defs>/skills/wip-flow-tasks/`                  | the `tasks` flow: any task with a clear outcome, one-off or recurring, in four phases (`todo`, `doing`, `done` and `closed`); it seeds `onboarding`                                                                                                                                                                                                                                                    |
 
-These four flows are the default set. In a terminal the wizard has five steps: scope, the flows to write, the start
-command, what goes into `.gitignore` and the Kanban mod. The Flows step shows all four checked; Space toggles one,
+These four flows are the default set. In a terminal the wizard has six steps: scope, the flows to write, the start
+command, what goes into `.gitignore`, the Kanban mod and the Quiet mod. The Flows step shows all four checked; Space toggles one,
 Enter confirms and at least one stays checked. `--flows development,ideas,reports,tasks` selects a subset for scripts
 (trimmed, duplicates removed, only names init ships; an unknown or empty value exits 2 and writes nothing), and
 `--yes` without `--flows` writes all four. A run only adds the selected flows: it never deletes a deselected or custom
@@ -85,19 +85,24 @@ one scope to the other (`--global` on a local project, or the reverse, exits 3 a
 with `--force`); within a scope, `--force` switches the folder as described above. Whoever
 clones the repository needs their own `wip init` (with or without `--global`).
 
-## The Kanban mod: `--kanban`
+## The mods: `--kanban` and `--quiet`
 
-`wip init` can install an optional, read-only Kanban for Claude Code: a pane listing the project's open wip items. An
-installed copy lives in `.claude/skills/wip-kanban/`, always in the project, also with `--global` (that flag decides
-where the agents and skills live, never where this copy does). It is a self-contained copy of `mods/wip-kanban/`,
-embedded in the npm package and the standalone binary, so installing needs no network and no extra download. A new
-Claude Code session, terminal or desktop, loads it by itself as `wip-kanban@skills-dir`, with no `--plugin-dir` and no
-marketplace.
+`wip init` can install two optional mods for Claude Code:
 
-The install writes two things: that copy, and `"enabledPlugins": {"wip-kanban@skills-dir": true}` merged into one
-settings file of the project. In a terminal the wizard's fifth step asks `Install the wip Kanban mod for Claude
-Code?` (`yes`, the default, installs the copy and the entry; `no` writes nothing) and, after `yes`, `Where does the
-enabledPlugins entry go?`:
+- **Kanban** (`--kanban`): a read-only pane listing the project's open wip items.
+- **Quiet** (`--quiet`): a quieter transcript that hides every row that is neither the assistant's text nor the
+  person's own messages, with `/wip-quiet` to show them on demand.
+
+An installed copy lives in `.claude/skills/wip-kanban/` or `.claude/skills/wip-quiet/`, always in the project, also
+with `--global` (that flag decides where the agents and skills live, never where these copies do). Each is a
+self-contained copy of its folder under `mods/`, embedded in the npm package and the standalone binary, so installing
+needs no network and no extra download. A new Claude Code session, terminal or desktop, loads them by themselves as
+`wip-kanban@skills-dir` and `wip-quiet@skills-dir`, with no `--plugin-dir` and no marketplace.
+
+Each install writes its copy and one `"enabledPlugins"` entry, merged into the **same** settings file. The wizard's
+fifth step asks `Install the wip Kanban mod for Claude Code?` and its sixth `Install the wip Quiet mod for Claude
+Code?` (both default to `yes`: Enter installs the copy and the entry; `no` writes neither). After the first `yes` it
+asks `Where does the enabledPlugins entry go?` **once per run**, and that one answer serves both mods:
 
 - `settings.json`, the default: `.claude/settings.json`, Claude's project scope, shared with the repository;
 - `settings.local.json`: `.claude/settings.local.json`, Claude's local scope, personal to this clone, normally not
@@ -108,46 +113,52 @@ Without a terminal:
 ```sh
 wip init --yes
 wip init --yes --force
-wip init --yes --kanban --kanban-settings-file settings.local.json
+wip init --yes --mods-settings-file settings.local.json
 ```
 
-`--yes` takes the wizard's default answers, the Kanban step included: it installs the copy and writes the entry in
-`.claude/settings.json` (or in the file that already holds it), so `wip init --yes` and `wip init --force --yes`
-install the mod. The default is still `no` when the entry is explicitly `false`, when a folder that is another tool's
-sits at the mod's path or when the settings cannot take the entry; `--kanban` installs anyway (it reactivates a
-`false` with a backup, and exits 3 with a foreign folder). `--kanban-settings-file
-settings.json|settings.local.json` chooses the file and is only valid together with `--kanban` (else exit 2, nothing
-written). A script that wants the old behaviour (no mod) omits `--yes` and passes `--start-default` to keep the
-default start without a terminal.
-`--kanban` skips the wizard's first question and still asks the file; `--kanban --force` skips both and writes the
-default `.claude/settings.json`; `--kanban-settings-file` skips the second. The
-merge preserves every other key, every other plugin and their order, adds `$schema` only when it creates the file,
-and copies the previous text to `.wip/backups/claude-settings/<file>.<stamp>` before changing it. Init never writes
-the other settings file: it reads it only to warn when its entry wins over the chosen one
-(`kanban_settings_overridden`), disagrees with it (`kanban_settings_duplicate`) or cannot be read
-(`kanban_settings_unreadable`). A warning never changes the exit code. An invalid JSON, an `enabledPlugins` that is
-not an object, a non-boolean value or a file that is not a regular file in the chosen path exits 3 with nothing
-written.
+`--yes` takes the wizard's default answers, both mod steps included: it installs both copies and writes both entries
+in `.claude/settings.json` (or in the file that already holds them), so `wip init --yes` and `wip init --force --yes`
+install both mods. A mod's default is `no` when its entry is explicitly `false`, when a folder that is another tool's
+sits at its path or when the settings cannot take the entry; `--kanban` or `--quiet` installs anyway (reactivating a
+`false` with a backup, and exiting 3 with a foreign folder). `--mods-settings-file
+settings.json|settings.local.json` chooses the one file both mods use; it goes with `--kanban`, `--quiet` or `--yes`
+(else exit 2, nothing written). `--kanban-settings-file` is the deprecated alias: it keeps its old rule (only with
+`--kanban`) and selects the file for both mods, and when both flags are given `--mods-settings-file` wins and the
+alias is ignored. A script that wants no mods omits `--yes` and passes `--start-default` to keep the default start
+without a terminal.
 
-Updating the copy is also what [`wip upgrade`](upgrade.md) does, with the installed CLI's own embedded files and only
-in the current project; `wip init --force` remains the broader refresh, because it also writes the definitions and,
-with `--kanban`, the settings. Init replaces the whole folder with `--force`: managed files return to the embedded
-text, your own extra files inside it are removed (each listed as `removed`) and the previous folder is copied first to
-`.wip/backups/kanban/wip-kanban.<stamp>/`; the `.claude-plugin/types/` Claude generates is kept. A second `--force`
-with nothing changed says `exists` and writes nothing. `--force` alone refreshes an existing copy and touches neither
-settings file; `--yes` installs the entry with the wizard's defaults; only `--kanban` reactivates a `false`, writing
-`true` in the chosen file with a backup. A folder at that path without wip's `.claude-plugin/wip.json` mark, or a
-file or link there, is another tool's: exit 3 with nothing written, also with `--force`.
+`--kanban`/`--quiet` skip their own install question; `--kanban --force` also skips the file question and writes the
+default `.claude/settings.json`; `--mods-settings-file` skips it too. The merge preserves every other key, every other
+plugin and their order, adds `$schema` only when it creates the file, writes the file **once** for both entries and
+copies the previous text to `.wip/backups/claude-settings/<file>.<stamp>` before changing it. Init never writes the
+other settings file: it reads it only to warn when an entry wins over the chosen one
+(`kanban_settings_overridden`, `quiet_settings_overridden`), disagrees with it (`kanban_settings_duplicate`,
+`quiet_settings_duplicate`) or cannot be read (`kanban_settings_unreadable`, `quiet_settings_unreadable`). A warning
+never changes the exit code. An invalid JSON, an `enabledPlugins` that is not an object, a non-boolean value or a file
+that is not a regular file in the chosen path exits 3 with nothing written.
 
-`wip state --json` also carries the model the pane and the web share: `data.board.flows`, every flow with its declared
-phases and its columns, each with the stage colour as `rgba()` and as the two solid colours and contrasting texts the
-terminal paints. The field is additive: `data.items` and its filters keep their meaning, and the web page is unchanged.
+Updating the copies is also what [`wip upgrade`](upgrade.md) does, with the installed CLI's own embedded files and
+only in the current project; `wip init --force` remains the broader refresh, because it also writes the definitions
+and, with `--kanban` or `--quiet`, the settings. Init replaces a whole folder with `--force`: managed files return to
+the embedded text, your own extra files inside it are removed (each listed as `removed`) and the previous folder is
+copied first to `.wip/backups/kanban/wip-kanban.<stamp>/` or `.wip/backups/quiet/wip-quiet.<stamp>/`; the
+`.claude-plugin/types/` Claude generates is kept. A second `--force` with nothing changed says `exists` and writes
+nothing. `--force` alone refreshes an existing copy and touches neither settings file; `--yes` installs the entries
+with the wizard's defaults; only `--kanban` or `--quiet` reactivates a `false`, writing `true` in the chosen file with
+a backup. A folder at that path without wip's `.claude-plugin/wip.json` mark, or a file or link there, is another
+tool's: exit 3 with nothing written, also with `--force`.
+
+`wip state --json` also carries the model the Kanban pane and the web share: `data.board.flows`, every flow with its
+declared phases and its columns, each with the stage colour as `rgba()` and as the two solid colours and contrasting
+texts the terminal paints. The field is additive: `data.items` and its filters keep their meaning, and the web page is
+unchanged.
 
 Development keeps using the checkout directly, `claude --plugin-dir /path/to/wip/mods/wip-kanban` (or
-`CLAUDE_CODE_PLUGIN_DIRS` for desktop), and must not run at the same time as an installed `skills-dir` copy in one
-session: both register `/wip-kanban` and the pane. `wip start` and the rest of wip are unchanged.
+`/path/to/wip/mods/wip-quiet`, and `CLAUDE_CODE_PLUGIN_DIRS` for desktop), and must not run at the same time as an
+installed `skills-dir` copy in one session: both register the same command (`/wip-kanban` or `/wip-quiet`) and the
+same pane or rows. `wip start` and the rest of wip are unchanged.
 
-The pane's use, its configuration, and how to update, disable or remove the mod are in the mod's own reference,
-[`mods/wip-kanban/README.md`](../mods/wip-kanban/README.md).
+Each mod's use, its configuration, and how to update, disable or remove it are in its own reference:
+[`mods/wip-kanban/README.md`](../mods/wip-kanban/README.md) and [`mods/wip-quiet/README.md`](../mods/wip-quiet/README.md).
 
 See [Install](install.md) for installing wip and [Start the coordinator: `wip start`](start.md) for the next step.

@@ -118,8 +118,12 @@ describe("wip help upgrade", () => {
     expect(out.stdout).toContain("--dry-run");
     expect(out.stdout).toContain("--kanban");
     expect(out.stdout).toContain("--no-kanban");
+    expect(out.stdout).toContain("--quiet");
+    expect(out.stdout).toContain("--no-quiet");
     expect(out.stdout).toContain("npm only");
     expect(out.stdout).toContain(".wip/backups/kanban/");
+    expect(out.stdout).toContain(".wip/backups/quiet/");
+    expect(out.stdout).toContain("data.quiet");
     expect(out.stdout).toContain("--apply-defs");
     expect(out.stdout).toContain("--no-defs");
     expect(out.stdout).toContain("definitions");
@@ -151,6 +155,11 @@ describe("wip help init", () => {
     expect(out.stdout).toContain("replace");
     expect(out.stdout).toContain("Install the wip Kanban mod for Claude Code?");
     expect(out.stdout).toContain("Where does the enabledPlugins entry go?");
+    expect(out.stdout).toContain("Install the wip Quiet mod for Claude Code?");
+    expect(out.stdout).toContain("--quiet");
+    expect(out.stdout).toContain("--mods-settings-file");
+    expect(out.stdout).toContain("deprecated alias");
+    expect(out.stdout).toContain(".wip/backups/quiet/");
     expect(out.stdout).toContain("yes (the default");
     expect(out.stdout).not.toContain("no (the default");
     // The old flag name, but never as a word of its own: it is a prefix of --kanban-settings-file.
@@ -161,6 +170,8 @@ describe("wip help init", () => {
   test("init usage lists the flag and the option", () => {
     const out = bare(["init", "--help"]);
     expect(out.stdout).toContain("[--kanban]");
+    expect(out.stdout).toContain("[--quiet]");
+    expect(out.stdout).toContain("[--mods-settings-file settings.json|settings.local.json]");
     expect(out.stdout).toContain("[--kanban-settings-file settings.json|settings.local.json]");
     expect(out.stdout).toContain("[--flows <names>]");
   });
@@ -172,15 +183,18 @@ describe("wip help init", () => {
     expect(out.stdout).not.toContain("installs nothing");
   });
 
-  test("init help describes five steps, the four flows and no --models", () => {
+  test("init help describes six steps, the four flows and no --models", () => {
     const out = bare(["help", "init"]);
-    expect(out.stdout).toContain("five steps");
+    expect(out.stdout).toContain("six steps");
     expect(out.stdout).toContain("the flows to write");
-    expect(out.stdout).toContain("step 4/5");
+    expect(out.stdout).toContain("step 4/6");
+    expect(out.stdout).toContain("(2/6)");
     expect(out.stdout).toContain("fifth step");
+    expect(out.stdout).toContain("sixth step");
+    expect(out.stdout).toContain("--quiet");
     expect(out.stdout).toContain("`development`, `ideas`, `reports` and `tasks`");
     expect(out.stdout).toContain("--yes` without `--flows` writes all four");
-    expect(out.stdout).not.toContain("four steps");
+    expect(out.stdout).not.toContain("five steps");
     expect(out.stdout).not.toContain("--models");
     expect(out.stdout).not.toContain("the model of fast");
     expect(out.stdout).toContain("never asks for or writes a model");

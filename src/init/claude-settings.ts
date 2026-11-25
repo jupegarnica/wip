@@ -12,6 +12,7 @@ import { rejected } from "../errors.ts";
 
 /** The entry `wip init` writes: a plugin Claude Code discovers in the project's skills folder. */
 export const KANBAN_PLUGIN_ID = "wip-kanban@skills-dir";
+export const QUIET_PLUGIN_ID = "wip-quiet@skills-dir";
 
 /** The two settings files the mod may use; `settings.json` is Claude's project scope, the other its local one. */
 export const SETTINGS_FILES = ["settings.json", "settings.local.json"] as const;
@@ -138,17 +139,25 @@ export interface ISettingsResult {
   backup: string | null;
 }
 
+export interface ISettingsManyResult {
+  /** Project-relative path of the backup of the file as it was, or null. */
+  backup: string | null;
+  /** The action per id, in the caller's order. */
+  actions: Record<string, TSettingsAction>;
+}
+
 /**
- * Merges `"<id>": true` into the chosen settings file, preserving every other key and every other plugin, and
- * backs the previous text up when it changes. Refuses, writing nothing, a file whose JSON or `enabledPlugins` is
- * not usable, or one that is not a regular file.
+ * Merges `"<id>": true` for every id into the chosen settings file, preserving every other key and every other
+ * plugin, backs the previous text up once and writes once. It validates every id before writing anything, so one
+ * unusable entry refuses the whole write; a file whose JSON or `enabledPlugins` is not usable, or one that is not a
+ * regular file, is refused too.
  */
-export function applySettings(
+export function applySettingsMany(
   project: string,
   file: TSettingsFile,
-  options: { stamp: string; id?: string },
-): ISettingsResult {
-  const id = options.id ?? KANBAN_PLUGIN_ID;
+  ids: readonly string[],
+  options: { stamp: string },
+): ISettingsManyResult {
   const abs = settingsAbs(project, file);
   const rel = settingsRel(file);
   const kind = fileKind(abs);
@@ -156,10 +165,10 @@ export function applySettings(
   if (kind === "missing") {
     const created = {
       $schema: SETTINGS_SCHEMA,
-      enabledPlugins: { [id]: true },
+      enabledPlugins: Object.fromEntries(ids.map((id) => [id, true])),
     };
     writeAtomic(abs, `${JSON.stringify(created, null, 2)}\n`);
-    return { action: "created", backup: null };
+    return { backup: null, actions: Object.fromEntries(ids.map((id) => [id, "created"])) };
   }
 
   let raw: unknown;
@@ -173,11 +182,21 @@ export function applySettings(
   if (plugins !== undefined && !isRecord(plugins)) {
     throw rejected(`enabledPlugins in ${rel} is not an object; nothing written`);
   }
-  const current = isRecord(plugins) ? plugins[id] : undefined;
-  if (current !== undefined && typeof current !== "boolean") {
-    throw rejected(`enabledPlugins["${id}"] in ${rel} is not a boolean; nothing written`);
+
+  const actions: Record<string, TSettingsAction> = {};
+  const writable: string[] = [];
+  for (const id of ids) {
+    const current = isRecord(plugins) ? plugins[id] : undefined;
+    if (current !== undefined && typeof current !== "boolean") {
+      throw rejected(`enabledPlugins["${id}"] in ${rel} is not a boolean; nothing written`);
+    }
+    if (current === true) actions[id] = "exists";
+    else {
+      actions[id] = current === false ? "updated" : "added";
+      writable.push(id);
+    }
   }
-  if (current === true) return { action: "exists", backup: null };
+  if (writable.length === 0) return { backup: null, actions };
 
   const out: Record<string, unknown> = {};
   let hasPlugins = false;
@@ -186,14 +205,30 @@ export function applySettings(
       out[key] = value;
       continue;
     }
-    out[key] = { ...(value as Record<string, unknown>), [id]: true };
+    out[key] = {
+      ...(value as Record<string, unknown>),
+      ...Object.fromEntries(writable.map((id) => [id, true])),
+    };
     hasPlugins = true;
   }
-  if (!hasPlugins) out.enabledPlugins = { [id]: true };
+  if (!hasPlugins) {
+    out.enabledPlugins = Object.fromEntries(writable.map((id) => [id, true]));
+  }
 
   const previous = readFileSync(abs, "utf8");
   const backup = backupPath(project, file, options.stamp);
   writeFileSync(join(project, backup), previous);
   writeAtomic(abs, `${JSON.stringify(out, null, 2)}\n`);
-  return { action: current === false ? "updated" : "added", backup };
+  return { backup, actions };
+}
+
+/** Merges one `"<id>": true`; the one-id case of `applySettingsMany`. */
+export function applySettings(
+  project: string,
+  file: TSettingsFile,
+  options: { stamp: string; id?: string },
+): ISettingsResult {
+  const id = options.id ?? KANBAN_PLUGIN_ID;
+  const many = applySettingsMany(project, file, [id], options);
+  return { action: many.actions[id] ?? "exists", backup: many.backup };
 }

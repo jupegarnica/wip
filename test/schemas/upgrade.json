@@ -31,6 +31,7 @@
         "npm",
         "rollback",
         "kanban",
+        "quiet",
         "changelog",
         "pinned",
         "defs"
@@ -78,6 +79,27 @@
           }
         },
         "kanban": {
+          "type": ["object", "null"],
+          "required": ["action", "path", "backup", "removed", "settings", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "action": { "enum": ["updated", "installed", "exists", "skipped", "failed"] },
+            "path": { "type": "string" },
+            "backup": { "type": ["string", "null"] },
+            "removed": { "type": "array", "items": { "type": "string" } },
+            "settings": {
+              "type": ["object", "null"],
+              "required": ["file", "action"],
+              "additionalProperties": false,
+              "properties": {
+                "file": { "type": "string" },
+                "action": { "enum": ["created", "added", "updated", "exists"] }
+              }
+            },
+            "reason": { "enum": ["no-project", "not-owned", null] }
+          }
+        },
+        "quiet": {
           "type": ["object", "null"],
           "required": ["action", "path", "backup", "removed", "settings", "reason"],
           "additionalProperties": false,

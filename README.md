@@ -30,8 +30,10 @@ Flows and agents are Markdown files in the repository, so they are readable, dif
   `reports` and `tasks` — covering code, research, documents and decisions.
 - **One coordinator, four subagents.** `fast`, `efficient`, `thinker` and `wise` share one contract and differ in how
   much they investigate and decide.
-- **A read-only kanban.** `wip web` serves it from the binary; `wip init` also installs an optional pane for Claude
-  Code by default (the wizard's fifth step), and `wip init --kanban` installs it from scripts.
+- **A read-only kanban and a quieter transcript.** `wip web` serves the board from the binary; `wip init` also
+  installs two optional mods for Claude Code by default (the wizard's last two steps): the Kanban pane and Quiet,
+  which hides every transcript row that is neither your messages nor the assistant's text. `--kanban` and `--quiet`
+  install them from scripts.
 - **Scheduled checks without a daemon.** Flows declare polls; `wip cron` keeps reminders and fixed-time passes, and
   the coordinator arms them when a session starts.
 - **Auditable by default.** Every item keeps its runs, gates and history; archiving prunes safely to the system
@@ -60,8 +62,8 @@ cd my-project
 wip init
 ```
 
-The wizard asks five things: the scope (local or `~/.claude/`), the flows to write, the `wip start` command, what
-goes into `.gitignore`, and whether to install the Kanban mod for Claude Code. See
+The wizard asks six things: the scope (local or `~/.claude/`), the flows to write, the `wip start` command, what
+goes into `.gitignore`, and whether to install the Kanban and Quiet mods for Claude Code. See
 [docs/init.md](https://github.com/jupegarnica/wip/blob/main/docs/init.md).
 
 ### 3. Start the coordinator
@@ -92,7 +94,7 @@ wip check          # invariants and warnings
 | Document                                                                                    | What it covers                                    |
 | ------------------------------------------------------------------------------------------- | ------------------------------------------------- |
 | [Install](https://github.com/jupegarnica/wip/blob/main/docs/install.md)                     | npm, binary, upgrade, backup, rollback, uninstall |
-| [Init](https://github.com/jupegarnica/wip/blob/main/docs/init.md)                           | `wip init`, scopes, `.gitignore`, the Kanban mod  |
+| [Init](https://github.com/jupegarnica/wip/blob/main/docs/init.md)                           | `wip init`, scopes, `.gitignore`, the mods        |
 | [Start](https://github.com/jupegarnica/wip/blob/main/docs/start.md)                         | `wip start`, saved commands, `WIP_BIN`            |
 | [Agents and models](https://github.com/jupegarnica/wip/blob/main/docs/agents-and-models.md) | the four generics, levels, `model:`               |
 | [Flows](https://github.com/jupegarnica/wip/blob/main/docs/flows.md)                         | flow format, `wip-flow`, `flow lint`              |

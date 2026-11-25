@@ -1,0 +1,6 @@
+{
+  "name": "wip-quiet",
+  "version": "0.1.0",
+  "description": "Hides every transcript row that is not the assistant's text or the user's own messages, with /wip-quiet to show them on demand.",
+  "types": "./types/index.d.ts"
+}

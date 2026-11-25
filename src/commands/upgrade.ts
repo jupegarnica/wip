@@ -4,12 +4,11 @@ import { BUILD_INFO } from "../build-info.ts";
 import { compact } from "../clock.ts";
 import { defsDirOf, HOME_PREFIX, readConfig } from "../config.ts";
 import type { IAfterRun, ICtx, IDefsAfterInstall, IHandler } from "../context.ts";
-import { KANBAN_MOD } from "../embedded/kanban.ts";
 import { defsPath, findRoot, shownDefsDir, type TEnv } from "../env.ts";
 import { EXIT, rejected, type TExitCode, usage, WipError } from "../errors.ts";
 import type { TSettingsFile } from "../init/claude-settings.ts";
 import { applyDefs, defsDrift, type IDefsDrift } from "../init/drift.ts";
-import { KanbanCopyFailed, kanbanPreflight, kanbanState } from "../init/kanban.ts";
+import { ModCopyFailed } from "../init/mod-copy.ts";
 import { Aborted, askSelect, type IAsker, terminalAsker } from "../init/prompt.ts";
 import type { IInitFile } from "../init/scaffold.ts";
 import { detectInstall, type IInstallInfo, INSTALL_KIND, type TInstallKind } from "../install.ts";
@@ -20,7 +19,14 @@ import {
   readChangelog,
   releaseNotes,
 } from "../upgrade/changelog.ts";
-import { applyMod, type IModResult, preferredSettingsFile } from "../upgrade/mod.ts";
+import {
+  applyMod,
+  type IModOps,
+  type IModResult,
+  kanbanOps,
+  preferredSettingsFile,
+  quietOps,
+} from "../upgrade/mod.ts";
 import {
   type ISpawnResult,
   installArgs,
@@ -37,7 +43,7 @@ const CHANNELS = ["latest", "next"] as const;
 type TChannel = (typeof CHANNELS)[number];
 
 const USAGE =
-  "usage: wip upgrade [--channel latest|next] [--check | --dry-run] [--kanban | --no-kanban] [--apply-defs | --no-defs]";
+  "usage: wip upgrade [--channel latest|next] [--check | --dry-run] [--kanban | --no-kanban] [--quiet | --no-quiet] [--apply-defs | --no-defs]";
 
 type TAction = "upgraded" | "current" | "available" | "would-upgrade" | "skipped" | "failed";
 
@@ -47,6 +53,8 @@ interface IUpgradeOptions {
   dryRun: boolean;
   kanban: boolean;
   noKanban: boolean;
+  quiet: boolean;
+  noQuiet: boolean;
   applyMod: boolean;
   applyDefs: boolean;
   applyDefsAfter: boolean;
@@ -95,6 +103,14 @@ export interface IUpgradeData {
     settings: IModResult["settings"];
     reason: IModResult["reason"];
   } | null;
+  quiet: {
+    action: IModResult["action"];
+    path: string;
+    backup: string | null;
+    removed: string[];
+    settings: IModResult["settings"];
+    reason: IModResult["reason"];
+  } | null;
   /** The installed package's notes for `(running, target]`; null when it was not read or had none. */
   changelog: (IReleaseNotes & { truncated: boolean }) | null;
   pinned: string | null;
@@ -130,6 +146,8 @@ function parseOptions(args: IArgs): IUpgradeOptions {
   const dryRun = args.flags.has("dry-run");
   const kanban = args.flags.has("kanban");
   const noKanban = args.flags.has("no-kanban");
+  const quiet = args.flags.has("quiet");
+  const noQuiet = args.flags.has("no-quiet");
   const applyMod = args.flags.has("apply-mod");
   const applyDefs = args.flags.has("apply-defs");
   const applyDefsAfter = args.flags.has("apply-defs-after");
@@ -137,15 +155,20 @@ function parseOptions(args: IArgs): IUpgradeOptions {
   const noDefs = args.flags.has("no-defs");
   if (check && dryRun) throw usage("--check and --dry-run are exclusive");
   if (kanban && noKanban) throw usage("--kanban and --no-kanban are exclusive");
+  if (quiet && noQuiet) throw usage("--quiet and --no-quiet are exclusive");
   if (applyDefs && applyMod) throw usage("--apply-defs and --apply-mod are exclusive");
-  if (applyDefs && (check || dryRun || args.opts.channel !== undefined || kanban || noDefs)) {
+  if (
+    applyDefs &&
+    (check || dryRun || args.opts.channel !== undefined || kanban || quiet || noDefs)
+  ) {
     throw usage(
-      "--apply-defs is its own mode: it takes no --check, --dry-run, --channel, --kanban nor --no-defs",
+      "--apply-defs is its own mode: it takes no --check, --dry-run, --channel, --kanban, --quiet nor --no-defs",
     );
   }
   if (applyMod && (check || dryRun || args.opts.channel !== undefined)) {
     throw usage("--apply-mod is internal: it takes no --check, --dry-run nor --channel");
   }
+  // `--apply-defs-after` rides on the user's argv (which may carry --kanban/--quiet), so it takes both mods' flags.
   if (applyDefsAfter && (check || dryRun || applyDefs || applyMod || noDefs)) {
     throw usage(
       "--apply-defs-after is internal: it takes no --check, --dry-run, --apply-defs, --apply-mod nor --no-defs",
@@ -157,6 +180,8 @@ function parseOptions(args: IArgs): IUpgradeOptions {
       dryRun ||
       kanban ||
       noKanban ||
+      quiet ||
+      noQuiet ||
       applyMod ||
       applyDefs ||
       applyDefsAfter ||
@@ -171,6 +196,8 @@ function parseOptions(args: IArgs): IUpgradeOptions {
     dryRun,
     kanban,
     noKanban,
+    quiet,
+    noQuiet,
     applyMod,
     applyDefs,
     applyDefsAfter,
@@ -223,10 +250,10 @@ function publicMod(mod: IModResult | null): IUpgradeData["kanban"] {
   };
 }
 
-function skippedMod(reason: IModResult["reason"]): IModResult {
+function skippedMod(ops: IModOps, reason: IModResult["reason"]): IModResult {
   return {
     action: "skipped",
-    path: ".claude/skills/wip-kanban/",
+    path: `${ops.spec.dir}/`,
     backup: null,
     removed: [],
     settings: null,
@@ -235,10 +262,10 @@ function skippedMod(reason: IModResult["reason"]): IModResult {
   };
 }
 
-function failedMod(backup: string | null): IModResult {
+function failedMod(ops: IModOps, backup: string | null): IModResult {
   return {
     action: "failed",
-    path: ".claude/skills/wip-kanban/",
+    path: `${ops.spec.dir}/`,
     backup,
     removed: [],
     settings: null,
@@ -258,6 +285,7 @@ function dataOf(
     npm?: IUpgradeData["npm"];
     rollback?: IUpgradeData["rollback"];
     kanban?: IModResult | null;
+    quiet?: IModResult | null;
     changelog?: IUpgradeData["changelog"];
     pinned?: string | null;
     defs?: IDefsData | null;
@@ -277,6 +305,7 @@ function dataOf(
     npm: base.npm ?? null,
     rollback: base.rollback ?? null,
     kanban: publicMod(base.kanban ?? null),
+    quiet: publicMod(base.quiet ?? null),
     changelog: base.changelog ?? null,
     pinned: base.pinned ?? null,
     defs: base.defs ?? null,
@@ -642,36 +671,39 @@ function pushModWarnings(ctx: ICtx, mod: IModResult): void {
   for (const warning of mod.warnings) addWarning(ctx, warning.code, warning.message);
 }
 
-function modLines(lines: string[], mod: IModResult, project: string | null): void {
+function modLines(
+  lines: string[],
+  mod: IModResult,
+  project: string | null,
+  label: string,
+  fileCount: number,
+): void {
   if (mod.action === "updated") {
-    lines.push(`kanban: updated ${mod.path}${mod.backup ? ` (backup ${mod.backup})` : ""}`);
+    lines.push(`${label}: updated ${mod.path}${mod.backup ? ` (backup ${mod.backup})` : ""}`);
   } else if (mod.action === "installed") {
-    lines.push(`kanban: installed ${mod.path} (${Object.keys(KANBAN_MOD).length} files)`);
+    lines.push(`${label}: installed ${mod.path} (${fileCount} files)`);
   } else if (mod.action === "exists") {
-    lines.push(`kanban: exists ${mod.path}`);
+    lines.push(`${label}: exists ${mod.path}`);
   } else if (mod.action === "failed") {
-    lines.push(`kanban: failed${mod.backup ? ` (previous folder at ${mod.backup})` : ""}`);
+    lines.push(`${label}: failed${mod.backup ? ` (previous folder at ${mod.backup})` : ""}`);
   } else if (mod.reason === "no-project") {
-    lines.push("kanban: skipped (no .wip/ project)");
+    lines.push(`${label}: skipped (no .wip/ project)`);
   } else if (mod.reason === "not-owned") {
-    lines.push("kanban: skipped (no wip copy; pass --kanban to install it)");
+    lines.push(`${label}: skipped (no wip copy; pass --${label} to install it)`);
   }
   for (const removed of mod.removed) lines.push(`removed ${removed}`);
   if (mod.settings !== null && mod.settings.action !== "exists") {
-    lines.push(`kanban: settings ${mod.settings.action} ${mod.settings.file}`);
-  }
-  if (mod.action === "updated" || mod.action === "installed") {
-    lines.push("reload plugins or restart Claude Code (/reload-plugins) to load the new pane");
+    lines.push(`${label}: settings ${mod.settings.action} ${mod.settings.file}`);
   }
   if (mod.action === "failed" && project !== null) {
     lines.push(`repeat \`wip upgrade\` in ${project}, or run \`wip init --force\``);
   }
 }
 
-/** The preflight of an explicit `--kanban`, read only, before npm runs: a refusal exits 3 without upgrading. */
-function kanbanPreflightBeforeInstall(ctx: ICtx, project: string): TSettingsFile {
-  const file = preferredSettingsFile(kanbanState(project));
-  const pre = kanbanPreflight(project, { requested: true, force: true, file });
+/** The preflight of an explicit `--<mod>`, read only, before npm runs: a refusal exits 3 without upgrading. */
+function modPreflightBeforeInstall(ctx: ICtx, project: string, ops: IModOps): TSettingsFile {
+  const file = preferredSettingsFile(ops.state(project));
+  const pre = ops.preflight(project, { requested: true, force: true, file });
   if (pre.refusals.length > 0) throw rejected(`nothing installed: ${pre.refusals.join("; ")}`);
   for (const warning of pre.warnings) addWarning(ctx, warning.code, warning.message);
   return file;
@@ -680,42 +712,59 @@ function kanbanPreflightBeforeInstall(ctx: ICtx, project: string): TSettingsFile
 function applyInProcess(
   ctx: ICtx,
   project: string,
+  ops: IModOps,
   options: { install: boolean; file?: TSettingsFile },
   propagateRefusals: boolean,
 ): IModResult {
   try {
-    const mod = applyMod(project, { ...options, stamp: compact() });
+    const mod = applyMod(ops, project, { ...options, stamp: compact() });
     pushModWarnings(ctx, mod);
     return mod;
   } catch (err) {
     if (propagateRefusals && err instanceof WipError) throw err;
-    const backup = err instanceof KanbanCopyFailed ? err.backup : null;
+    const backup = err instanceof ModCopyFailed ? err.backup : null;
     const message = err instanceof Error ? err.message : String(err);
+    const code = `${ops.spec.warningPrefix}_failed`;
     ctx.result.warnings.push({
-      code: "kanban_failed",
-      message: `kanban_failed: ${message}${backup ? ` (previous folder at ${backup})` : ""}`,
+      code,
+      message: `${code}: ${message}${backup ? ` (previous folder at ${backup})` : ""}`,
     });
-    return failedMod(backup);
+    return failedMod(ops, backup);
   }
 }
 
-interface IChildMod {
-  mod: IModResult | null;
-  problem: string | null;
+interface IChildMods {
+  kanban: IModResult | null;
+  quiet: IModResult | null;
+  problems: string[];
   unsupported: boolean;
 }
 
-/** Runs the freshly installed CLI's `upgrade --apply-mod`, so the mod comes from the new embedded copy. */
+/** Runs the freshly installed CLI's `upgrade --apply-mod`, so each mod comes from the new embedded copy. */
 function applyWithInstalled(
   ctx: ICtx,
   info: IInstallInfo,
   project: string,
-  install: boolean,
-): IChildMod {
+  options: IUpgradeOptions,
+): IChildMods {
+  const wanted = { kanban: !options.noKanban, quiet: !options.noQuiet };
   if (info.root === null || info.entry === null) {
-    return { mod: null, problem: "the installed package has no bin to run", unsupported: false };
+    return {
+      kanban: null,
+      quiet: null,
+      problems: ["the installed package has no bin to run"],
+      unsupported: false,
+    };
   }
-  const args = ["upgrade", "--apply-mod", ...(install ? ["--kanban"] : []), "--json"];
+  const selection = (on: boolean, off: boolean, name: string): string[] =>
+    on ? [`--${name}`] : off ? [`--no-${name}`] : [];
+  const args = [
+    "upgrade",
+    "--apply-mod",
+    ...selection(options.kanban, options.noKanban, "kanban"),
+    ...selection(options.quiet, options.noQuiet, "quiet"),
+    "--json",
+  ];
   const out = call(
     runner(),
     process.execPath,
@@ -726,37 +775,49 @@ function applyWithInstalled(
   const text = `${out.stdout}\n${out.stderr}`;
   if (out.error !== null) {
     return {
-      mod: null,
-      problem: `the installed CLI did not start: ${out.error}`,
+      kanban: null,
+      quiet: null,
+      problems: [`the installed CLI did not start: ${out.error}`],
       unsupported: false,
     };
   }
   if (out.status === 2 && /unknown (option|command)/.test(text)) {
-    return { mod: null, problem: null, unsupported: true };
+    return { kanban: null, quiet: null, problems: [], unsupported: true };
   }
   if (out.status !== 0) {
     return {
-      mod: null,
-      problem: `the installed CLI could not refresh the Kanban mod: ${tail(text)}`,
+      kanban: null,
+      quiet: null,
+      problems: [`the installed CLI could not refresh the mods: ${tail(text)}`],
       unsupported: false,
     };
   }
-  let body: { data?: { kanban?: IModResult }; warnings?: { code: string; message: string }[] };
+  let body: {
+    data?: { kanban?: IModResult | null; quiet?: IModResult | null };
+    warnings?: { code: string; message: string }[];
+  };
   try {
     body = JSON.parse(out.stdout) as typeof body;
   } catch {
     return {
-      mod: null,
-      problem: `the installed CLI printed no JSON: ${tail(out.stdout)}`,
+      kanban: null,
+      quiet: null,
+      problems: [`the installed CLI printed no JSON: ${tail(out.stdout)}`],
       unsupported: false,
     };
   }
   for (const warning of body.warnings ?? []) addWarning(ctx, warning.code, warning.message);
-  const mod = body.data?.kanban;
-  if (mod === undefined || mod === null || typeof mod.action !== "string") {
-    return { mod: null, problem: "the installed CLI printed no kanban result", unsupported: false };
-  }
-  return { mod, problem: null, unsupported: false };
+  const problems: string[] = [];
+  const read = (value: IModResult | null | undefined, name: string): IModResult | null => {
+    if (value === undefined || value === null || typeof value.action !== "string") {
+      problems.push(`the installed CLI printed no ${name} result`);
+      return null;
+    }
+    return value;
+  };
+  const kanban = wanted.kanban ? read(body.data?.kanban, "kanban") : null;
+  const quiet = wanted.quiet ? read(body.data?.quiet, "quiet") : null;
+  return { kanban, quiet, problems, unsupported: false };
 }
 
 function verifyInstalled(
@@ -796,30 +857,60 @@ function verifyInstalled(
   }
 }
 
-function describeModPlan(project: string, install: boolean): string {
-  const state = kanbanState(project);
+function describeModPlan(project: string, ops: IModOps, install: boolean): string {
+  const label = ops.spec.warningPrefix;
+  const state = ops.state(project);
   if (state.copy === "foreign" || state.copy === "not-dir") {
     return install
-      ? `kanban: would refuse (${state.copyProblem})`
-      : "kanban: would skip (the folder is not wip's)";
+      ? `${label}: would refuse (${state.copyProblem})`
+      : `${label}: would skip (the folder is not wip's)`;
   }
   if (state.copy === "missing") {
     return install
-      ? "kanban: would install .claude/skills/wip-kanban/ and the enabledPlugins entry"
-      : "kanban: would skip (no wip copy; --kanban would install it)";
+      ? `${label}: would install ${ops.spec.dir}/ and the enabledPlugins entry`
+      : `${label}: would skip (no wip copy; --${label} would install it)`;
   }
   return install
-    ? "kanban: would refresh .claude/skills/wip-kanban/ and enable the plugin"
-    : "kanban: would refresh .claude/skills/wip-kanban/ if its files changed";
+    ? `${label}: would refresh ${ops.spec.dir}/ and enable the plugin`
+    : `${label}: would refresh ${ops.spec.dir}/ if its files changed`;
 }
 
 /** The hidden `--apply-mod`: applies the running code's embedded copy, never npm. Requires a project (exit 4). */
-export function applyModCmd(ctx: ICtx, options: { channel: TChannel; kanban: boolean }): void {
+export function applyModCmd(ctx: ICtx, options: IUpgradeOptions): void {
   const project = ctx.root.project;
-  const mod = applyInProcess(ctx, project, { install: options.kanban }, true);
+  const results: { ops: IModOps; mod: IModResult }[] = [];
+  if (!options.noKanban) {
+    results.push({
+      ops: kanbanOps,
+      mod: applyInProcess(ctx, project, kanbanOps, { install: options.kanban }, true),
+    });
+  }
+  if (!options.noQuiet) {
+    results.push({
+      ops: quietOps,
+      mod: applyInProcess(ctx, project, quietOps, { install: options.quiet }, true),
+    });
+  }
+  const byOps = (ops: IModOps): IModResult | null =>
+    results.find((entry) => entry.ops === ops)?.mod ?? null;
+  const kanban = byOps(kanbanOps);
+  const quiet = byOps(quietOps);
+  const failed = results.find((entry) => entry.mod.action === "failed") !== undefined;
+  const changed = results.some(
+    (entry) => entry.mod.action === "updated" || entry.mod.action === "installed",
+  );
   const lines = ctx.result.lines;
   lines.push(header(emptyInstall()));
-  modLines(lines, mod, project);
+  for (const entry of results) {
+    modLines(
+      lines,
+      entry.mod,
+      project,
+      entry.ops.spec.warningPrefix,
+      Object.keys(entry.ops.files).length,
+    );
+  }
+  if (changed) lines.push("reload plugins or restart Claude Code (/reload-plugins)");
   ctx.result.data = dataOf(
     {
       project,
@@ -827,18 +918,19 @@ export function applyModCmd(ctx: ICtx, options: { channel: TChannel; kanban: boo
       channel: options.channel,
       target: null,
       update: null,
-      action: mod.action === "failed" ? "failed" : "current",
-      kanban: mod,
+      action: failed ? "failed" : "current",
+      kanban,
+      quiet,
     },
     false,
     false,
   );
-  if (mod.action === "failed") {
+  if (failed) {
     ctx.result.ok = false;
     ctx.result.code = EXIT.FINDINGS;
-    ctx.result.message = "the Kanban mod could not be updated";
+    ctx.result.message = "a mod could not be updated";
   } else {
-    ctx.result.message = "the Kanban mod is up to date";
+    ctx.result.message = "the mods are up to date";
   }
 }
 
@@ -1215,6 +1307,8 @@ function run(ctx: ICtx, args: IArgs): void {
     "dry-run",
     "kanban",
     "no-kanban",
+    "quiet",
+    "no-quiet",
     "apply-mod",
     "apply-defs",
     "apply-defs-after",
@@ -1238,7 +1332,9 @@ function run(ctx: ICtx, args: IArgs): void {
   const platform = process.platform;
   const info = testInstall ?? detectInstall({ env: ctx.env, platform });
   const project =
-    options.noKanban && options.noDefs ? null : projectOf(ctx, options.kanban || options.applyDefs);
+    options.noKanban && options.noQuiet && options.noDefs
+      ? null
+      : projectOf(ctx, options.kanban || options.quiet || options.applyDefs);
   const pinned = project === null ? null : pinnedOf(project, info, ctx.env);
   if (pinned !== null) {
     ctx.result.warnings.push({
@@ -1249,8 +1345,10 @@ function run(ctx: ICtx, args: IArgs): void {
 
   const acts = !options.check && !options.dryRun;
   let kanbanFile: TSettingsFile | undefined;
-  if (options.kanban && acts && project !== null) {
-    kanbanFile = kanbanPreflightBeforeInstall(ctx, project);
+  let quietFile: TSettingsFile | undefined;
+  if (acts && project !== null) {
+    if (options.kanban) kanbanFile = modPreflightBeforeInstall(ctx, project, kanbanOps);
+    if (options.quiet) quietFile = modPreflightBeforeInstall(ctx, project, quietOps);
   }
   if (acts) {
     const refusal = installRefusal(info);
@@ -1344,7 +1442,11 @@ function run(ctx: ICtx, args: IArgs): void {
     }
     if (!options.noKanban) {
       if (project === null) lines.push("kanban: skipped (no .wip/ project)");
-      else lines.push(describeModPlan(project, options.kanban));
+      else lines.push(describeModPlan(project, kanbanOps, options.kanban));
+    }
+    if (!options.noQuiet) {
+      if (project === null) lines.push("quiet: skipped (no .wip/ project)");
+      else lines.push(describeModPlan(project, quietOps, options.quiet));
     }
     if (defs !== null) defsPlanLines(lines, defs);
     ctx.result.data = dataOf(
@@ -1373,11 +1475,11 @@ function run(ctx: ICtx, args: IArgs): void {
   let npm: IUpgradeData["npm"] = null;
   let rollback: IUpgradeData["rollback"] = null;
   let kanban: IModResult | null = null;
+  let quiet: IModResult | null = null;
   let changelog: IUpgradeData["changelog"] = null;
   let ok = true;
   let code: TExitCode = EXIT.OK;
   let action: TAction = resolved.update ? "upgraded" : "current";
-  let modProblem: string | null = null;
   let unsupported = false;
   let installOk = false;
 
@@ -1397,7 +1499,7 @@ function run(ctx: ICtx, args: IArgs): void {
       const problem = npmProblem(installed);
       lines.push(`npm install failed: ${problem}`);
       lines.push(
-        `the CLI stays as npm left it (prefix ${prefix}); the Kanban mod was not touched; run the command above by hand, or with sudo if the prefix needs it`,
+        `the CLI stays as npm left it (prefix ${prefix}); the mods were not touched; run the command above by hand, or with sudo if the prefix needs it`,
       );
       ctx.result.message = `npm install failed: ${problem}`;
     } else {
@@ -1426,23 +1528,39 @@ function run(ctx: ICtx, args: IArgs): void {
             lines.push("", ...formatted.lines, "");
           }
         }
-        if (!options.noKanban) {
-          if (project === null) {
-            kanban = skippedMod("no-project");
-          } else {
-            const child = applyWithInstalled(ctx, info, project, options.kanban);
-            unsupported = child.unsupported;
-            modProblem = child.problem;
-            if (child.problem !== null) {
+        if (project === null) {
+          if (!options.noKanban) kanban = skippedMod(kanbanOps, "no-project");
+          if (!options.noQuiet) quiet = skippedMod(quietOps, "no-project");
+        } else if (options.noKanban && options.noQuiet) {
+          // Both mod steps are off: no child call at all.
+        } else {
+          const child = applyWithInstalled(ctx, info, project, options);
+          unsupported = child.unsupported;
+          const problemText = child.problems.join("; ");
+          if (!options.noKanban) {
+            if (child.unsupported) {
+              kanban = skippedMod(kanbanOps, null);
+            } else if (child.problems.length > 0) {
               ctx.result.warnings.push({
                 code: "kanban_failed",
-                message: `kanban_failed: ${child.problem}; the CLI is new and the Kanban mod is not`,
+                message: `kanban_failed: ${problemText}; the CLI is new and the Kanban mod is not`,
               });
-              kanban = failedMod(null);
-            } else if (child.unsupported) {
-              kanban = skippedMod(null);
+              kanban = failedMod(kanbanOps, null);
             } else {
-              kanban = child.mod ?? skippedMod("no-project");
+              kanban = child.kanban ?? skippedMod(kanbanOps, "no-project");
+            }
+          }
+          if (!options.noQuiet) {
+            if (child.unsupported) {
+              quiet = skippedMod(quietOps, null);
+            } else if (child.problems.length > 0) {
+              ctx.result.warnings.push({
+                code: "quiet_failed",
+                message: `quiet_failed: ${problemText}; the CLI is new and the Quiet mod is not`,
+              });
+              quiet = failedMod(quietOps, null);
+            } else {
+              quiet = child.quiet ?? skippedMod(quietOps, "no-project");
             }
           }
         }
@@ -1496,38 +1614,82 @@ function run(ctx: ICtx, args: IArgs): void {
     if (!options.noKanban) {
       kanban =
         project === null
-          ? skippedMod("no-project")
-          : applyInProcess(ctx, project, { install: options.kanban, file: kanbanFile }, true);
-      if (kanban.action === "failed") {
-        ok = false;
-        code = EXIT.FINDINGS;
-      }
+          ? skippedMod(kanbanOps, "no-project")
+          : applyInProcess(
+              ctx,
+              project,
+              kanbanOps,
+              { install: options.kanban, file: kanbanFile },
+              true,
+            );
+    }
+    if (!options.noQuiet) {
+      quiet =
+        project === null
+          ? skippedMod(quietOps, "no-project")
+          : applyInProcess(
+              ctx,
+              project,
+              quietOps,
+              { install: options.quiet, file: quietFile },
+              true,
+            );
+    }
+    if (kanban?.action === "failed" || quiet?.action === "failed") {
+      ok = false;
+      code = EXIT.FINDINGS;
     }
   }
 
   if (unsupported && project !== null) {
-    ctx.result.warnings.push({
-      code: "kanban_apply_unsupported",
-      message: `kanban_apply_unsupported: the installed wip does not know --apply-mod; run \`wip init --force\` in ${project} to refresh the copy`,
-    });
-    lines.push(
-      `kanban: skipped (the installed wip does not know --apply-mod; run \`wip init --force\`)`,
-    );
+    if (!options.noKanban) {
+      ctx.result.warnings.push({
+        code: "kanban_apply_unsupported",
+        message: `kanban_apply_unsupported: the installed wip does not know --apply-mod; run \`wip init --force\` in ${project} to refresh the copy`,
+      });
+    }
+    if (!options.noQuiet) {
+      ctx.result.warnings.push({
+        code: "quiet_apply_unsupported",
+        message: `quiet_apply_unsupported: the installed wip does not know --apply-mod; run \`wip init --force\` in ${project} to refresh the copy`,
+      });
+      ok = false;
+      code = EXIT.FINDINGS;
+    }
   }
-  if (resolved.update && ok && modProblem === null && kanban?.action === "failed") {
+  for (const [mod, name] of [
+    [kanban, "kanban"],
+    [quiet, "quiet"],
+  ] as const) {
+    if (!resolved.update || mod?.action !== "failed") continue;
     ok = false;
     code = EXIT.FINDINGS;
-    ctx.result.warnings.push({
-      code: "kanban_failed",
-      message: `kanban_failed: the CLI is new and the Kanban mod is not${
+    addWarning(
+      ctx,
+      `${name}_failed`,
+      `${name}_failed: the CLI is new and the ${name === "kanban" ? "Kanban" : "Quiet"} mod is not${
         project ? ` (repeat \`wip upgrade\` in ${project}, or run \`wip init --force\`)` : ""
       }`,
-    });
+    );
   }
 
   if (!options.noKanban) {
     if (kanban === null) lines.push("kanban: not touched (the CLI was not upgraded)");
-    else if (!unsupported) modLines(lines, kanban, project);
+    else if (!unsupported) {
+      modLines(lines, kanban, project, "kanban", Object.keys(kanbanOps.files).length);
+    }
+  }
+  if (!options.noQuiet) {
+    if (quiet === null) lines.push("quiet: not touched (the CLI was not upgraded)");
+    else if (!unsupported) {
+      modLines(lines, quiet, project, "quiet", Object.keys(quietOps.files).length);
+    }
+  }
+  if (!unsupported) {
+    const changed = [kanban, quiet].some(
+      (mod) => mod?.action === "updated" || mod?.action === "installed",
+    );
+    if (changed) lines.push("reload plugins or restart Claude Code (/reload-plugins)");
   }
   let defsData = defs;
   let after: IAfterRun | undefined;
@@ -1571,6 +1733,7 @@ function run(ctx: ICtx, args: IArgs): void {
       npm,
       rollback,
       kanban,
+      quiet,
       changelog,
       pinned,
       defs: defsData,

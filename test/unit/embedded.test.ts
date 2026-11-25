@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
 import { MIGRATIONS } from "../../src/embedded/migrations.ts";
+import { QUIET_MOD } from "../../src/embedded/quiet.ts";
 import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { WEB } from "../../src/embedded/web.ts";
 
@@ -66,6 +67,35 @@ describe("embedded files (D15)", () => {
       format: 1,
       owner: "@garndev/wip",
       plugin: "wip-kanban",
+    });
+  });
+
+  test("QUIET_MOD holds exactly the ten distributable files, with their text as on disk", () => {
+    const dir = join(REPO, "mods", "wip-quiet");
+    expect(Object.keys(QUIET_MOD).sort()).toEqual([
+      ".claude-plugin/plugin.json",
+      ".claude-plugin/wip.json",
+      "LICENSE",
+      "README.md",
+      "hooks/classify.ts",
+      "hooks/hooks.json",
+      "hooks/register.tsx",
+      "hooks/timestamps.ts",
+      "tsconfig.json",
+      "types/index.d.ts",
+    ]);
+    for (const [key, text] of Object.entries(QUIET_MOD)) {
+      expect(text).toBe(readFileSync(join(dir, key), "utf8"));
+    }
+    expect(Object.keys(QUIET_MOD).some((key) => key.startsWith("tests/"))).toBe(false);
+    expect(Object.keys(QUIET_MOD).some((key) => key.endsWith(".test.tsx"))).toBe(false);
+    expect(Object.keys(QUIET_MOD).some((key) => key.startsWith(".claude-plugin/types/"))).toBe(
+      false,
+    );
+    expect(JSON.parse(QUIET_MOD[".claude-plugin/wip.json"] as string)).toEqual({
+      format: 1,
+      owner: "@garndev/wip",
+      plugin: "wip-quiet",
     });
   });
 
