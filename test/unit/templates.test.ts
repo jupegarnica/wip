@@ -409,10 +409,12 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       "**Approval is only an explicit answer of the user in a new turn**",
       "is it irreversible, or will someone else see",
       "**Summary:**",
-      "**Risk:**",
+      "**Context:**",
       "**Questions:**",
-      "- Q1 <question>",
-      "  (Recommended)  <option> (<one-line reason)>",
+      "- Q1 <question long enough to understand it clearly>",
+      "  (a)  <recommended option> (<one-line reason)>",
+      "  (b)  <second option> (<one-line reason)>",
+      "**Risks:**",
       "**If you approve:**",
       "**Details:**",
       "its `LAN:` URL (never `localhost`), or its first `Local:` URL only when the `LAN:` one",
@@ -430,14 +432,18 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
     const skill = template("skills/wip-coordinate/SKILL.md");
     const gates = section(skill, "## Gates");
     for (const clause of [
+      "`Summary` is one short phrase",
+      "`Context` gives what the questions need",
       "`Questions` is an unordered Markdown list",
       "one `- Q1`, `- Q2`… line per question",
-      "- Q1 <question>",
-      "  (Recommended)  <option> (<one-line reason)>",
+      "- Q1 <question long enough to understand it clearly>",
+      "  (a)  <recommended option> (<one-line reason)>",
+      "  (b)  <second option> (<one-line reason)>",
       "two spaces under the `Q`",
       "one blank line separates a question from the next",
+      "`Risks` is always present",
       "`Details` is an unordered Markdown list",
-      "one `- ` line per file, starting at the margin",
+      "one `- ` line per file, in the list indentation",
       "- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)",
       "- ./<path of each relevant file without a page>",
       "- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
@@ -448,12 +454,13 @@ describe("skills (F-AGE-15, F-AGE-16, F-AGE-20, F-SKL-01, F-NEW-05)", () => {
       expect({ clause, found: gates.includes(clause) }).toEqual({ clause, found: true });
     }
     expect(gates).toContain(
-      "- Q1 <question>\n  (Recommended)  <option> (<one-line reason)>\n\n- Q2 <question>\n  (Recommended)  <option> (<one-line reason)>\n\n**If you approve:**",
+      "- Q1 <question long enough to understand it clearly>\n  (a)  <recommended option> (<one-line reason)>\n  (b)  <second option> (<one-line reason)>\n  (c)  <next option> (<one-line reason)>\n\n- Q2 <question long enough to understand it clearly>\n  (a)  <recommended option> (<one-line reason)>\n  (b)  <second option> (<one-line reason)>\n\n**Risks:**\n    <what is irreversible, visible to others or uncertain; what it does not cover; how to undo it>\n\n**If you approve:**",
     );
     expect(gates).toContain(
       "**Details:**\n- [<artifact name>](<base>view/item/<flow>/<ID>/artifact/<artifact name>)\n- ./<path of each relevant file without a page>\n- [<flow>/<ID>](<base>?item=<flow>/<ID>)",
     );
-    expect(gates).not.toContain("Recommended:");
+    expect(gates).not.toContain("(Recommended)");
+    expect(gates).not.toContain("**Risk:**");
     expect(gates).not.toMatch(/^Q[0-9]+$/m);
     expect(gates).not.toMatch(/^    <question>$/m);
     expect(gates).not.toContain("<absolute path of each relevant file>");
