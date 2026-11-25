@@ -1,4 +1,4 @@
-import type { EngineInterface, Register } from "claude-code";
+import type { EngineInterface, Register, UiOpenResult } from "claude-code";
 import { atom, read, update } from "claude-code";
 
 import type {
@@ -23,6 +23,8 @@ const WEB_REFRESH_TICKS = 3;
 /** The flow filter's glyphs: a fisheye when the flow is shown, a crossed circle when it is hidden. */
 const SHOWN_MARK = "\u{25C9}";
 const HIDDEN_MARK = "\u{2298}";
+/** What the reply says when the engine declines the pane and gives no reason of its own. */
+const UNPLACED_FALLBACK = "the app did not place it";
 
 /** The fallback of a row without a stage that also needs attention: the web's amber background. */
 const ATTENTION_LIGHT = { background: "#FFF1D6", text: "#111111" } as const;
@@ -38,8 +40,8 @@ const hiddenFlows = atom({ plugin: "wip-kanban", key: "hiddenFlows" } as const, 
 });
 const web = atom(
   { plugin: "wip-kanban", key: "web" } as const,
-  { url: null, at: null } as TKanbanWeb,
-  { shape: "web-1" },
+  { url: null, lan: null, at: null } as TKanbanWeb,
+  { shape: "web-2" },
 );
 
 /** The project the session runs in: the key of the hidden flows in `$.store`. */
@@ -58,6 +60,12 @@ const textOf = (value: unknown): string => (typeof value === "string" ? value : 
 
 const stringsOf = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((v): v is string => typeof v === "string") : [];
+
+/** The reason an unplaced pane waits: the engine's own, or `UNPLACED_FALLBACK` when it gave none. */
+function unplacedReason(opened: unknown): string {
+  const reason = isRecord(opened) ? opened.reason : undefined;
+  return typeof reason === "string" && reason.trim() !== "" ? reason.trim() : UNPLACED_FALLBACK;
+}
 
 /** One line, at most `ERROR_MAX` characters: what the pane shows of a failure. */
 function oneLine(text: string): string {
@@ -219,10 +227,10 @@ function httpUrlOf(value: unknown): string | null {
 }
 
 /**
- * The base URL of a `wip web status --json` answer: its LAN URL when it has one, its Local URL only
- * when it does not (`LAN: off`); anything else (exit 1 included) is no live server.
+ * The URLs of a `wip web status --json` answer: its Local URL, which is present whenever the server runs,
+ * and its LAN URL when it has one; null when no server answers or the answer is not one.
  */
-function statusUrl(stdout: string): string | null {
+function statusUrls(stdout: string): { url: string; lan: string | null } | null {
   let body: unknown;
   try {
     body = JSON.parse(stdout);
@@ -232,13 +240,15 @@ function statusUrl(stdout: string): string | null {
   if (!isRecord(body) || body.ok !== true) return null;
   const data = body.data;
   if (!isRecord(data) || data.state !== "running") return null;
-  return httpUrlOf(data.lan_url) ?? httpUrlOf(data.url);
+  const url = httpUrlOf(data.url);
+  if (url === null) return null;
+  return { url, lan: httpUrlOf(data.lan_url) };
 }
 
 /**
- * One read of `wip web status --json`: this project's running server replaces the stored URL with its LAN one
- * (its Local one when it has no LAN), and any other outcome clears it so the pane falls back to the configured
- * `webUrl`. It never shows an error: the board works without the server.
+ * One read of `wip web status --json`: this project's running server replaces the stored URLs with its Local
+ * and LAN ones, and any other outcome clears them so the pane falls back to the configured `webUrl`. It never
+ * shows an error: the board works without the server.
  */
 async function refreshWeb($: EngineInterface, root: string): Promise<void> {
   if (webInFlight) return;
@@ -246,20 +256,24 @@ async function refreshWeb($: EngineInterface, root: string): Promise<void> {
   try {
     const resolved = await resolveWip($, root);
     if ("error" in resolved) {
-      await update($, web, () => ({ url: null, at: null }));
+      await update($, web, () => ({ url: null, lan: null, at: null }));
       return;
     }
-    let url: string | null = null;
+    let urls: { url: string; lan: string | null } | null = null;
     try {
       const result = await $.process.run([resolved.bin, "web", "status", "--json"], {
         cwd: root,
         timeoutMs: TIMEOUT_MS,
       });
-      if (result.exitCode === 0) url = statusUrl(result.stdout);
+      if (result.exitCode === 0) urls = statusUrls(result.stdout);
     } catch {
-      url = null;
+      urls = null;
     }
-    await update($, web, () => ({ url, at: Date.now() }));
+    await update($, web, () => ({
+      url: urls?.url ?? null,
+      lan: urls?.lan ?? null,
+      at: Date.now(),
+    }));
   } finally {
     webInFlight = false;
   }
@@ -282,6 +296,18 @@ async function toggle($: EngineInterface, root: string, flow: string): Promise<v
   await $.store.set(HIDDEN_KEY, { ...all, [root]: next });
 }
 
+/**
+ * The base the rows link to: the desktop app and the VS Code extension draw a `Link` as plain text unless its
+ * URL is `https:` or `http://localhost`, so there they take the server's Local URL and the LAN one only when it
+ * has none. Every other surface (the terminal) takes the LAN URL first, then the Local one. With no live
+ * server, the configured `webUrl`.
+ */
+function webBase(live: TKanbanWeb, surface: string, fallback: string): string {
+  const preferred =
+    surface === "desktop" || surface === "vscode" ? (live.url ?? live.lan) : (live.lan ?? live.url);
+  return preferred ?? fallback;
+}
+
 /** The item's link into `wip web`, or null when the base URL is not an http(s) URL. */
 function itemHref(base: string, flow: string, id: string): string | null {
   let url: URL;
@@ -302,6 +328,13 @@ function truncate(label: string, width: number): string {
   if (label.length <= width) return label;
   if (width <= 1) return "…";
   return `${label.slice(0, width - 1)}…`;
+}
+
+/** The pane's drawing width: a non-positive or non-finite `bodyColumns` falls back to `PANE_COLUMNS`. */
+function bodyWidth(raw: unknown): number {
+  return typeof raw === "number" && Number.isFinite(raw) && raw > 0
+    ? Math.floor(raw)
+    : PANE_COLUMNS;
 }
 
 /** The flow's own tone at full opacity: `column.color` is the CSS `rgba()` the web paints the stage with. */
@@ -373,13 +406,26 @@ export const register: Register = (on, options) => {
     sessionRoot = root;
     const stored = await $.store.get(HIDDEN_KEY);
     await update($, hiddenFlows, () => hiddenFor(stored, root));
-    const opened = await $.ui.open({
-      id: PANE_ID,
-      title: PANE_TITLE,
-      columns: PANE_COLUMNS,
-      rows: PANE_ROWS,
-    });
-    paneUnplaced = opened?.isPlaced === false;
+    let problem: string | null = null;
+    try {
+      const opened = await $.ui.open({
+        id: PANE_ID,
+        title: PANE_TITLE,
+        columns: PANE_COLUMNS,
+        rows: PANE_ROWS,
+      });
+      if (opened?.isPlaced === false) problem = `is waiting: ${unplacedReason(opened)}`;
+    } catch (err) {
+      problem = `did not open: ${err instanceof Error ? err.message : String(err)}`;
+    }
+    paneUnplaced = problem !== null;
+    if (problem !== null) {
+      try {
+        $.ui.toast(`wip Kanban ${problem}. Run /wip-kanban on.`);
+      } catch {
+        // A toast is a convenience: a surface that rejects it must not fail the session's start.
+      }
+    }
     await refresh($, root);
     await refreshWeb($, root);
     let ticks = 0;
@@ -394,13 +440,17 @@ export const register: Register = (on, options) => {
   // `session.start` left unplaced (from 110 columns instead of 144) and the engine remembers the id.
   on("prompt.submit", async ($, e, next) => {
     if (paneUnplaced) {
-      paneUnplaced = false;
-      await $.ui.open({
-        id: PANE_ID,
-        title: PANE_TITLE,
-        columns: PANE_COLUMNS,
-        rows: PANE_ROWS,
-      });
+      try {
+        const opened = await $.ui.open({
+          id: PANE_ID,
+          title: PANE_TITLE,
+          columns: PANE_COLUMNS,
+          rows: PANE_ROWS,
+        });
+        paneUnplaced = opened?.isPlaced === false;
+      } catch {
+        paneUnplaced = true;
+      }
     }
     return next(e);
   });
@@ -410,16 +460,49 @@ export const register: Register = (on, options) => {
     if (arg === "on") {
       const root = sessionRoot ?? (await $.session.root());
       sessionRoot = root;
-      const opened = await $.ui.open({
-        id: PANE_ID,
-        title: PANE_TITLE,
-        columns: PANE_COLUMNS,
-        rows: PANE_ROWS,
-      });
-      paneUnplaced = opened?.isPlaced === false;
+      let opened: UiOpenResult | undefined;
+      try {
+        opened = await $.ui.open({
+          id: PANE_ID,
+          title: PANE_TITLE,
+          columns: PANE_COLUMNS,
+          rows: PANE_ROWS,
+          focus: true,
+        });
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        try {
+          $.ui.toast(`wip Kanban could not open: ${reason}`);
+        } catch {
+          // The reply is the durable contract; the toast only repeats it.
+        }
+        paneUnplaced = true;
+        const base = webBase(await read($, web), "terminal", configuredWebUrl);
+        return { text: `wip Kanban could not open: ${reason}. The board is at ${base}` };
+      }
+      const placed = opened?.isPlaced !== false;
+      paneUnplaced = !placed;
       if (!inFlight) void refresh($, root);
       if (!webInFlight) void refreshWeb($, root);
-      return { text: "wip Kanban opened." };
+      if (!placed) {
+        const message = `wip Kanban is waiting: ${unplacedReason(opened)}`;
+        try {
+          $.ui.toast(message);
+        } catch {
+          // The reply is the durable contract; the toast only repeats it.
+        }
+        const base = webBase(await read($, web), "terminal", configuredWebUrl);
+        return { text: `${message}. The board is at ${base}` };
+      }
+      let shown = true;
+      try {
+        shown = (await $.ui.panes()).find((p) => p.id === PANE_ID)?.isShown !== false;
+      } catch {
+        // Without the list, the open's placed answer stays the answer.
+      }
+      return {
+        text: shown ? "wip Kanban opened." : "wip Kanban opened behind another pane; pick its tab.",
+      };
     }
     if (arg === "off") {
       await $.ui.close({ id: PANE_ID });
@@ -433,8 +516,8 @@ export const register: Register = (on, options) => {
     const state = await read($, snapshot);
     const live = await read($, web);
     const hidden = await read($, hiddenFlows);
-    const width = Math.max(1, e.props.bodyColumns);
-    const base = live.url ?? configuredWebUrl;
+    const width = bodyWidth(e.props.bodyColumns);
+    const base = webBase(live, e.surface, configuredWebUrl);
     const linkable = itemHref(base, "x", "y") !== null;
     const visible = state.flows.filter((f) => !hidden.includes(f.name));
     const rows = visible.map((flow) => ({
@@ -465,10 +548,14 @@ export const register: Register = (on, options) => {
                 );
               }
               return (
-                <Text color={row.color ?? undefined} backgroundColor={row.background ?? undefined}>
-                  {indent}
-                  <Link href={href}>{row.label}</Link>
-                </Text>
+                <Link href={href}>
+                  <Text
+                    color={row.color ?? undefined}
+                    backgroundColor={row.background ?? undefined}
+                  >
+                    {`${indent}${row.label}`}
+                  </Text>
+                </Link>
               );
             })}
           </Box>

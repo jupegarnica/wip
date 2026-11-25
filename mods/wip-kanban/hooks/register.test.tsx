@@ -28,6 +28,14 @@ interface IWorld {
   opens: TJson[];
   /** The `isPlaced` of each `ui.open`, in order; absent means placed. */
   openReplies: boolean[];
+  /** When set, every `ui.open` is refused with this reason. */
+  openDeny?: string;
+  /** The texts of the toasts the hooks raised, in order. */
+  toasts: string[];
+  /** A surface that holds no toasts: every `ui.toast` throws. */
+  toastsThrow?: boolean;
+  /** What `$.ui.panes()` lists: this plugin's open panes. */
+  panes: TJson[];
   commands: TJson[];
   closes: TJson[];
   store: Record<string, unknown>;
@@ -47,6 +55,8 @@ function world(overrides: Partial<IWorld> = {}): IWorld {
     calls: [],
     opens: [],
     openReplies: [],
+    toasts: [],
+    panes: [],
     commands: [],
     closes: [],
     store: {},
@@ -133,6 +143,7 @@ function bottom(on: On, w: IWorld): void {
   });
   on("ui.open", (_$, e) => {
     w.opens.push(e as unknown as TJson);
+    if (w.openDeny !== undefined) return { deny: w.openDeny };
     const placed = w.openReplies.length === 0 ? true : (w.openReplies.shift() as boolean);
     return {
       value: {
@@ -141,6 +152,12 @@ function bottom(on: On, w: IWorld): void {
       },
     };
   });
+  on("ui.toast", (_$, e) => {
+    if (w.toastsThrow) throw new Error("this surface holds no toasts");
+    w.toasts.push(e.text);
+    return { value: undefined };
+  });
+  on("ui.panes", () => ({ value: w.panes as never }));
   on("ui.close", (_$, e) => {
     w.closes.push(e as unknown as TJson);
     return { value: undefined };
@@ -215,7 +232,7 @@ const PANE = {
 
 async function mount(
   $: Parameters<Parameters<typeof test>[1]>[0],
-  surface: "terminal" | "desktop",
+  surface: "terminal" | "desktop" | "vscode",
   bodyColumns: number,
   placement: "dock" | "inline" = "dock",
 ) {
@@ -330,7 +347,10 @@ test("/wip-kanban on opens the same pane and closes it with off; a bad argument 
 
   const onRun = await $.command.run({ command: "wip-kanban", args: "on" });
   expect(onRun.text).toBe("wip Kanban opened.");
-  expect(w.opens.at(-1)).toMatchObject({ id: PANE_ID, title: "wip Kanban" });
+  // The command is an asked open: it asks for the keyboard, and the unasked start did not.
+  expect(w.opens.at(-1)).toMatchObject({ id: PANE_ID, title: "wip Kanban", focus: true });
+  expect(w.opens[0]).not.toHaveProperty("focus");
+  expect(w.toasts).toEqual([]);
 
   const offRun = await $.command.run({ command: "wip-kanban", args: "off" });
   expect(offRun.text).toBe("wip Kanban closed.");
@@ -342,6 +362,80 @@ test("/wip-kanban on opens the same pane and closes it with off; a bad argument 
   }
   // A second open is the same id: the engine retitles an open pane, never a second instance.
   expect(new Set(w.opens.map((o) => o.id))).toEqual(new Set([PANE_ID]));
+});
+
+test("session.start says why it waits when the pane is unplaced, and still reads the board", async ($, on) => {
+  const w = world({ openReplies: [false] });
+  bottom(on, w);
+  mock.clock(on);
+
+  await start($, w);
+
+  expect(w.toasts).toEqual([
+    "wip Kanban is waiting: unasked below 144 columns (120 now). Run /wip-kanban on.",
+  ]);
+  expect(w.calls.map((call) => call.argv)).toEqual([
+    ["wip", "state", "--json"],
+    ["wip", "web", "status", "--json"],
+  ]);
+});
+
+test("a toast that throws does not break the session's start and the clock keeps reading", async ($, on) => {
+  const w = world({ openReplies: [false], toastsThrow: true });
+  bottom(on, w);
+  const clock = mock.clock(on);
+
+  await start($, w);
+  const stateCalls = () => w.calls.filter((call) => call.argv[1] === "state");
+  expect(stateCalls()).toHaveLength(1);
+
+  await clock.advance(5000);
+  expect(stateCalls()).toHaveLength(2);
+});
+
+test("a refused $.ui.open in session.start is reported and the board still loads", async ($, on) => {
+  const w = world({ openDeny: "another plugin holds wip-kanban" });
+  bottom(on, w);
+  mock.clock(on);
+
+  await start($, w);
+
+  expect(w.toasts).toHaveLength(1);
+  expect(w.toasts[0]).toContain("did not open:");
+  expect(w.toasts[0]).toContain("another plugin holds wip-kanban");
+  expect(w.calls.map((call) => call.argv)).toContainEqual(["wip", "state", "--json"]);
+});
+
+test("/wip-kanban on reports the reason and the board URL when the pane waits, and the next prompt retries", async ($, on) => {
+  const w = world({ openReplies: [true] });
+  bottom(on, w);
+  const clock = mock.clock(on);
+  await start($, w);
+
+  w.openReplies.push(false);
+  const run = await $.command.run({ command: "wip-kanban", args: "on" } as never);
+  await clock.settle();
+  expect(run.text).toBe(
+    "wip Kanban is waiting: unasked below 144 columns (120 now). The board is at http://localhost:33333/",
+  );
+  expect(w.toasts).toEqual(["wip Kanban is waiting: unasked below 144 columns (120 now)"]);
+
+  await submit($)({ text: "hi", asUser: true });
+  expect(w.opens).toHaveLength(3);
+});
+
+test("/wip-kanban on says the pane is behind another tab when the surface shows another pane", async ($, on) => {
+  const w = world({
+    panes: [{ id: PANE_ID, title: "wip Kanban", isShown: false, isFocused: false, isPlaced: true }],
+  });
+  bottom(on, w);
+  const clock = mock.clock(on);
+  await start($, w);
+
+  const run = await $.command.run({ command: "wip-kanban", args: "on" } as never);
+  await clock.settle();
+  expect(run.text).toBe("wip Kanban opened behind another pane; pick its tab.");
+  expect(w.toasts).toEqual([]);
 });
 
 test("wip_bin: absolute as is, relative under the root, ~/ under HOME, absent or null as wip from the PATH", async ($, on) => {
@@ -596,6 +690,35 @@ test("labels are truncated inside bodyColumns and the offset is recomputed for a
   const narrowRow = rowText(await narrow.drawn(), "K1") as INode;
   expect(drawnText(narrowRow)).toBe("K1 exec…");
   expect(drawnText(narrowRow).length).toBeLessThanOrEqual(8);
+});
+
+test("desktop with bodyColumns 0 draws at the pane width; a narrow positive width still truncates", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([
+        { id: "K1", flow: "development", phase: "plan" },
+        { id: "K2", flow: "development", phase: "execute" },
+      ]),
+      stderr: "",
+    }),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+
+  const zero = await mount($, "desktop", 0);
+  const zeroTree = await zero.drawn();
+  expect(drawnText(zeroTree)).toContain("K1 plan");
+  expect(drawnText(rowText(zeroTree, "K2") as INode)).toContain("K2 execute");
+  expect(drawnText(zeroTree)).not.toBe("…");
+  await zero.unmount();
+
+  const narrow = await mount($, "desktop", 8);
+  const narrowRow = rowText(await narrow.drawn(), "K2") as INode;
+  expect(drawnText(narrowRow)).toBe("K2 exec…");
+  expect(drawnText(narrowRow).length).toBeLessThanOrEqual(8);
+  await narrow.unmount();
 });
 
 test("attention paints the solid stage colour in the dark scheme; a normal row uses the flow tone at full opacity", async ($, on) => {
@@ -919,6 +1042,44 @@ test("an item links to the wip web with the exact href", async ($, on) => {
   expect(link?.text).toContain("kanban-mod plan");
 });
 
+test("a linked row keeps the row's colour: the Link wraps its Text and paints none itself", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([
+        { id: "K1", flow: "development", phase: "execute" },
+        { id: "K2", flow: "development", phase: "plan", attention: true },
+      ]),
+      stderr: "",
+    }),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+  const tree = await (await mount($, "terminal", 40)).drawn();
+  const links = nodes(tree).filter((n) => n.type === "Link");
+  expect(links).toHaveLength(2);
+
+  const normal = links.find((n) => drawnText(n).includes("K1")) as INode;
+  expect(normal.children).toHaveLength(1);
+  const normalText = nodes(normal.children)[0] as INode;
+  expect(normalText.type).toBe("Text");
+  expect(drawnText(normalText)).toContain("K1 execute");
+  // The colour lives on the Text the Link wraps; the Link itself carries none of its own.
+  expect(styleOf(normal).color).toBeUndefined();
+  expect(styleOf(normal).backgroundColor).toBeUndefined();
+  expect(styleOf(normalText)).toMatchObject({ color: "rgb(37, 99, 235)" });
+
+  const attention = links.find((n) => drawnText(n).includes("K2")) as INode;
+  const attentionText = nodes(attention.children)[0] as INode;
+  expect(attentionText.type).toBe("Text");
+  expect(drawnText(attentionText)).toContain("K2 plan");
+  expect(styleOf(attentionText)).toMatchObject({
+    backgroundColor: "#223051",
+    color: "#FFFFFF",
+  });
+});
+
 test(
   "another webUrl keeps its host and replaces path, query and hash",
   { options: { webUrl: "https://wip.example.com/base?x=1#frag" } },
@@ -993,6 +1154,59 @@ test("a server without a LAN address links to its Local URL", async ($, on) => {
   const link = await (await mount($, "terminal", 40)).find({ type: "Link" });
   expect(link?.props.href).toBe("http://localhost:34002/?item=development%2FK1");
 });
+
+test("the desktop app and the VS Code extension link with the Local URL; the terminal takes the LAN one", async ($, on) => {
+  const w = world({
+    reply: async () => ({
+      exitCode: 0,
+      stdout: stateJson([{ id: "K1", flow: "development", phase: "plan" }]),
+      stderr: "",
+    }),
+    // Both URLs: the LAN one is the terminal's pick and the Local one the desktop app's.
+    status: async () => running(34002),
+  });
+  bottom(on, w);
+  mock.clock(on);
+  await start($, w);
+
+  for (const surface of ["desktop", "vscode"] as const) {
+    const ui = await mount($, surface, 40);
+    expect((await ui.find({ type: "Link" }))?.props.href).toBe(
+      "http://localhost:34002/?item=development%2FK1",
+    );
+    await ui.unmount();
+  }
+
+  const terminal = await mount($, "terminal", 40);
+  expect((await terminal.find({ type: "Link" }))?.props.href).toBe(
+    "http://192.168.1.59:34002/?item=development%2FK1",
+  );
+});
+
+test(
+  "with no live server every surface falls back to the configured webUrl",
+  { options: { webUrl: "https://wip.example.com/" } },
+  async ($, on) => {
+    const w = world({
+      reply: async () => ({
+        exitCode: 0,
+        stdout: stateJson([{ id: "K1", flow: "development", phase: "plan" }]),
+        stderr: "",
+      }),
+    });
+    bottom(on, w);
+    mock.clock(on);
+    await start($, w);
+
+    for (const surface of ["terminal", "desktop", "vscode"] as const) {
+      const ui = await mount($, surface, 40);
+      expect((await ui.find({ type: "Link" }))?.props.href).toBe(
+        "https://wip.example.com/?item=development%2FK1",
+      );
+      await ui.unmount();
+    }
+  },
+);
 
 test(
   "a custom webUrl is only the fallback: a running server's LAN URL wins, no server leaves its host",
