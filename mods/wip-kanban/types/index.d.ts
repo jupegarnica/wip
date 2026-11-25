@@ -41,11 +41,12 @@ export type TKanbanSnapshot = {
 };
 
 /**
- * The last `wip web status --json` read: the base the rows link to (the server's LAN URL, its Local one
- * when it has no LAN), or null while none answers.
+ * The last `wip web status --json` read: the server's Local URL (`http://localhost:<port>/`), its LAN URL
+ * when it has one, and nulls while none answers. The pane picks the base by the surface it draws on.
  */
 export type TKanbanWeb = {
   url: string | null;
+  lan: string | null;
   at: number | null;
 };
 

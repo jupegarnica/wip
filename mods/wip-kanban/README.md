@@ -2,15 +2,16 @@
 
 A read-only Kanban of the project's open [wip](https://github.com/jupegarnica/wip) items, drawn in a pane of
 Claude Code. Every row is `<id> <phase>`; its column follows the phase's place in the flow's declared order, and
-its colour follows the same stage ramp the wip web paints. Clicking a row opens that item's panel in the wip web,
-on the server's LAN address when it has one.
+its colour follows the same stage ramp the wip web paints. Clicking a row opens that item's panel in the wip web:
+on the terminal through the server's LAN address when it has one, and in the Claude Desktop app and the VS Code
+extension through its Local address, because those surfaces only draw a link they can open.
 
 The mod never changes wip's items or state: it reads `wip state --json` once at the start and once every five
 seconds, one process at a time, with a four-second timeout. A failed read keeps the last board on screen and shows
 the reason; a first read that fails shows only the reason. To link a row, it also asks this project's server where
-it listens with `wip web status --json`, at the start and then about every fifteen seconds, and takes that answer's
-`lan_url` when it has one and its `url` otherwise; that command may remove a stale `.wip/web` entry, and nothing
-else in wip changes.
+it listens with `wip web status --json`, at the start and then about every fifteen seconds, and keeps both answers:
+its Local `url` (`http://localhost:<port>/`) and its LAN `lan_url` when it has one. That command may remove a stale
+`.wip/web` entry, and nothing else in wip changes.
 
 ## Install
 
@@ -53,12 +54,30 @@ The other settings file is never written: it is only read, to warn you when its 
 
 A copy in the project is still a project-scope plugin: Claude shows it suppressed until you trust the workspace,
 also when the entry is in `.claude/settings.local.json`. Accept the trust dialog, then run `/reload-plugins` (or
-start a new session). The pane opens on its own as `wip Kanban`: Claude Code places a pane no one asked for from
-144 terminal columns, and one the person opened before from 110. On a narrower terminal the mod opens it on your
-first prompt, and from then on it opens at launch in terminals of 110 columns or more. Below 110 columns the
-engine places no pane, even with `/wip-kanban on`. A copy installed before this version needs `wip init --force`
-to get this. `/wip-kanban on` and `/wip-kanban off` open and close it, and a pane closed by hand opens again on the
-next session.
+start a new session). The pane opens on its own as `wip Kanban`: an open no one asked for (the session's start) is
+placed from 144 terminal columns, 110 once the person opened that pane before, and below that floor it waits
+undrawn while a toast says why. An open the person asked for — `/wip-kanban on` or a prompt — is placed at any
+width: docked beside a fullscreen transcript from 110 columns, else inline above the prompt. So `/wip-kanban on`
+works on a narrow terminal too; the floor belongs to the unasked open alone. A copy installed before this version
+needs `wip init --force` to get this. `/wip-kanban on` and `/wip-kanban off` open and close it, and a pane closed
+by hand opens again on the next session.
+
+### Where the pane is, and what `/wip-kanban on` answers
+
+`/wip-kanban on` reports what the engine did with the pane, so its answer says where to look:
+
+- `wip Kanban opened.` — the pane is placed and shown.
+- `wip Kanban opened behind another pane; pick its tab.` — placed, but the surface shows another pane or tab;
+  choose `wip Kanban` in the pane list.
+- `wip Kanban is waiting: <reason>. The board is at <url>.` — the engine placed nothing and gives its reason
+  (the column floor, no surface attached, or surfaces that place no panes). The same reason is raised as a toast,
+  and the URL is the `wip web` board the rows link to: a working fallback. At the session's start an unasked pane
+  that waits raises only the toast.
+- `wip Kanban could not open: <reason>. The board is at <url>.` — the open itself was refused (another plugin holds
+  the id, for example); the toast repeats it.
+
+The command asks for the keyboard (`focus`); Escape hands it back. On the desktop app the pane may also be chosen
+from the pane list beside the chat or the session's ⋮ menu.
 
 ## Using it
 
@@ -73,10 +92,19 @@ next session.
   edge, and a one-phase flow stays at the left. A label too long for the pane is cut with `…`.
 - A row with `signals.attention` takes the stage's solid colour as its background with the contrasting text; any
   other row uses its flow's colour at full opacity (the phase's alpha is not applied), so a late phase stays
-  legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `.
+  legible. A phase without a stage keeps plain text, and one the flow does not declare is prefixed `! `. A linked
+  row keeps those colours: the `Link` wraps the row's `Text`, so the label's own colour and background win. The
+  anchor paints none itself; the surface may still decorate it (an OSC 8 span on the terminal, an anchor in the
+  Desktop app and the VS Code extension), so a surface is free to tint or underline the link.
 - Clicking a row opens this project's running `wip web`, found with `wip web status --json` (polled about every
-  15 s): its `LAN` address (`lan_url`) at `?item=<flow>/<id>` when the server has one, or its `Local` address
-  (`url`) only when it has none (`--local` or no private IPv4); the web shows that item's panel. Clicking it
+  15 s), at `?item=<flow>/<id>`; the web shows that item's panel. Which address the link uses depends on the
+  surface: the terminal takes the `LAN` address (`lan_url`) when the server has one and the `Local` address
+  (`url`) otherwise, while the **Claude Desktop app and the VS Code extension** are drawn with the `Local` one
+  (`http://localhost:<port>/`, the `webUrl` when no server answers). Those two surfaces draw a `Link` as plain
+  text unless its URL is an `https:` one or an `http://localhost` one, has no `@`, and is spelled exactly as
+  `new URL(href).href` returns it; a LAN address such as `http://192.168.1.59:33335/` fails that rule and would
+  show the ID as text, so those surfaces never get it while a Local one exists. In the terminal the rule does not
+  apply. Clicking it
   again does not open a second tab of the same origin, `localhost` or the LAN address alike: the new tab asks the
   open one for the origin, the open tab hands it over and tries to close itself (best-effort: if the browser
   refuses, it stays with a notice and no ownership), so the item opens in the tab that was just clicked (each port
@@ -98,10 +126,11 @@ next session.
 
 - `webUrl` — default `http://localhost:33333/`, the first port `wip web` tries. It is the base only while no
   server of this project runs: a live server always wins, whatever port it listens on (`--port`, `WIP_WEB_PORT` or
-  the next free one), and contributes its `lan_url` when it has one and its `url` otherwise. Use it for a remote or
-  proxied URL, or for the port while no server answers. Only `http:` and `https:` URLs are accepted; an invalid one
-  leaves the IDs as plain text. `wip web status` may clean a stale `.wip/web` entry; wip's items and state are
-  untouched.
+  the next free one), and contributes its `lan_url` when it has one and its `url` otherwise (the terminal takes
+  the LAN one first and the Desktop app and VS Code the Local one first, as above). Use it for a remote or proxied
+  URL, or for the port while no server answers. Only `http:` and `https:` URLs are accepted; an invalid one leaves
+  the IDs as plain text, and on the Desktop app and VS Code only `https:` or `http://localhost` ones draw as links.
+  `wip web status` may clean a stale `.wip/web` entry; wip's items and state are untouched.
 - `colorScheme` — `dark` (default) or `light`: which theme's solid colours and contrasting text the attention rows
   use, and which amber fallback a stageless attention row takes. Non-attention rows use the flow tone in both
   schemes. The pane API does not expose the active theme, so this choice is explicit.
