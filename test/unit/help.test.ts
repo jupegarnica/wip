@@ -183,18 +183,20 @@ describe("wip help init", () => {
     expect(out.stdout).not.toContain("installs nothing");
   });
 
-  test("init help describes six steps, the four flows and no --models", () => {
+  test("init help describes seven steps, the four flows and no --models", () => {
     const out = bare(["help", "init"]);
-    expect(out.stdout).toContain("six steps");
+    expect(out.stdout).toContain("seven steps");
     expect(out.stdout).toContain("the flows to write");
-    expect(out.stdout).toContain("step 4/6");
-    expect(out.stdout).toContain("(2/6)");
+    expect(out.stdout).toContain("step 4/7");
+    expect(out.stdout).toContain("(2/7)");
     expect(out.stdout).toContain("fifth step");
     expect(out.stdout).toContain("sixth step");
+    expect(out.stdout).toContain("seventh step");
+    expect(out.stdout).toContain("Apply --force");
     expect(out.stdout).toContain("--quiet");
     expect(out.stdout).toContain("`development`, `ideas`, `reports` and `tasks`");
     expect(out.stdout).toContain("--yes` without `--flows` writes all four");
-    expect(out.stdout).not.toContain("five steps");
+    expect(out.stdout).not.toContain("six steps");
     expect(out.stdout).not.toContain("--models");
     expect(out.stdout).not.toContain("the model of fast");
     expect(out.stdout).toContain("never asks for or writes a model");

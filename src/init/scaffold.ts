@@ -136,25 +136,58 @@ export function forcedText(key: string, template: string, current: string): stri
   return line === null ? template : withModelLine(template, line);
 }
 
+/** What one template path holds on disk and what the run does with it; computed without writing. */
+interface ITemplatePlan {
+  /** As shown: relative to the project, or `~/…`; forward slashes. */
+  path: string;
+  /** Absolute path on disk. */
+  file: string;
+  action: TFileAction;
+  /** The text to write; equal to `current` when the action is `exists`. */
+  text: string;
+  /** The text on disk before the write; null when missing. */
+  current: string | null;
+}
+
+/** The one decision `placeTemplate` and `replacingFiles` share, so the preview never drifts from the writer. */
+function planTemplate(key: string, template: string, options: IScaffoldOptions): ITemplatePlan {
+  const rel = `${options.defsDir}/${key}`;
+  const file = join(options.defsRoot, key);
+  if (!existsSync(file)) {
+    return { path: rel, file, action: "created", text: template, current: null };
+  }
+  const current = readFileSync(file, "utf8");
+  const text = options.force ? forcedText(key, template, current) : current;
+  if (text === current) return { path: rel, file, action: "exists", text, current };
+  return { path: rel, file, action: "replaced", text, current };
+}
+
 function placeTemplate(
   project: string,
   key: string,
   template: string,
   options: IScaffoldOptions,
 ): IInitFile {
-  const rel = `${options.defsDir}/${key}`;
-  const file = join(options.defsRoot, key);
-  if (!existsSync(file)) {
-    write(file, template);
-    return { path: rel, action: "created", backup: null };
+  const plan = planTemplate(key, template, options);
+  if (plan.action === "created") {
+    write(plan.file, plan.text);
+    return { path: plan.path, action: "created", backup: null };
   }
-  const current = readFileSync(file, "utf8");
-  const text = options.force ? forcedText(key, template, current) : current;
-  if (text === current) return { path: rel, action: "exists", backup: null };
+  if (plan.action === "exists") return { path: plan.path, action: "exists", backup: null };
   const backup = `${BACKUPS_DIR}/${key}.${options.stamp}`;
-  write(join(project, backup), current);
-  write(file, text);
-  return { path: rel, action: "replaced", backup };
+  write(join(project, backup), plan.current as string);
+  write(plan.file, plan.text);
+  return { path: plan.path, action: "replaced", backup };
+}
+
+/** The shown paths of the definitions files `--force` would replace, in the writer's order; reads only. */
+export function replacingFiles(options: IScaffoldOptions): string[] {
+  const templates = options.templates ?? TEMPLATES;
+  return Object.keys(templates)
+    .sort()
+    .map((key) => planTemplate(key, templates[key] as string, options))
+    .filter((plan) => plan.action === "replaced")
+    .map((plan) => plan.path);
 }
 
 /** Never overwrites without `force`; with it, every replaced file is copied to `.wip/backups/defs/` first. */

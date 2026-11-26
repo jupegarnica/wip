@@ -26,7 +26,7 @@ export interface IAskInput {
   env: TEnv;
 }
 
-const STEPS = 6;
+const STEPS = 7;
 
 /** One line on what each shipped flow is for, in the wizard's Flows step. */
 const FLOW_HINTS: Record<string, string> = {
@@ -56,11 +56,11 @@ function header(asker: IAsker, n: number, title: string, note?: string): void {
 }
 
 /**
- * Asks what the flags left open, in the order scope, flows, start, Git, Kanban and Quiet, and returns the extra
- * arguments to give the non-interactive init (`--global`, `--flows`, `--start`, `--no-start`, `--gitignore`,
+ * Asks what the flags left open, in the order scope, flows, start, Git, Kanban, Quiet and Settings, and returns the
+ * extra arguments to give the non-interactive init (`--global`, `--flows`, `--start`, `--no-start`, `--gitignore`,
  * `--kanban`, `--quiet`, `--mods-settings-file`), or `null` when the user declines the summary. The settings-file
- * question is asked at most once and its answer serves both mods. Nothing is written here: every answer is asked
- * before the first write. Throws `Aborted` on Ctrl+C.
+ * question is asked once, in the seventh step, and its answer serves both mods. Nothing is written here: every
+ * answer is asked before the first write. Throws `Aborted` on Ctrl+C.
  */
 export async function askInit(asker: IAsker, input: IAskInput): Promise<string[] | null> {
   const { args } = input;
@@ -216,62 +216,10 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
   }
   for (const note of defaults.notes) asker.say(`  ${s.dim(note)}`);
 
-  // The settings-file question is asked once per run; its one answer serves both mods.
-  const givenMods = args.opts["mods-settings-file"];
-  const givenAlias = args.opts["kanban-settings-file"];
-  const givenFile: TSettingsFile | null =
-    givenMods !== undefined && isSettingsFile(givenMods)
-      ? givenMods
-      : givenAlias !== undefined && isSettingsFile(givenAlias)
-        ? givenAlias
-        : null;
-  let selectedFile: TSettingsFile | null = null;
-  const resolveFile = async (
-    fallback: TSettingsFile,
-    source: "kanban" | "quiet",
-  ): Promise<TSettingsFile> => {
-    if (selectedFile !== null) return selectedFile;
-    if (givenFile !== null) {
-      selectedFile = givenFile;
-      const from =
-        givenMods !== undefined
-          ? `from --mods-settings-file ${givenFile}`
-          : `from --kanban-settings-file ${givenFile} (deprecated)`;
-      asker.say(`  ${s.dim(from)}`);
-      return givenFile;
-    }
-    if (source === "kanban" && args.flags.has("kanban") && args.flags.has("force")) {
-      selectedFile = "settings.json";
-      asker.say(
-        `  ${s.dim("--kanban --force installs with the defaults: .claude/settings.json, no file question")}`,
-      );
-      return selectedFile;
-    }
-    const answer = await askSelect(asker, {
-      question: "Where does the enabledPlugins entry go?",
-      options: [
-        {
-          value: "settings.json",
-          label: "settings.json",
-          hint: ".claude/settings.json (project, shared with the repository; default)",
-        },
-        {
-          value: "settings.local.json",
-          label: "settings.local.json",
-          hint: ".claude/settings.local.json (local to this clone, not shared; wins over settings.json)",
-        },
-      ],
-      initial: fallback === "settings.local.json" ? 1 : 0,
-    });
-    selectedFile = isSettingsFile(answer) ? answer : fallback;
-    return selectedFile;
-  };
-
   let installKanban = false;
   if (args.flags.has("kanban")) {
     installKanban = true;
     asker.say(`  ${s.dim("from --kanban")}`);
-    await resolveFile(defaults.file, "kanban");
   } else {
     const answer = await askSelect(asker, {
       question: "Install the wip Kanban mod for Claude Code?",
@@ -286,10 +234,7 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
       initial: defaults.install ? 1 : 0,
     });
     installKanban = answer === "yes";
-    if (installKanban) {
-      await resolveFile(defaults.file, "kanban");
-      if (!args.flags.has("kanban")) extra.push("--kanban");
-    }
+    if (installKanban) extra.push("--kanban");
   }
 
   header(asker, 6, "Quiet", "optional: a quieter transcript, shown by Claude Code");
@@ -319,7 +264,6 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
   if (args.flags.has("quiet")) {
     installQuiet = true;
     asker.say(`  ${s.dim("from --quiet")}`);
-    await resolveFile(quietDefault.file, "quiet");
   } else {
     const answer = await askSelect(asker, {
       question: "Install the wip Quiet mod for Claude Code?",
@@ -334,9 +278,55 @@ export async function askInit(asker: IAsker, input: IAskInput): Promise<string[]
       initial: quietDefault.install ? 1 : 0,
     });
     installQuiet = answer === "yes";
-    if (installQuiet) {
-      await resolveFile(quietDefault.file, "quiet");
-      if (!args.flags.has("quiet")) extra.push("--quiet");
+    if (installQuiet) extra.push("--quiet");
+  }
+
+  // Step 7 asks where the enabledPlugins entry goes, once for both mods and after both install questions.
+  const givenMods = args.opts["mods-settings-file"];
+  const givenAlias = args.opts["kanban-settings-file"];
+  const givenFile: TSettingsFile | null =
+    givenMods !== undefined && isSettingsFile(givenMods)
+      ? givenMods
+      : givenAlias !== undefined && isSettingsFile(givenAlias)
+        ? givenAlias
+        : null;
+  let selectedFile: TSettingsFile | null = null;
+
+  if (!installKanban && !installQuiet) {
+    header(asker, 7, "Settings", "no mod installed: no enabledPlugins entry to write");
+  } else {
+    header(asker, 7, "Settings", "where the enabledPlugins entry goes; one answer for both mods");
+    const fallback: TSettingsFile = installKanban ? defaults.file : quietDefault.file;
+    if (givenFile !== null) {
+      selectedFile = givenFile;
+      const from =
+        givenMods !== undefined
+          ? `from --mods-settings-file ${givenFile}`
+          : `from --kanban-settings-file ${givenFile} (deprecated)`;
+      asker.say(`  ${s.dim(from)}`);
+    } else if (installKanban && args.flags.has("kanban") && args.flags.has("force")) {
+      selectedFile = "settings.json";
+      asker.say(
+        `  ${s.dim("--kanban --force installs with the defaults: .claude/settings.json, no file question")}`,
+      );
+    } else {
+      const answer = await askSelect(asker, {
+        question: "Where does the enabledPlugins entry go?",
+        options: [
+          {
+            value: "settings.json",
+            label: "settings.json",
+            hint: ".claude/settings.json (project, shared with the repository; default)",
+          },
+          {
+            value: "settings.local.json",
+            label: "settings.local.json",
+            hint: ".claude/settings.local.json (local to this clone, not shared; wins over settings.json)",
+          },
+        ],
+        initial: fallback === "settings.local.json" ? 1 : 0,
+      });
+      selectedFile = isSettingsFile(answer) ? answer : fallback;
     }
   }
   if (
