@@ -32,8 +32,8 @@ Flows and agents are Markdown files in the repository, so they are readable, dif
   much they investigate and decide.
 - **A read-only kanban and a quieter transcript.** `wip web` serves the board from the binary; `wip init` also
   installs two optional mods for Claude Code by default (the wizard's last two steps): the Kanban pane and Quiet,
-  which hides every transcript row that is neither your messages nor the assistant's text. `--kanban` and `--quiet`
-  install them from scripts.
+  which folds or hides every transcript row that is neither your messages nor the assistant's text, with errors
+  shown whole by default. `--kanban` and `--quiet` install them from scripts.
 - **Scheduled checks without a daemon.** Flows declare polls; `wip cron` keeps reminders and fixed-time passes, and
   the coordinator arms them when a session starts.
 - **Auditable by default.** Every item keeps its runs, gates and history; archiving prunes safely to the system

@@ -1,64 +1,120 @@
 # wip-quiet
 
-A quieter transcript in Claude Code. The mod hides the rows that are neither the assistant's text nor the
-person's own messages: tool calls and their results, tool groups, the turn duration, info notices, background
-pills, and the user messages a peer, a task notification or a scheduled trigger writes. `/wip-quiet` shows them
-again on demand.
+A quieter transcript in Claude Code. The mod gives each transcript category a mode: `show` draws every row
+in full, `hide` leaves no trace, and `fold` draws one clickable line (`▸ <label>`) that unfolds into the whole
+row. By default every category is folded except `errors`, which is shown whole. `/wip-quiet` changes the modes.
 
 The mod changes what is drawn only. The stored transcript and what the model reads are untouched, and so are
 permissions: a hidden tool call still runs, and a hidden result still reaches the model.
 
-## What it hides
+## Categories and defaults
 
-Every hidden row belongs to a category; all of them are hidden at the start.
+| Category       | Rows                                                    | Default |
+| -------------- | ------------------------------------------------------- | ------- |
+| `bash`         | `Bash`, `BashOutput`, `KillShell`                       | `fold`  |
+| `agent`        | `Agent`, `Task`                                         | `fold`  |
+| `cron`         | any tool whose name starts with `Cron`                  | `fold`  |
+| `files`        | `Read`, `Write`, `Edit`, `NotebookEdit`, `Glob`, `Grep` | `fold`  |
+| `msg`          | `SendMessage`                                           | `fold`  |
+| `mcp`          | any `mcp__*` tool                                       | `fold`  |
+| `misc`         | every other tool                                        | `fold`  |
+| `errors`       | any tool row that failed or was interrupted             | `show`  |
+| `group`        | a run of tool calls folded into a group                 | `fold`  |
+| `turn`         | the turn duration                                       | `fold`  |
+| `peer`         | user messages from a peer, a coordinator or an observer | `fold`  |
+| `tasknote`     | task notifications                                      | `fold`  |
+| `cronfire`     | scheduled triggers                                      | `fold`  |
+| `toolprogress` | the background pill's hint                              | `fold`  |
+| `notice`       | info notices                                            | `fold`  |
 
-| Category       | Rows                                                    |
-| -------------- | ------------------------------------------------------- |
-| `bash`         | `Bash`, `BashOutput`, `KillShell`                       |
-| `agent`        | `Agent`, `Task`                                         |
-| `cron`         | any tool whose name starts with `Cron`                  |
-| `files`        | `Read`, `Write`, `Edit`, `NotebookEdit`, `Glob`, `Grep` |
-| `msg`          | `SendMessage`                                           |
-| `mcp`          | any `mcp__*` tool                                       |
-| `misc`         | every other tool                                        |
-| `errors`       | any tool row that failed or was interrupted             |
-| `group`        | a group whose calls are all hidden                      |
-| `turn`         | the turn duration                                       |
-| `peer`         | user messages from a peer, a coordinator or an observer |
-| `tasknote`     | task notifications                                      |
-| `cronfire`     | scheduled triggers                                      |
-| `toolprogress` | the background pill's hint                              |
-| `notice`       | info notices                                            |
+`show` draws the row whole, `hide` draws nothing, and `fold` draws one plain, dim line: `▸ Bash`,
+`▸ 4 calls · Read, Grep, Bash…`, `▸ turn · Baked`, `▸ peer message · <preview>`, `▸ background hint`,
+`▸ info notice · <preview>`. A click unfolds it (`▾`) and a second click folds it back; the unfolded row is
+the engine's own. A preview is the first non-empty line of the text, trimmed and with its whitespace collapsed,
+cut to 59 characters plus `…`.
 
 Questions to the person (`AskUserQuestion`, `ExitPlanMode`), the assistant's text, command output and the
-person's own typed or Remote-Control messages always stay visible. `ctrl+o` on a message still expands it in
-full.
+person's own typed or Remote-Control messages always stay visible. `ctrl+o` and `--verbose` draw every row in
+full whatever its mode, for the rows that carry `isExpanded` (tool calls and results, groups, messages, the turn
+duration); notices and background hints have no `isExpanded`, so their mode applies in every view.
+
+A `ToolGroup` whose calls include a category in `show` always draws the engine's group line: a shown call never
+disappears behind the group's mode. Unfolding a group asks the engine to expand it, and each per-call row then
+obeys its own category.
 
 ## No persistent display
 
 The mod draws nothing while it works: no band, badge, status line or pane, and it never shows the current
-configuration. Run `/wip-quiet status` to see it; the only drawings are the hidden rows themselves, the folded
-lines after `/wip-quiet show hidden`, the message times (default on; `/wip-quiet time off`) and the transient
-hidden-error toast.
+configuration. Run `/wip-quiet status` to see it; the only drawings are the modes' rows, the message times
+(default on; `/wip-quiet time off`) and the transient error toast.
 
 ## `/wip-quiet`
 
 The command takes one verb:
 
-| Verb                                    | What it does                                                                                                                                       |
-| --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `status` (or nothing)                   | the configuration: on/off, hidden and folded modes, message times, hidden and visible categories, rows hidden this session and errors not reviewed |
-| `on` / `off`                            | hides the selected categories again / draws everything                                                                                             |
-| `show <cat…\|all>` / `hide <cat…\|all>` | makes categories visible or hidden; several names at once, `all` for every one                                                                     |
-| `show hidden` / `hide hidden`           | each hidden call becomes a folded `▸ <tool>` line that a click unfolds; `hide hidden` leaves no trace                                              |
-| `time on` / `time off`                  | draws (or stops drawing) the send time under each message; the time is `HH:MM YYYY-MM-DD` in Europe/Madrid                                         |
-| `ack`                                   | resets the hidden-error counter                                                                                                                    |
+| Verb                   | What it does                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------- |
+| `status` (or nothing)  | on/off, message times, the session counter, errors not reviewed, then one line per category        |
+| `on` / `off`           | applies the modes / draws everything; `off` keeps the modes stored and stops counting and toasting |
+| `show <cat…\|all>`     | draws those categories in full; several names at once, `all` for every one                         |
+| `hide <cat…\|all>`     | leaves no trace of those categories                                                                |
+| `fold <cat…\|all>`     | one line per row of those categories, a click to unfold                                            |
+| `time on` / `time off` | draws (or stops drawing) the send time under each message; `HH:MM YYYY-MM-DD` in Europe/Madrid     |
+| `ack`                  | resets the error counter                                                                           |
 
-A failed hidden tool call raises a transient toast naming the tool and the first line of the reason; the count
-appears only in `status` and is reset by `ack`.
+`show`, `hide` and `fold` answer `Shown: bash, files`, `Hidden: bash`, `Folded: bash`, or `Shown: all` and its
+kin. With no category, an unknown category or an unknown verb they answer the usage and change nothing; the old
+`show hidden` and `hide hidden` are gone, and the usage names `fold` in their place.
 
-The choices are stored in the mod's own store and come back at the next session. The categories shown by
-`status` are the 15 above; the `prefs` key holds `enabled`, `hidden`, `showHidden` and `timestamps`.
+`show all` writes `show` into every mode and survives a restart; `off` is not that: it suspends the modes without
+changing them, so `on` restores the look you had.
+
+A failed tool call whose `errors` mode is `fold` or `hide` raises one transient toast naming the tool, the mode
+and the first line of the reason: `⚠ Bash failed (folded row): <reason>`. With the default `errors: show` the row
+is drawn whole, nothing is counted and nothing toasts. The counter appears only in `status` and is reset by
+`ack`.
+
+The status block is:
+
+```text
+wip-quiet: on
+message times: on
+rows folded or hidden this session: none
+errors not reviewed: 0
+bash: fold
+agent: fold
+cron: fold
+files: fold
+msg: fold
+mcp: fold
+misc: fold
+errors: show
+group: fold
+turn: fold
+peer: fold
+tasknote: fold
+cronfire: fold
+toolprogress: fold
+notice: fold
+```
+
+`off` prints `wip-quiet: off` and still lists the modes, which is what `on` will apply.
+
+## Stored choices and migration
+
+The choices live in the mod's own store under `prefs`, as `{ "version": 2, "enabled", "modes", "timestamps" }`,
+and come back at the next session. A command that changes something writes version 2.
+
+A `prefs` written by an older release (`hidden` + `showHidden`, no `version`) is migrated when it is read, and
+nothing is written until a command changes something:
+
+- the old default (every category hidden, no folded line) is indistinguishable from "no choice" and gets the new
+  defaults: every category folded, `errors` shown;
+- any other old value is mapped faithfully: a hidden category becomes `fold` when the folded line was on and
+  `hide` otherwise; a visible one becomes `show`. The categories left at the old default keep the old no-trace
+  look until you run `fold all`;
+- a corrupt or partial `prefs` never throws: each field that is missing or of the wrong type keeps its default,
+  and a partial `modes` map fills the rest from the defaults.
 
 ## Install
 
@@ -99,7 +155,8 @@ Accept the trust dialog, then run `/reload-plugins` or start a new session.
   the broader refresh: it also writes the definitions. Either way the whole folder is replaced after copying the
   previous one to `.wip/backups/quiet/wip-quiet.<stamp>/`: managed files go back to the embedded text, your own
   extra files are removed, and the generated `.claude-plugin/types/` is kept. A second run with nothing changed
-  says `exists` and writes nothing.
+  says `exists` and writes nothing. The stored `prefs` live in the engine's store, outside the copy, so they
+  survive the replacement and the mod migrates them when it reads them.
 - `--force` without `--quiet` refreshes the copy and touches neither settings file, so a plugin you disabled
   stays disabled. Only `--quiet` writes `true` (with a backup of the settings file).
 - Disable without deleting, with the scope of the file that holds the entry:
@@ -129,8 +186,9 @@ session that already runs a copy, `/reload-plugins` picks up an edit.
 
 Checks: `claude plugin validate mods/wip-quiet` and `claude plugin test mods/wip-quiet`.
 
-`hooks/timestamps.ts` reads the time from the session transcript with `grep`, and formats it for Europe/Madrid by
-the EU summer-time rule; it has no timezone option.
+`hooks/classify.ts` holds the categories, the modes and their defaults; `hooks/register.tsx` the atoms, the
+render hooks, the commands and the prefs migration. `hooks/timestamps.ts` reads the time from the session
+transcript with `grep`, and formats it for Europe/Madrid by the EU summer-time rule; it has no timezone option.
 
 ## Licence
 

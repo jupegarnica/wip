@@ -2,6 +2,7 @@ import type { On, RenderComponent, RenderPropsOf, RenderSurface } from "claude-c
 import type { Engine } from "claude-code/testing";
 import { describe, expect, mock, test } from "claude-code/testing";
 
+import { ALL_CATEGORIES } from "../hooks/classify";
 import { formatStamp, parseIndex } from "../hooks/timestamps";
 
 const PLUGIN = "wip-quiet";
@@ -220,15 +221,31 @@ describe("fallback", () => {
   });
 });
 
-describe("hidden rows and the toggle", () => {
-  test("a hidden row stays hidden, with no stamp; ctrl+o shows it stamped", async ($, on) => {
+describe("folded rows and the toggle", () => {
+  test("a folded row has no stamp until a click unfolds it; ctrl+o shows it stamped", async ($, on) => {
     engineBeneath(on, "session-g");
     mock.clock(on, { now: NOW });
+    const key = `quiet-fold:UserMessage:${USER_UUID}`;
     for (const surface of EVERY_SURFACE) {
-      expect(await drawnText($, surface, "UserMessage", prompt("peer"), USER_UUID)).toEqual({
-        isEngineDrawn: false,
-        stamp: undefined,
+      const folded = await $.ui.mount({
+        plugin: PLUGIN,
+        surface,
+        component: "UserMessage",
+        props: prompt("peer"),
+        requestId: USER_UUID,
       });
+      expect((await folded.find({ key }))?.text).toBe("▸ peer message · hola");
+      expect(await folded.find({ text: "engine" })).toBeUndefined();
+      expect(await folded.find({ text: /^\d{2}:\d{2} \d{4}-\d{2}-\d{2}$/ })).toBeUndefined();
+
+      await folded.press({ key });
+      expect(await folded.find({ text: "engine" })).toBeDefined();
+      expect((await folded.find({ text: /^\d{2}:\d{2} \d{4}-\d{2}-\d{2}$/ }))?.text).toBe(
+        "07:30 2026-10-27",
+      );
+      await folded.press({ key });
+      await folded.unmount();
+
       const expanded = { ...prompt("peer"), isExpanded: true };
       expect(await drawnText($, surface, "UserMessage", expanded, USER_UUID)).toEqual({
         isEngineDrawn: true,
@@ -257,16 +274,51 @@ describe("hidden rows and the toggle", () => {
     expect((await quiet($, "time maybe")).text).toContain("Usage: /wip-quiet");
   });
 
-  test("stored off comes back at session start; prefs without the key read as on", async ($, on) => {
-    engineBeneath(on, "session-i", { prefs: { enabled: true, hidden: [], timestamps: false } });
+  test("stored off comes back at session start", async ($, on) => {
+    engineBeneath(on, "session-i", {
+      prefs: { version: 2, enabled: true, modes: { peer: "show" }, timestamps: false },
+    });
     await $.session.start({ cwd: "/", surface: "terminal", isInteractive: true });
     expect(
       (await drawnText($, "terminal", "UserMessage", prompt(), USER_UUID)).stamp,
     ).toBeUndefined();
   });
 
+  test("a v2 prefs without the key reads as on", async ($, on) => {
+    engineBeneath(on, "session-m", {
+      prefs: { version: 2, enabled: true, modes: { peer: "fold" } },
+    });
+    mock.clock(on, { now: NOW });
+    await $.session.start({ cwd: "/", surface: "terminal", isInteractive: true });
+    expect((await drawnText($, "terminal", "UserMessage", prompt(), USER_UUID)).stamp).toBe(
+      "07:30 2026-10-27",
+    );
+  });
+
   test("prefs stored before the toggle existed draw the stamp", async ($, on) => {
     engineBeneath(on, "session-j", { prefs: { enabled: true, hidden: ["bash"] } });
+    mock.clock(on, { now: NOW });
+    await $.session.start({ cwd: "/", surface: "terminal", isInteractive: true });
+    expect((await drawnText($, "terminal", "UserMessage", prompt(), USER_UUID)).stamp).toBe(
+      "07:30 2026-10-27",
+    );
+  });
+
+  test("an old-shape prefs with timestamps: false still reads as off", async ($, on) => {
+    engineBeneath(on, "session-k", {
+      prefs: { enabled: true, hidden: ["bash"], timestamps: false },
+    });
+    mock.clock(on, { now: NOW });
+    await $.session.start({ cwd: "/", surface: "terminal", isInteractive: true });
+    expect(
+      (await drawnText($, "terminal", "UserMessage", prompt(), USER_UUID)).stamp,
+    ).toBeUndefined();
+  });
+
+  test("an old default prefs still migrates with times on", async ($, on) => {
+    engineBeneath(on, "session-l", {
+      prefs: { enabled: true, hidden: [...ALL_CATEGORIES] },
+    });
     mock.clock(on, { now: NOW });
     await $.session.start({ cwd: "/", surface: "terminal", isInteractive: true });
     expect((await drawnText($, "terminal", "UserMessage", prompt(), USER_UUID)).stamp).toBe(

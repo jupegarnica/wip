@@ -1,4 +1,4 @@
-import type { QuietCategory } from "../types";
+import type { QuietCategory, QuietMode, QuietModes } from "../types";
 
 export const ALL_CATEGORIES: readonly QuietCategory[] = [
   "bash",
@@ -17,6 +17,44 @@ export const ALL_CATEGORIES: readonly QuietCategory[] = [
   "toolprogress",
   "notice",
 ];
+
+export const QUIET_MODES: readonly QuietMode[] = ["show", "hide", "fold"];
+
+/** Every row is one folded line but a failed one, which is drawn whole. */
+export const DEFAULT_MODES: QuietModes = {
+  bash: "fold",
+  agent: "fold",
+  cron: "fold",
+  files: "fold",
+  msg: "fold",
+  mcp: "fold",
+  misc: "fold",
+  errors: "show",
+  group: "fold",
+  turn: "fold",
+  peer: "fold",
+  tasknote: "fold",
+  cronfire: "fold",
+  toolprogress: "fold",
+  notice: "fold",
+};
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+export const isMode = (value: unknown): value is QuietMode =>
+  value === "show" || value === "hide" || value === "fold";
+
+/** A stored map, partial or unknown keys included, read as the 15 modes it stands for. */
+export const normalizeModes = (raw: unknown): QuietModes => {
+  const modes = { ...DEFAULT_MODES };
+  if (!isRecord(raw)) return modes;
+  for (const category of ALL_CATEGORIES) {
+    const value = raw[category];
+    if (isMode(value)) modes[category] = value;
+  }
+  return modes;
+};
 
 // Questions to the user stay visible whatever the settings: hiding one would hide a decision.
 const ALWAYS_VISIBLE_TOOLS = new Set(["AskUserQuestion", "ExitPlanMode"]);
