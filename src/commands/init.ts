@@ -36,24 +36,28 @@ import { savedStart } from "../init/current.ts";
 import { parseFlows } from "../init/flows.ts";
 import {
   type IKanbanCopyResult,
+  type IKanbanPreflight,
   KANBAN_DIR,
   KanbanCopyFailed,
   kanbanAskDefaults,
   kanbanPreflight,
+  kanbanPreview,
   kanbanState,
   syncKanban,
 } from "../init/kanban.ts";
-import { ModCopyFailed } from "../init/mod-copy.ts";
-import { Aborted, type IAsker, terminalAsker } from "../init/prompt.ts";
+import { type IModDefaults, ModCopyFailed } from "../init/mod-copy.ts";
+import { Aborted, askYesNo, type IAsker, terminalAsker } from "../init/prompt.ts";
 import {
   type IQuietCopyResult,
+  type IQuietPreflight,
   QUIET_DIR,
   quietAskDefaults,
   quietPreflight,
+  quietPreview,
   quietState,
   syncQuiet,
 } from "../init/quiet.ts";
-import { foreignFiles, scaffold } from "../init/scaffold.ts";
+import { foreignFiles, replacingFiles, scaffold } from "../init/scaffold.ts";
 import { seedItems } from "../init/seed.ts";
 import { leftBehind, uncoveredFlows } from "../init/switch.ts";
 import { COMMANDS } from "./help.ts";
@@ -227,10 +231,41 @@ function gitignoreAnswer(args: IArgs): { wip: boolean; defs: boolean } {
   return { wip: values.includes("wip"), defs: values.includes("defs") };
 }
 
-function run(ctx: ICtx, args: IArgs): void {
-  const [path, extra] = args.pos;
-  if (extra !== undefined) throw usage(INIT_USAGE);
-  const project = resolve(ctx.cwd, path ?? ".");
+/** Everything `wip init` decides before writing: flags, templates, mods, the folder switch and its refusals. */
+export interface IInitPlan {
+  project: string;
+  force: boolean;
+  global: boolean;
+  yes: boolean;
+  kanbanFlag: boolean;
+  quietFlag: boolean;
+  explicitFile: TSettingsFile | undefined;
+  flows: string[];
+  templates: Readonly<Record<string, string>>;
+  defsDir: string;
+  defsRoot: string;
+  /** As shown: relative to the project, or `~/…`. */
+  shown: string;
+  yesKanban: IModDefaults | null;
+  yesQuiet: IModDefaults | null;
+  kanban: boolean;
+  quiet: boolean;
+  modsFile: TSettingsFile;
+  sw: IFolderSwitch;
+  kanbanPre: IKanbanPreflight;
+  quietPre: IQuietPreflight;
+  /** Why nothing may be written (exit 3); empty when the run may go on. */
+  conflicts: string[];
+  /** What the run says when it goes on; a warning never changes the exit code. */
+  warnings: { code: string; message: string }[];
+}
+
+/**
+ * Resolves the flags and reads what is on disk (definitions, the project database on a real folder switch, the mods'
+ * copies and settings), writing nothing. `run()` consumes it to write; `promptInit` runs it to know whether the
+ * answers would be refused without `--force`.
+ */
+export function initPlan(project: string, args: IArgs, env: TEnv): IInitPlan {
   const force = args.flags.has("force");
   const global = args.flags.has("global");
   const yes = args.flags.has("yes");
@@ -261,9 +296,8 @@ function run(ctx: ICtx, args: IArgs): void {
   const flows = args.opts.flows === undefined ? flowNames() : parseFlows(args.opts.flows);
   const templates = selectTemplates(flows);
   const defsDir = (global ? HOME_PREFIX : "") + DEFAULT_DEFS_DIR;
-  const defsRoot = defsPath(project, defsDir, ctx.env);
-  const shown = shownDefsDir(defsDir, ctx.env);
-  assertDirectory(project);
+  const defsRoot = defsPath(project, defsDir, env);
+  const shown = shownDefsDir(defsDir, env);
 
   // With --yes, init takes the wizard's default answers too, the Kanban and Quiet steps included.
   const yesKanban =
@@ -274,12 +308,12 @@ function run(ctx: ICtx, args: IArgs): void {
   const modsFile: TSettingsFile =
     explicitFile ?? yesKanban?.file ?? yesQuiet?.file ?? "settings.json";
 
-  const sw = folderSwitch(project, defsDir, force, ctx.env);
+  const sw = folderSwitch(project, defsDir, force, env);
   const kanbanPre = kanbanPreflight(project, { requested: kanban, force, file: modsFile });
   const quietPre = quietPreflight(project, { requested: quiet, force, file: modsFile });
   const conflicts = [
     ...(sw.refusal ? [sw.refusal] : []),
-    ...(sw.from === null ? [] : liveFlowRefusals(project, sw.from, defsDir, ctx.env, templates)),
+    ...(sw.from === null ? [] : liveFlowRefusals(project, sw.from, defsDir, env, templates)),
     ...foreignFiles(defsRoot, shown, templates).map(
       (rel) =>
         `${rel} exists without a \`wip:\` mark (another tool's file); rename or move it and run init again`,
@@ -287,11 +321,114 @@ function run(ctx: ICtx, args: IArgs): void {
     ...kanbanPre.refusals,
     ...quietPre.refusals,
   ];
-  if (conflicts.length > 0) throw rejected(`nothing written: ${conflicts.join("; ")}`);
-  ctx.result.warnings.push(
+  const warnings = [
     ...kanbanPre.warnings.map((w) => ({ code: w.code, message: w.message })),
     ...quietPre.warnings.map((w) => ({ code: w.code, message: w.message })),
-  );
+  ];
+  return {
+    project,
+    force,
+    global,
+    yes,
+    kanbanFlag,
+    quietFlag,
+    explicitFile,
+    flows,
+    templates,
+    defsDir,
+    defsRoot,
+    shown,
+    yesKanban,
+    yesQuiet,
+    kanban,
+    quiet,
+    modsFile,
+    sw,
+    kanbanPre,
+    quietPre,
+    conflicts,
+    warnings,
+  };
+}
+
+/** What the wizard shows after `Write?` when only `--force` lets the answers through. */
+export interface IForceOffer {
+  /** The conflicts of the run without `--force`, in `run()`'s own messages. */
+  reasons: string[];
+  /** The paths `--force` would rewrite; empty when forcing only switches the definitions folder. */
+  files: string[];
+}
+
+/**
+ * Runs the existing plan twice on the answers: without `--force` for the reasons, and with it to know whether forcing
+ * clears every refusal. Returns null when there is nothing to offer: no conflict, or one `--force` cannot fix.
+ * Reads only; a usage error from `initPlan` is left for `run()` to report.
+ */
+export function forceOffer(
+  project: string,
+  finalArgv: readonly string[],
+  env: TEnv,
+): IForceOffer | null {
+  const spec = COMMANDS.find((c) => c.name === "init");
+  let args: IArgs;
+  let plain: IInitPlan;
+  let forced: IInitPlan;
+  try {
+    args = parseArgs(finalArgv.slice(1), spec?.flags ?? []);
+    allow(args, [...(spec?.options ?? []), ...(spec?.flags ?? [])]);
+    plain = initPlan(project, args, env);
+    if (plain.conflicts.length === 0) return null;
+    forced = initPlan(project, { ...args, flags: new Set([...args.flags, "force"]) }, env);
+  } catch {
+    return null;
+  }
+  if (forced.conflicts.length > 0) return null;
+  const files = replacingFiles({
+    force: true,
+    stamp: "",
+    defsDir: forced.shown,
+    defsRoot: forced.defsRoot,
+    templates: forced.templates,
+  });
+  const kanban = kanbanPreview(project, {
+    requested: forced.kanban,
+    force: true,
+    file: forced.modsFile,
+  });
+  const quiet = quietPreview(project, {
+    requested: forced.quiet,
+    force: true,
+    file: forced.modsFile,
+  });
+  if (kanban.replaced) files.push(`${KANBAN_DIR}/`);
+  if (quiet.replaced) files.push(`${QUIET_DIR}/`);
+  if (kanban.settingsWrite || quiet.settingsWrite) files.push(settingsRel(forced.modsFile));
+  return { reasons: plain.conflicts, files };
+}
+
+function run(ctx: ICtx, args: IArgs): void {
+  const [path, extra] = args.pos;
+  if (extra !== undefined) throw usage(INIT_USAGE);
+  const project = resolve(ctx.cwd, path ?? ".");
+  assertDirectory(project);
+  const plan = initPlan(project, args, ctx.env);
+  const {
+    force,
+    global,
+    flows,
+    templates,
+    defsDir,
+    defsRoot,
+    shown,
+    kanban,
+    quiet,
+    modsFile,
+    sw,
+    kanbanPre,
+    quietPre,
+  } = plan;
+  if (plan.conflicts.length > 0) throw rejected(`nothing written: ${plan.conflicts.join("; ")}`);
+  ctx.result.warnings.push(...plan.warnings);
 
   const start = startAnswer(args, project);
   const ignore = gitignoreAnswer(args);
@@ -620,7 +757,32 @@ export async function promptInit(
       asker.say("nothing written");
       return { argv: null, code: 0 };
     }
-    return { argv: [...argv, ...extra], code: 0 };
+    const finalArgv = [...argv, ...extra];
+    const offer = forceOffer(resolve(cwd, args.pos[0] ?? "."), finalArgv, env);
+    if (offer !== null) {
+      const red = asker.style.red;
+      asker.say(red("These answers need --force:"));
+      for (const reason of offer.reasons) asker.say(red(`  ${reason}`));
+      if (offer.files.length > 0) {
+        asker.say(red("--force would replace:"));
+        for (const file of offer.files) asker.say(red(`  ${file}`));
+      } else {
+        asker.say(
+          red("--force would replace no file; it is only needed to apply the answers above."),
+        );
+      }
+      asker.say(red("Each replaced file is backed up under .wip/backups/ first."));
+      if (!(await askYesNo(asker, "Apply --force and replace them?", false))) {
+        asker.say("nothing written");
+        return { argv: null, code: EXIT.REJECTED };
+      }
+      if (!(await askYesNo(asker, "Confirm again: apply --force?", false))) {
+        asker.say("nothing written");
+        return { argv: null, code: EXIT.REJECTED };
+      }
+      return { argv: [...finalArgv, "--force"], code: 0 };
+    }
+    return { argv: finalArgv, code: 0 };
   } catch (err) {
     if (err instanceof Aborted) {
       asker.say("");

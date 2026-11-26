@@ -24,9 +24,10 @@ wip init --global                 # definitions in ~/.claude/, shared by every -
 | `<defs>/skills/wip-flow-reports/`                | the `reports` flow: a search or a report, one-off or recurring, from the questions and sources to the written report                                                                                                                                                                                                                                                                                   |
 | `<defs>/skills/wip-flow-tasks/`                  | the `tasks` flow: any task with a clear outcome, one-off or recurring, in four phases (`todo`, `doing`, `done` and `closed`); it seeds `onboarding`                                                                                                                                                                                                                                                    |
 
-These four flows are the default set. In a terminal the wizard has six steps: scope, the flows to write, the start
-command, what goes into `.gitignore`, the Kanban mod and the Quiet mod. The Flows step shows all four checked; Space toggles one,
-Enter confirms and at least one stays checked. `--flows development,ideas,reports,tasks` selects a subset for scripts
+These four flows are the default set. In a terminal the wizard has seven steps: scope, the flows to write, the start
+command, what goes into `.gitignore`, the Kanban mod, the Quiet mod and the seventh step, Settings, where the
+`enabledPlugins` entry goes (one answer for both mods; with no mod installed it says so and asks nothing). The Flows
+step shows all four checked; Space toggles one, Enter confirms and at least one stays checked. `--flows development,ideas,reports,tasks` selects a subset for scripts
 (trimmed, duplicates removed, only names init ships; an unknown or empty value exits 2 and writes nothing), and
 `--yes` without `--flows` writes all four. A run only adds the selected flows: it never deletes a deselected or custom
 flow.
@@ -39,6 +40,13 @@ writing anything and names it, also with `--force`. A normal [`wip upgrade`](upg
 terminal, and `wip upgrade --apply-defs` does the same with the same writer, backups and `model:` preservation but no
 seeding of items, no unselected flow, no `defs_dir` switch and no `.gitignore` change: it applies the templates of the
 running build to the folder in place, and `wip upgrade` says first whether `--force` would change anything.
+
+When the wizard's answers would be refused for lack of `--force`, it says so after `Write?`: it prints in red the
+reasons and the files `--force` would replace (or that it would replace none), and asks `Apply --force and replace
+them?` and `Confirm again: apply --force?`, both `y/N`, so Enter declines. A no prints `nothing written` and exits 3
+without writing anything; two yes answers append `--force` and the run goes on, backing each replaced file up under
+`.wip/backups/` first. This offer is wizard-only: `--yes`, `--json` and a run without a terminal keep exit 3 with
+the same message.
 
 `wip init` also creates the items a flow lists under `seed` in its block, and copies each seed's `files` from the
 flow's skill folder into the item's artifact directory. The `tasks` flow, when the run writes it, seeds one,
@@ -58,7 +66,8 @@ not touched, moved or deleted, and wip stops reading it. Init warns (`defs_left_
 of the old folder that it does not copy, a shipped flow that this run does not select included: add it back with
 `--flows` or copy it by hand if you need it. It refuses (exit 3, nothing written) when a live item uses a flow that
 the new folder lacks: add that shipped flow to `--flows` or copy its folder by hand, and run init again.
-Local and `--global` are never switched, also with `--force`.
+Local and `--global` are never switched, also with `--force`. In a terminal the wizard offers `--force` after
+`Write?` for this switch, with the same two confirmations.
 
 ## `--gitignore`
 
@@ -101,8 +110,8 @@ needs no network and no extra download. A new Claude Code session, terminal or d
 
 Each install writes its copy and one `"enabledPlugins"` entry, merged into the **same** settings file. The wizard's
 fifth step asks `Install the wip Kanban mod for Claude Code?` and its sixth `Install the wip Quiet mod for Claude
-Code?` (both default to `yes`: Enter installs the copy and the entry; `no` writes neither). After the first `yes` it
-asks `Where does the enabledPlugins entry go?` **once per run**, and that one answer serves both mods:
+Code?` (both default to `yes`: Enter installs the copy and the entry; `no` writes neither). After them, the seventh
+step asks `Where does the enabledPlugins entry go?` **once per run**, and that one answer serves both mods:
 
 - `settings.json`, the default: `.claude/settings.json`, Claude's project scope, shared with the repository;
 - `settings.local.json`: `.claude/settings.local.json`, Claude's local scope, personal to this clone, normally not

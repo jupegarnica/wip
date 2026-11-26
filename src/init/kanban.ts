@@ -6,6 +6,7 @@ import {
   type IModCopyResult,
   type IModDefaults,
   type IModPreflight,
+  type IModPreview,
   type IModSpec,
   type IModState,
   type IModWarning,
@@ -38,6 +39,7 @@ export type IKanbanState = IModState;
 export type IKanbanDefaults = IModDefaults;
 export type IKanbanWarning = IModWarning;
 export type IKanbanPreflight = IModPreflight;
+export type IKanbanPreview = IModPreview;
 export type IKanbanCopyResult = IModCopyResult;
 
 /** The ownership mark of a copy: exactly `{format: 1, owner: "@garndev/wip", plugin: "wip-kanban"}`. */
@@ -56,6 +58,9 @@ export const kanbanAskDefaults = mod.askDefaults;
 
 /** What a run would refuse and warn about, before any write. */
 export const kanbanPreflight = mod.preflight;
+
+/** What `--force` would touch: the owned copy when its files differ, and the chosen settings file. */
+export const kanbanPreview = mod.preview;
 
 /**
  * Brings the copy in line with the embedded mod: `null` when the run has nothing to do with it, otherwise the

@@ -18,7 +18,7 @@ import {
   screenRows,
   selectStep,
 } from "../../src/init/prompt.ts";
-import { box, makeStyle, PLAIN, visibleLength } from "../../src/init/style.ts";
+import { box, type IStyle, makeStyle, PLAIN, visibleLength } from "../../src/init/style.ts";
 import { scratch } from "../helpers/project.ts";
 
 const dirs: string[] = [];
@@ -35,7 +35,10 @@ function tmp(): string {
  * Answers in order: `""` takes the default (the highlighted option), `null` is Ctrl+C. A select answer is typed text,
  * checked like the terminal does; a bad one is asked again from the queue.
  */
-function fake(answers: (string | null)[]): IAsker & { said: string[]; asked: string[] } {
+function fake(
+  answers: (string | null)[],
+  style: IStyle = PLAIN,
+): IAsker & { said: string[]; asked: string[] } {
   const queue = [...answers];
   const said: string[] = [];
   const asked: string[] = [];
@@ -43,7 +46,7 @@ function fake(answers: (string | null)[]): IAsker & { said: string[]; asked: str
   return {
     said,
     asked,
-    style: PLAIN,
+    style,
     select: async (spec) => {
       asked.push(
         `${spec.question} [${spec.options.map((o) => o.value).join("|")}] @${spec.initial}`,
@@ -263,7 +266,7 @@ describe("promptInit", () => {
     const asker = fake(["", "", "", "", "", "", "", "", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asker.asked[0]).toBe("Where do the agents and skills live? [local|global] @0");
-    expect(asker.said.join("\n")).toContain("1/6 Scope");
+    expect(asker.said.join("\n")).toContain("1/7 Scope");
     expect(asker.said.join("\n")).toMatch(/scope\s+local/);
     expect(out.argv).not.toContain("--global");
   });
@@ -298,7 +301,7 @@ describe("promptInit", () => {
     ]);
   });
 
-  test("the Flows step is 2/6 with all four checked; Enter keeps all and adds no --flows", async () => {
+  test("the Flows step is 2/7 with all four checked; Enter keeps all and adds no --flows", async () => {
     const dir = tmp();
     // scope, flows, start, .wip/, defs, Kanban (no), Quiet (no), Write.
     const asker = fake(["", "", "", "", "", "no", "no", ""]);
@@ -306,7 +309,7 @@ describe("promptInit", () => {
     expect(asker.asked).toContain(
       "Which flows should wip write? [development|ideas|reports|tasks] @development,ideas,reports,tasks",
     );
-    expect(asker.said.join("\n")).toContain("2/6 Flows");
+    expect(asker.said.join("\n")).toContain("2/7 Flows");
     expect(asker.said.join("\n")).toMatch(/flows\s+development, ideas, reports, tasks/);
     expect(out.argv).not.toContain("--flows");
     expect(wip(dir, out.argv as string[]).code).toBe(0);
@@ -441,7 +444,7 @@ describe("promptInit", () => {
     // scope, flows, start, .wip/, defs, Kanban (no), Quiet (no), Write.
     const asker = fake(["", "", "", "", "", "no", "no", ""]);
     const out = await promptInit(["init"], dir, env, asker);
-    expect(asker.said.join("\n")).toContain("4/6 Git");
+    expect(asker.said.join("\n")).toContain("4/7 Git");
     expect(asker.said.join("\n")).toMatch(/gitignore\s+wip/);
     expect(out.argv?.slice(-2)).toEqual(["--gitignore", "wip"]);
   });
@@ -490,16 +493,17 @@ describe("promptInit", () => {
       join(dir, ".wip", "config.json"),
       `${JSON.stringify({ defs_dir: ".agents" }, null, 2)}\n`,
     );
-    // flows, start, defs, Kanban (no), Quiet (no), Write.
-    const asker = fake(["", "", "", "no", "no", ""]);
+    // flows, start, defs, Kanban (no), Quiet (no), Write, the first --force question (no).
+    const asker = fake(["", "", "", "no", "no", "", "n"]);
     const out = await promptInit(["init"], dir, env, asker);
     const said = asker.said.join("\n");
     expect(said).toContain("this project uses .agents/");
     expect(said).toContain("wip now writes .claude/");
     expect(said).toContain("wip init --force");
     expect(said).toMatch(/defs\s+\.claude\/ \(switch from \.agents\/\)/);
-    expect(out.argv).not.toContain("--force");
-    const res = wip(dir, out.argv as string[]);
+    expect(said).toContain("These answers need --force:");
+    expect(out).toEqual({ argv: null, code: 3 });
+    const res = wip(dir, ["init"]);
     expect(res.code).toBe(3);
     expect(res.stderr).toContain("run with --force to add .claude/");
     const forced = wip(dir, ["init", "--force", "--yes"]);
@@ -602,7 +606,7 @@ describe("wip init flags without a terminal", () => {
   });
 });
 
-describe("the mods steps (5/6 and 6/6)", () => {
+describe("the mods steps (5/7 and 6/7, then 7/7 Settings)", () => {
   const env = { PATH: "" };
   const said = (asker: { said: string[] }) => asker.said.join("\n");
   const asked = (asker: { asked: string[] }) => asker.asked.join("\n");
@@ -611,6 +615,21 @@ describe("the mods steps (5/6 and 6/6)", () => {
   const KANBAN_Q = "Install the wip Kanban mod for Claude Code?";
   const QUIET_Q = "Install the wip Quiet mod for Claude Code?";
   const FILE_Q = "Where does the enabledPlugins entry go?";
+  const FORCE_Q = "Apply --force and replace them?";
+
+  /** A project with a legacy `.agents/` and no `.claude/`: the wizard must offer --force after Write?. */
+  const legacy = (): string => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".wip"), { recursive: true });
+    mkdirSync(join(dir, ".agents"), { recursive: true });
+    writeFileSync(
+      join(dir, ".wip", "config.json"),
+      `${JSON.stringify({ defs_dir: ".agents" }, null, 2)}\n`,
+    );
+    return dir;
+  };
+  /** A legacy project's answers before `Write?`: flows, start, .wip/, defs, Kanban (no), Quiet (no). */
+  const LEGACY_ANSWERS = ["", "", "", "", "no", "no"];
 
   test("the first question is exact, `yes` is the default and Enter installs both mods", async () => {
     const dir = tmp();
@@ -623,8 +642,10 @@ describe("the mods steps (5/6 and 6/6)", () => {
     );
     expect(asked(asker)).toContain(`${QUIET_Q} [no|yes] @1`);
     expect(said(asker)).toContain("default: yes");
-    expect(said(asker)).toContain("5/6 Kanban");
-    expect(said(asker)).toContain("6/6 Quiet");
+    expect(said(asker)).toContain("5/7 Kanban");
+    expect(said(asker)).toContain("6/7 Quiet");
+    expect(said(asker)).toContain("7/7 Settings");
+    expect(said(asker)).toContain("where the enabledPlugins entry goes; one answer for both mods");
     expect(said(asker)).toContain(
       "optional: a read-only board of the open items, shown by Claude Code",
     );
@@ -655,7 +676,7 @@ describe("the mods steps (5/6 and 6/6)", () => {
 
   test("yes to Kanban and no to Quiet asks the file once and adds only --kanban", async () => {
     const dir = tmp();
-    const asker = fresh(["", "", "no", ""]);
+    const asker = fresh(["", "no", "", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect(asked(asker)).toContain(FILE_Q);
     expect((asked(asker).match(/Where does the enabledPlugins entry go\?/g) ?? []).length).toBe(1);
@@ -666,7 +687,7 @@ describe("the mods steps (5/6 and 6/6)", () => {
     expect(said(asker)).toMatch(/settings\s+\.claude\/settings\.json/);
   });
 
-  test("no to Kanban and yes to Quiet asks the file in step 6", async () => {
+  test("no to Kanban and yes to Quiet asks the file in step 7", async () => {
     const dir = tmp();
     const asker = fresh(["no", "", "", ""]);
     const out = await promptInit(["init"], dir, env, asker);
@@ -679,8 +700,8 @@ describe("the mods steps (5/6 and 6/6)", () => {
 
   test("yes then settings.local.json adds one shared --mods-settings-file for both", async () => {
     const dir = tmp();
-    // Kanban yes, file 2 (local), Quiet yes (no repeat), Write.
-    const asker = fresh(["", "2", "", ""]);
+    // Kanban yes, Quiet yes (no repeat), file 2 (local), Write.
+    const asker = fresh(["", "", "2", ""]);
     const out = await promptInit(["init"], dir, env, asker);
     expect((out.argv as string[]).filter((a) => a === "--kanban")).toHaveLength(1);
     expect((out.argv as string[]).filter((a) => a === "--quiet")).toHaveLength(1);
@@ -926,5 +947,105 @@ describe("the mods steps (5/6 and 6/6)", () => {
     expect(out.argv).toContain("--quiet");
     expect(out.argv).toContain("--mods-settings-file");
     expect(out.argv).toContain("settings.local.json");
+  });
+
+  test("the settings question is step 7, after Quiet, and asked once", async () => {
+    const dir = tmp();
+    const asker = fresh(["", "", "", ""]);
+    await promptInit(["init"], dir, env, asker);
+    const saidText = said(asker);
+    const kanban = saidText.indexOf("5/7 Kanban");
+    const quiet = saidText.indexOf("6/7 Quiet");
+    const settings = saidText.indexOf("7/7 Settings");
+    expect(kanban).toBeGreaterThanOrEqual(0);
+    expect(kanban).toBeLessThan(quiet);
+    expect(quiet).toBeLessThan(settings);
+    const askedText = asked(asker);
+    expect((askedText.match(/Where does the enabledPlugins entry go\?/g) ?? []).length).toBe(1);
+    expect(askedText.indexOf(FILE_Q)).toBeGreaterThan(askedText.indexOf(QUIET_Q));
+  });
+
+  test("no mod installed: step 7 says there is no entry and asks nothing", async () => {
+    const dir = tmp();
+    const asker = fresh(["no", "no", ""]);
+    const out = await promptInit(["init"], dir, env, asker);
+    expect(said(asker)).toContain("7/7 Settings");
+    expect(said(asker)).toContain("no mod installed: no enabledPlugins entry to write");
+    expect(asked(asker)).not.toContain(FILE_Q);
+    expect(said(asker)).not.toMatch(/settings\s+\.claude/);
+    expect(out.argv).not.toContain("--force");
+  });
+
+  test("a definitions switch offers --force after Write and applies it on two yes", async () => {
+    const dir = legacy();
+    const asker = fake([...LEGACY_ANSWERS, "", "y", "y"]);
+    const out = await promptInit(["init"], dir, env, asker);
+    expect(asked(asker)).toContain(FORCE_Q);
+    expect(asked(asker)).toContain("Confirm again: apply --force?");
+    expect(out.code).toBe(0);
+    expect((out.argv as string[]).slice(-1)).toEqual(["--force"]);
+    const res = wip(dir, out.argv as string[]);
+    expect(res.code).toBe(0);
+    expect(config(dir).defs_dir).toBe(".claude");
+    expect(existsSync(join(dir, ".claude", "agents", "fast.md"))).toBe(true);
+  });
+
+  test("declining the force question writes nothing and exits 3", async () => {
+    for (const answers of [
+      [...LEGACY_ANSWERS, "", "y", "n"],
+      [...LEGACY_ANSWERS, "", "n"],
+    ]) {
+      const dir = legacy();
+      const asker = fake(answers);
+      const out = await promptInit(["init"], dir, env, asker);
+      expect(out).toEqual({ argv: null, code: 3 });
+      expect(said(asker)).toContain("nothing written");
+      expect(existsSync(join(dir, ".claude"))).toBe(false);
+      expect(config(dir).defs_dir).toBe(".agents");
+    }
+  });
+
+  test("the force block is red and names the files that would be replaced", async () => {
+    const dir = legacy();
+    mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
+    writeFileSync(
+      join(dir, ".claude", "agents", "fast.md"),
+      "---\nname: fast\nwip: generic\n---\n\nan older copy\n",
+    );
+    const asker = fake([...LEGACY_ANSWERS, "", "y", "y"], makeStyle(true));
+    const out = await promptInit(["init"], dir, env, asker);
+    const saidText = said(asker);
+    expect(saidText).toContain("\x1b[31mThese answers need --force:\x1b[39m");
+    expect(saidText).toContain("--force would replace:");
+    expect(saidText).toContain("  .claude/agents/fast.md");
+    expect(saidText).toContain("Each replaced file is backed up under .wip/backups/ first.");
+    expect(out.argv).toContain("--force");
+    expect(wip(dir, out.argv as string[]).code).toBe(0);
+  });
+
+  test("a conflict --force cannot fix is not offered", async () => {
+    const dir = tmp();
+    mkdirSync(join(dir, ".claude", "agents"), { recursive: true });
+    writeFileSync(join(dir, ".claude", "agents", "fast.md"), "another tool's file\n");
+    const asker = fresh(["no", "no", ""]);
+    const out = await promptInit(["init"], dir, env, asker);
+    expect(asked(asker)).not.toContain(FORCE_Q);
+    expect(out.argv).not.toContain("--force");
+    const res = wip(dir, out.argv as string[]);
+    expect(res.code).toBe(3);
+    expect(res.stderr).toContain("without a `wip:` mark");
+  });
+
+  test("Ctrl+C at the force confirmation aborts with 130", async () => {
+    for (const answers of [
+      [...LEGACY_ANSWERS, "", "y", null],
+      [...LEGACY_ANSWERS, "", null],
+    ]) {
+      const dir = legacy();
+      const asker = fake(answers);
+      const out = await promptInit(["init"], dir, env, asker);
+      expect(out).toEqual({ argv: null, code: 130 });
+      expect(existsSync(join(dir, ".claude"))).toBe(false);
+    }
   });
 });

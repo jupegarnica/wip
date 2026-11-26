@@ -86,6 +86,14 @@ export interface IModPreflight {
   state: IModState;
 }
 
+/** What a run with `--force` would touch in this mod; computed without writing. */
+export interface IModPreview {
+  /** An owned copy this run touches and whose files differ: `--force` would replace the folder. */
+  replaced: boolean;
+  /** Whether this run would merge the requested mod's entry into the chosen settings file. */
+  settingsWrite: boolean;
+}
+
 export type TCopyAction = "created" | "updated" | "replaced" | "exists";
 
 export interface IModCopyResult {
@@ -375,6 +383,23 @@ export function createMod(spec: IModSpec) {
     return { refusals, warnings, state: mod };
   };
 
+  /**
+   * What `--force` would touch: the owned copy this run touches when its files differ, and the chosen settings file
+   * when the requested entry is absent or false. Reads only; the preview never decides a write.
+   */
+  const preview = (
+    project: string,
+    options: { requested: boolean; force: boolean; file?: TSettingsFile },
+  ): IModPreview => {
+    const mod = state(project);
+    const file = options.file ?? "settings.json";
+    const touched = options.requested || (options.force && mod.copy === "owned");
+    const replaced = mod.copy === "owned" && touched && !sameCopy(join(project, spec.dir), spec);
+    const entry = mod.files[file];
+    const settingsWrite = options.requested && !(entry.state === "ok" && entry.value === true);
+    return { replaced, settingsWrite };
+  };
+
   /** The wizard's defaults with the preflight applied: `yes` only when init would accept the chosen file. */
   const askDefaults = (mod: IModState, project: string, force: boolean): IModDefaults => {
     const base = defaults(mod);
@@ -526,5 +551,5 @@ export function createMod(spec: IModSpec) {
     };
   };
 
-  return { markProblem, copyState, state, defaults, askDefaults, preflight, sync, spec };
+  return { markProblem, copyState, state, defaults, askDefaults, preview, preflight, sync, spec };
 }

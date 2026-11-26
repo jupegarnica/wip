@@ -5,6 +5,7 @@ import {
   type IModCopyResult,
   type IModDefaults,
   type IModPreflight,
+  type IModPreview,
   type IModSpec,
   type IModState,
 } from "./mod-copy.ts";
@@ -31,6 +32,7 @@ const mod = createMod(QUIET_SPEC);
 export type IQuietState = IModState;
 export type IQuietDefaults = IModDefaults;
 export type IQuietPreflight = IModPreflight;
+export type IQuietPreview = IModPreview;
 export type IQuietCopyResult = IModCopyResult;
 
 export const quietMarkProblem = mod.markProblem;
@@ -39,4 +41,5 @@ export const quietState = mod.state;
 export const quietDefaults = mod.defaults;
 export const quietAskDefaults = mod.askDefaults;
 export const quietPreflight = mod.preflight;
+export const quietPreview = mod.preview;
 export const syncQuiet = mod.sync;
