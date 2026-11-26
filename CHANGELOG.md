@@ -6,6 +6,21 @@ a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a mino
 
 ## 0.6.7 (unreleased)
 
+- `wip init` installs a second optional Claude Code mod next to the Kanban one: **Quiet** (`--quiet`), a quieter
+  transcript that hides every row that is neither the assistant's text nor the person's own messages, with
+  `/wip-quiet` to show them on demand. It is a self-contained copy of `mods/wip-quiet/` in
+  `.claude/skills/wip-quiet/`, travels inside the npm package and the binary, and is enabled by
+  `"enabledPlugins": {"wip-quiet@skills-dir": true}` in the same settings file as the Kanban entry. `--yes` and the
+  wizard's default install it. The mod draws no persistent configuration display: `/wip-quiet status` reports it,
+  and only the hidden rows themselves, the folded lines after `/wip-quiet show hidden`, the message times (default
+  on) and the transient hidden-error toast are drawn.
+- The init wizard has six steps: Kanban is still the fifth and Quiet is the sixth. The settings-file question is
+  asked at most once per run and its answer serves both mods; `--mods-settings-file settings.json|settings.local.json`
+  chooses it, and `--kanban-settings-file` stays as a deprecated alias (the new flag wins when both are given).
+- `wip upgrade` refreshes both owned copies by default; `--quiet`/`--no-quiet` join `--kanban`/`--no-kanban`, and
+  `data.quiet` mirrors `data.kanban`.
+- No database schema change: the same version opens and migrates no project.
+
 ## 0.6.6 (2026-11-25)
 
 - The gate block of `wip-coordinate` is shorter and easier to answer: `Summary` is one phrase, a new `Context`

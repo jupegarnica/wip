@@ -15,6 +15,7 @@ import {
 import { dirname, join, relative } from "node:path";
 import { unsetLine } from "../../src/commands/init.ts";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
+import { QUIET_MOD } from "../../src/embedded/quiet.ts";
 import { DEFAULT_FLOWS, GENERIC_AGENTS, TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
 import { type IEnvelopeOut, WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
@@ -1101,15 +1102,28 @@ describe("wip init --gitignore and wip_bin", () => {
   });
 });
 
-describe("wip init and the Kanban mod (F-NEW-08)", () => {
+describe("wip init and the mods (F-NEW-08)", () => {
   const MOD = ".claude/skills/wip-kanban";
   const ID = "wip-kanban@skills-dir";
+  const QUIET = ".claude/skills/wip-quiet";
+  const QUIET_ID = "wip-quiet@skills-dir";
+  const BOTH = { [ID]: true, [QUIET_ID]: true };
 
   // biome-ignore lint/suspicious/noExplicitAny: the init data of the API under test
   const kanban = (out: IEnvelopeOut): any => out.body.data?.kanban;
+  // biome-ignore lint/suspicious/noExplicitAny: the init data of the API under test
+  const quiet = (out: IEnvelopeOut): any => out.body.data?.quiet;
   const settingsText = (dir: string, name: string): string =>
     readFileSync(join(dir, ".claude", name), "utf8");
   const modText = (dir: string, key: string): string => readFileSync(join(dir, MOD, key), "utf8");
+  const quietText = (dir: string, key: string): string =>
+    readFileSync(join(dir, QUIET, key), "utf8");
+  const modTree = (files: Readonly<Record<string, string>>): Record<string, string> =>
+    Object.fromEntries(
+      Object.entries(files)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([key, text]) => [key, text]),
+    );
 
   test("--yes installs the copy and the entry in .claude/settings.json", () => {
     const dir = tmp("k-yes");
@@ -1127,14 +1141,31 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     );
     expect(JSON.parse(settingsText(dir, "settings.json"))).toEqual({
       $schema: "https://json.schemastore.org/claude-code-settings.json",
-      enabledPlugins: { [ID]: true },
+      enabledPlugins: BOTH,
     });
     expect(existsSync(join(dir, ".claude", "settings.local.json"))).toBe(false);
+    expect(tree(join(dir, QUIET))).toEqual(modTree(QUIET_MOD));
+    expect(quietText(dir, ".claude-plugin/wip.json")).toBe(
+      '{\n  "format": 1,\n  "owner": "@garndev/wip",\n  "plugin": "wip-quiet"\n}\n',
+    );
     expect(kanban(out)).toEqual({
       requested: true,
       installed: true,
       path: MOD,
       id: ID,
+      copy: { action: "created", backup: null, removed: [] },
+      settings: {
+        path: ".claude/settings.json",
+        scope: "project",
+        action: "created",
+        backup: null,
+      },
+    });
+    expect(quiet(out)).toEqual({
+      requested: true,
+      installed: true,
+      path: QUIET,
+      id: QUIET_ID,
       copy: { action: "created", backup: null, removed: [] },
       settings: {
         path: ".claude/settings.json",
@@ -1186,12 +1217,21 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const out = wipJsonIn(dir, ["init", "--force", "--yes"]);
     expect(out.code).toBe(EXIT.OK);
     expect(existsSync(join(dir, MOD, ".claude-plugin", "wip.json"))).toBe(true);
-    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(existsSync(join(dir, QUIET, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual(BOTH);
     expect(kanban(out)).toMatchObject({
       requested: true,
       installed: true,
       path: MOD,
       id: ID,
+      copy: { action: "created", backup: null },
+      settings: { path: ".claude/settings.json", scope: "project", action: "created" },
+    });
+    expect(quiet(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: QUIET,
+      id: QUIET_ID,
       copy: { action: "created", backup: null },
       settings: { path: ".claude/settings.json", scope: "project", action: "created" },
     });
@@ -1206,12 +1246,19 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const out = wipJsonIn(dir, ["init", "--force", "--yes"]);
     expect(out.code).toBe(EXIT.OK);
     expect(existsSync(join(dir, MOD, ".claude-plugin", "wip.json"))).toBe(true);
-    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(existsSync(join(dir, QUIET, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual(BOTH);
     expect(kanban(out)).toMatchObject({
       requested: true,
       installed: true,
       path: MOD,
       id: ID,
+    });
+    expect(quiet(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: QUIET,
+      id: QUIET_ID,
     });
   });
 
@@ -1241,13 +1288,20 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const out = wipJsonIn(dir, ["init", "--global", "--yes"], { HOME: h });
     expect(out.code).toBe(EXIT.OK);
     expect(existsSync(join(dir, MOD, ".claude-plugin", "wip.json"))).toBe(true);
-    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(existsSync(join(dir, QUIET, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual(BOTH);
     expect(existsSync(join(h, ".claude", "settings.json"))).toBe(false);
     expect(existsSync(join(h, ".claude", "settings.local.json"))).toBe(false);
     expect(kanban(out)).toMatchObject({
       requested: true,
       installed: true,
       path: MOD,
+      settings: { path: ".claude/settings.json", scope: "project" },
+    });
+    expect(quiet(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: QUIET,
       settings: { path: ".claude/settings.json", scope: "project" },
     });
   });
@@ -1278,10 +1332,13 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     ]);
     expect(out.code).toBe(EXIT.OK);
     expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
-    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual({
-      [ID]: true,
-    });
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual(BOTH);
     expect(kanban(out).settings).toMatchObject({
+      path: ".claude/settings.local.json",
+      scope: "local",
+      action: "created",
+    });
+    expect(quiet(out).settings).toMatchObject({
       path: ".claude/settings.local.json",
       scope: "local",
       action: "created",
@@ -1333,6 +1390,14 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
       copy: null,
       settings: null,
     });
+    expect(quiet(untouched)).toEqual({
+      requested: false,
+      installed: true,
+      path: QUIET,
+      id: QUIET_ID,
+      copy: null,
+      settings: null,
+    });
   });
 
   test("--kanban merges the chosen file, preserving keys, order and other plugins, with a backup", () => {
@@ -1350,13 +1415,14 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const after = JSON.parse(settingsText(dir, "settings.json"));
     expect(after).toEqual({
       permissions: { allow: ["Bash(wip:*)"] },
-      enabledPlugins: { "other@market": true, [ID]: true },
+      enabledPlugins: { "other@market": true, ...BOTH },
       env: { A: "1" },
     });
     expect(Object.keys(after)).toEqual(["permissions", "enabledPlugins", "env"]);
     const backup = kanban(out).settings.backup as string;
     expect(backup).toStartWith(".wip/backups/claude-settings/settings.json.");
     expect(readFileSync(join(dir, backup), "utf8")).toBe(before);
+    expect(kanban(out).settings.backup).toBe(quiet(out).settings.backup);
   });
 
   test("--yes merges an existing settings file, preserving keys, order and plugins, with a backup", () => {
@@ -1374,7 +1440,7 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const after = JSON.parse(settingsText(dir, "settings.json"));
     expect(after).toEqual({
       permissions: { allow: ["Bash(wip:*)"] },
-      enabledPlugins: { "other@market": true, [ID]: true },
+      enabledPlugins: { "other@market": true, ...BOTH },
       env: { A: "1" },
     });
     expect(Object.keys(after)).toEqual(["permissions", "enabledPlugins", "env"]);
@@ -1390,11 +1456,23 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const out = wipJsonIn(dir, ["init", "--yes"]);
     expect(out.code).toBe(EXIT.OK);
     expect(settingsText(dir, "settings.json")).toBe("{oops");
-    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual({
-      [ID]: true,
-    });
-    expect(out.body.warnings.map((w) => w.code)).toEqual(["kanban_settings_unreadable"]);
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual(BOTH);
+    expect(out.body.warnings.map((w) => w.code)).toEqual([
+      "kanban_settings_unreadable",
+      "quiet_settings_unreadable",
+    ]);
     expect(kanban(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      copy: { action: "created" },
+      settings: {
+        path: ".claude/settings.local.json",
+        scope: "local",
+        action: "created",
+        backup: null,
+      },
+    });
+    expect(quiet(out)).toMatchObject({
       requested: true,
       installed: true,
       copy: { action: "created" },
@@ -1415,7 +1493,16 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const out = wipJsonIn(dir, ["init", "--yes"]);
     expect(out.code).toBe(EXIT.OK);
     expect(existsSync(join(dir, MOD))).toBe(false);
+    expect(existsSync(join(dir, QUIET))).toBe(false);
     expect(kanban(out)).toEqual({
+      requested: false,
+      installed: false,
+      path: null,
+      id: null,
+      copy: null,
+      settings: null,
+    });
+    expect(quiet(out)).toEqual({
       requested: false,
       installed: false,
       path: null,
@@ -1476,11 +1563,14 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
       expect(out.body.message).toContain("not wip's");
       expect(tree(foreign)).toEqual(beforeForeign);
     }
-    // Without --kanban the folder is another plugin's and is left alone.
+    // Without --kanban the folder is another plugin's and is left alone; Quiet is installed by itself.
     const modBefore = tree(join(foreign, MOD));
     expect(wipJsonIn(foreign, ["init", "--yes"]).code).toBe(EXIT.OK);
     expect(tree(join(foreign, MOD))).toEqual(modBefore);
-    expect(existsSync(join(foreign, ".claude", "settings.json"))).toBe(false);
+    expect(existsSync(join(foreign, QUIET, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(foreign, "settings.json")).enabledPlugins).toEqual({
+      [QUIET_ID]: true,
+    });
     expect(existsSync(join(foreign, ".claude", "settings.local.json"))).toBe(false);
 
     const file = tmp("k-file");
@@ -1519,7 +1609,13 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     mkdirSync(join(dir, ".claude"), { recursive: true });
     writeFileSync(join(dir, ".claude", "settings.json"), "{oops");
     const before = tree(dir);
-    const out = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
+    const out = wipJsonIn(dir, [
+      "init",
+      "--yes",
+      "--kanban",
+      "--mods-settings-file",
+      "settings.json",
+    ]);
     expect(out.code).toBe(EXIT.REJECTED);
     expect(out.body.message).toContain(".claude/settings.json");
     expect(tree(dir)).toEqual(before);
@@ -1568,9 +1664,10 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
   test("--force does not reactivate a false entry; --kanban writes true with a backup", () => {
     const dir = tmp("k-false");
     expect(wipJsonIn(dir, ["init", "--yes", "--kanban"]).code).toBe(EXIT.OK);
+    // Both entries false, so --yes's defaults keep both mods out of the settings write.
     writeFileSync(
       join(dir, ".claude", "settings.json"),
-      `${JSON.stringify({ enabledPlugins: { [ID]: false } })}\n`,
+      `${JSON.stringify({ enabledPlugins: { [ID]: false, [QUIET_ID]: false } })}\n`,
     );
     const falseText = settingsText(dir, "settings.json");
 
@@ -1578,6 +1675,7 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     expect(forced.code).toBe(EXIT.OK);
     expect(settingsText(dir, "settings.json")).toBe(falseText);
     expect(kanban(forced)).toMatchObject({ requested: false, settings: null });
+    expect(quiet(forced)).toMatchObject({ requested: false, settings: null });
 
     const again = wipJsonIn(dir, ["init", "--yes", "--kanban"]);
     expect(again.code).toBe(EXIT.OK);
@@ -1602,9 +1700,201 @@ describe("wip init and the Kanban mod (F-NEW-08)", () => {
     const out = wipJsonIn(yes, ["init", "--yes"]);
     expect(out.code).toBe(EXIT.OK);
     expect(settingsText(yes, "settings.json")).not.toBe("{}\n");
-    expect(JSON.parse(settingsText(yes, "settings.json")).enabledPlugins).toEqual({ [ID]: true });
+    expect(JSON.parse(settingsText(yes, "settings.json")).enabledPlugins).toEqual(BOTH);
     const backup = kanban(out).settings.backup as string;
     expect(backup).toStartWith(".wip/backups/claude-settings/settings.json.");
     expect(readFileSync(join(yes, backup), "utf8")).toBe("{}\n");
+    expect(quiet(out).settings.backup).toBe(backup);
+  });
+
+  test("--quiet installs only the quiet copy and entry; a second run says exists", () => {
+    const dir = tmp("q-install");
+    const out = wipJsonIn(dir, ["init", "--quiet"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(tree(join(dir, QUIET))).toEqual(modTree(QUIET_MOD));
+    expect(quietText(dir, ".claude-plugin/wip.json")).toBe(
+      '{\n  "format": 1,\n  "owner": "@garndev/wip",\n  "plugin": "wip-quiet"\n}\n',
+    );
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({
+      [QUIET_ID]: true,
+    });
+    expect(existsSync(join(dir, MOD))).toBe(false);
+    expect(kanban(out)).toEqual({
+      requested: false,
+      installed: false,
+      path: null,
+      id: null,
+      copy: null,
+      settings: null,
+    });
+    expect(quiet(out)).toMatchObject({
+      requested: true,
+      installed: true,
+      path: QUIET,
+      id: QUIET_ID,
+      copy: { action: "created", backup: null, removed: [] },
+      settings: { path: ".claude/settings.json", scope: "project", action: "created" },
+    });
+
+    const again = wipJsonIn(dir, ["init", "--quiet"]);
+    expect(again.code).toBe(EXIT.OK);
+    expect(quiet(again)).toMatchObject({
+      requested: true,
+      installed: true,
+      copy: { action: "exists", backup: null, removed: [] },
+      settings: { path: ".claude/settings.json", scope: "project", action: "exists" },
+    });
+  });
+
+  test("--mods-settings-file settings.local.json writes both entries there with one backup", () => {
+    const dir = tmp("q-local");
+    const out = wipJsonIn(dir, ["init", "--yes", "--mods-settings-file", "settings.local.json"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual(BOTH);
+    expect(kanban(out).settings).toMatchObject({
+      path: ".claude/settings.local.json",
+      scope: "local",
+      action: "created",
+    });
+    expect(quiet(out).settings).toMatchObject({
+      path: ".claude/settings.local.json",
+      scope: "local",
+      action: "created",
+    });
+    expect(kanban(out).settings.backup).toBe(quiet(out).settings.backup);
+
+    // An existing local file is backed up once for the merged write.
+    const merge = tmp("q-local-merge");
+    mkdirSync(join(merge, ".claude"), { recursive: true });
+    writeFileSync(join(merge, ".claude", "settings.local.json"), "{}\n");
+    const merged = wipJsonIn(merge, [
+      "init",
+      "--yes",
+      "--mods-settings-file",
+      "settings.local.json",
+    ]);
+    expect(merged.code).toBe(EXIT.OK);
+    const backup = kanban(merged).settings.backup as string;
+    expect(backup).toStartWith(".wip/backups/claude-settings/settings.local.json.");
+    expect(readFileSync(join(merge, backup), "utf8")).toBe("{}\n");
+    expect(quiet(merged).settings.backup).toBe(backup);
+    expect(readdirSync(join(merge, ".wip", "backups", "claude-settings"))).toEqual([
+      backup.replace(".wip/backups/claude-settings/", ""),
+    ]);
+  });
+
+  test("when both settings-file flags are given, --mods-settings-file wins", () => {
+    const dir = tmp("q-both-files");
+    const out = wipJsonIn(dir, [
+      "init",
+      "--yes",
+      "--kanban",
+      "--mods-settings-file",
+      "settings.local.json",
+      "--kanban-settings-file",
+      "settings.json",
+    ]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
+    expect(JSON.parse(settingsText(dir, "settings.local.json")).enabledPlugins).toEqual(BOTH);
+  });
+
+  test("--mods-settings-file without a mod or --yes, or with another value, is exit 2 and writes nothing", () => {
+    for (const argv of [
+      ["init", "--mods-settings-file", "settings.local.json"],
+      ["init", "--quiet", "--mods-settings-file", "other.json"],
+      ["init", "--yes", "--mods-settings-file", ""],
+    ]) {
+      const dir = tmp("q-usage");
+      const out = wipIn(dir, argv);
+      expect({ argv, code: out.code }).toEqual({ argv, code: EXIT.USAGE });
+      expect(readdirSync(dir)).toEqual([]);
+    }
+  });
+
+  test("--force replaces the quiet folder, backs it up under .wip/backups/quiet/ and keeps the types", () => {
+    const dir = tmp("q-force");
+    expect(wipJsonIn(dir, ["init", "--quiet"]).code).toBe(EXIT.OK);
+    writeFileSync(join(dir, QUIET, "README.md"), "edited");
+    writeFileSync(join(dir, QUIET, "notas.txt"), "mine");
+    mkdirSync(join(dir, QUIET, ".claude-plugin", "types"), { recursive: true });
+    writeFileSync(join(dir, QUIET, ".claude-plugin", "types", "index.d.ts"), "generated");
+
+    const out = wipJsonIn(dir, ["init", "--quiet", "--force"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(quietText(dir, "README.md")).toBe(QUIET_MOD["README.md"] as string);
+    expect(existsSync(join(dir, QUIET, "notas.txt"))).toBe(false);
+    expect(readFileSync(join(dir, QUIET, ".claude-plugin", "types", "index.d.ts"), "utf8")).toBe(
+      "generated",
+    );
+    expect(quiet(out).copy.action).toBe("replaced");
+    expect(quiet(out).copy.removed).toEqual([`${QUIET}/notas.txt`]);
+    expect(quiet(out).copy.backup).toStartWith(".wip/backups/quiet/wip-quiet.");
+    expect(readFileSync(join(dir, quiet(out).copy.backup, "notas.txt"), "utf8")).toBe("mine");
+
+    const again = wipJsonIn(dir, ["init", "--quiet", "--force"]);
+    expect(again.code).toBe(EXIT.OK);
+    expect(quiet(again).copy).toEqual({ action: "exists", backup: null, removed: [] });
+    expect(readdirSync(join(dir, ".wip", "backups", "quiet"))).toHaveLength(1);
+  });
+
+  test("--force without --quiet refreshes an owned quiet copy and leaves both settings files alone", () => {
+    const dir = tmp("q-force-refresh");
+    expect(wipJsonIn(dir, ["init", "--quiet"]).code).toBe(EXIT.OK);
+    writeFileSync(join(dir, QUIET, "README.md"), "edited");
+    writeFileSync(
+      join(dir, ".claude", "settings.json"),
+      `${JSON.stringify({ enabledPlugins: { [QUIET_ID]: false } })}\n`,
+    );
+    const settingsBefore = settingsText(dir, "settings.json");
+    const out = wipJsonIn(dir, ["init", "--force"]);
+    expect(out.code).toBe(EXIT.OK);
+    expect(quietText(dir, "README.md")).toBe(QUIET_MOD["README.md"] as string);
+    expect(quiet(out)).toMatchObject({ requested: false, settings: null });
+    expect(settingsText(dir, "settings.json")).toBe(settingsBefore);
+  });
+
+  test("a foreign quiet folder, a file or a symlink exits 3 and writes nothing", () => {
+    const foreign = tmp("q-foreign");
+    mkdirSync(join(foreign, QUIET, ".claude-plugin"), { recursive: true });
+    writeFileSync(join(foreign, QUIET, ".claude-plugin", "wip.json"), '{"owner": "someone"}');
+    const beforeForeign = tree(foreign);
+    for (const argv of [
+      ["init", "--quiet"],
+      ["init", "--quiet", "--force"],
+    ]) {
+      const out = wipJsonIn(foreign, argv);
+      expect(out.code).toBe(EXIT.REJECTED);
+      expect(out.body.message).toContain("not wip's");
+      expect(tree(foreign)).toEqual(beforeForeign);
+    }
+
+    const file = tmp("q-file");
+    mkdirSync(join(file, ".claude", "skills"), { recursive: true });
+    writeFileSync(join(file, QUIET), "not a folder");
+    const beforeFile = tree(file);
+    expect(wipJsonIn(file, ["init", "--quiet", "--force"]).code).toBe(EXIT.REJECTED);
+    expect(tree(file)).toEqual(beforeFile);
+
+    const link = tmp("q-link");
+    mkdirSync(join(link, ".claude", "skills"), { recursive: true });
+    mkdirSync(join(link, "elsewhere"));
+    symlinkSync(join(link, "elsewhere"), join(link, QUIET));
+    const beforeLink = tree(link);
+    expect(wipJsonIn(link, ["init", "--quiet", "--force"]).code).toBe(EXIT.REJECTED);
+    expect(tree(link)).toEqual(beforeLink);
+  });
+
+  test("--global --quiet installs the mod in the project, not in $HOME/.claude", () => {
+    const h = tmp("q-home");
+    const dir = tmp("q-global");
+    const out = wipJsonIn(dir, ["init", "--global", "--quiet"], { HOME: h });
+    expect(out.code).toBe(EXIT.OK);
+    expect(existsSync(join(dir, QUIET, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(JSON.parse(settingsText(dir, "settings.json")).enabledPlugins).toEqual({
+      [QUIET_ID]: true,
+    });
+    expect(existsSync(join(h, ".claude", "settings.json"))).toBe(false);
   });
 });

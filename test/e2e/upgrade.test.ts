@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
+import { QUIET_MOD } from "../../src/embedded/quiet.ts";
 import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT } from "../../src/errors.ts";
 import { type IEnvelopeOut, WIP_BIN, wipIn, wipJsonIn } from "../helpers/bin.ts";
@@ -114,13 +115,85 @@ describe("wip upgrade --apply-mod (e2e)", () => {
     for (const argv of [
       ["upgrade", "--check", "--dry-run"],
       ["upgrade", "--kanban", "--no-kanban"],
+      ["upgrade", "--quiet", "--no-quiet"],
       ["upgrade", "--channel", "beta"],
       ["upgrade", "extra"],
       ["upgrade", "--apply-defs-after", "--check"],
       ["upgrade", "--apply-defs-after", "--no-defs"],
+      ["upgrade", "--apply-defs", "--quiet"],
+      ["upgrade", "--defs-status", "--quiet"],
+      ["upgrade", "--defs-status", "--no-quiet"],
     ]) {
       expect(wipJsonIn(dir, argv).code).toBe(EXIT.USAGE);
     }
+  });
+});
+
+describe("wip upgrade --apply-mod and the Quiet mod (e2e)", () => {
+  const QUIET = ".claude/skills/wip-quiet";
+  const QUIET_ID = "wip-quiet@skills-dir";
+
+  test("the default refreshes both owned copies; an edited quiet file is backed up under quiet/", () => {
+    const dir = withMod("q-refresh");
+    const file = join(dir, QUIET, "README.md");
+    writeFileSync(file, "edited by hand\n");
+    const before = settingsBytes(dir);
+    const { code, body } = wipJsonIn(dir, ["upgrade", "--apply-mod"]);
+    expect(code).toBe(EXIT.OK);
+    const quiet = (body.data as { quiet: { action: string; backup: string | null } }).quiet;
+    expect(quiet.action).toBe("updated");
+    expect(readFileSync(file, "utf8")).toBe(QUIET_MOD["README.md"] as string);
+    expect(quiet.backup).toContain(".wip/backups/quiet/wip-quiet.");
+    expect(settingsBytes(dir)).toEqual(before);
+    expect((body.data as { kanban: { action: string } }).kanban.action).toBe("exists");
+  });
+
+  test("--quiet installs the copy and the entry where absent; --no-quiet skips it", () => {
+    const dir = tmp("q-install");
+    mkdirSync(join(dir, ".wip"), { recursive: true });
+    const { code, body } = wipJsonIn(dir, ["upgrade", "--apply-mod", "--quiet"]);
+    expect(code).toBe(EXIT.OK);
+    const quiet = (
+      body.data as {
+        quiet: { action: string; settings: { file: string; action: string } };
+        kanban: unknown;
+      }
+    ).quiet;
+    expect(quiet.action).toBe("installed");
+    expect(quiet.settings.action).toBe("created");
+    expect(existsSync(join(dir, QUIET, ".claude-plugin", "wip.json"))).toBe(true);
+    expect(
+      JSON.parse(readFileSync(join(dir, ".claude", "settings.json"), "utf8")).enabledPlugins[
+        QUIET_ID
+      ],
+    ).toBe(true);
+
+    writeFileSync(join(dir, QUIET, "README.md"), "edited\n");
+    const skipped = wipJsonIn(dir, ["upgrade", "--apply-mod", "--no-quiet", "--no-kanban"]);
+    expect(skipped.code).toBe(EXIT.OK);
+    expect(readFileSync(join(dir, QUIET, "README.md"), "utf8")).toBe("edited\n");
+    expect((skipped.body.data as { quiet: unknown }).quiet).toBeNull();
+  });
+
+  test("a foreign quiet folder exits 3 and writes nothing", () => {
+    const dir = tmp("q-foreign");
+    mkdirSync(join(dir, ".wip"), { recursive: true });
+    mkdirSync(join(dir, QUIET), { recursive: true });
+    writeFileSync(join(dir, QUIET, "other.txt"), "another plugin\n");
+    const { code } = wipJsonIn(dir, ["upgrade", "--apply-mod", "--quiet"]);
+    expect(code).toBe(EXIT.REJECTED);
+    expect(readFileSync(join(dir, QUIET, "other.txt"), "utf8")).toBe("another plugin\n");
+    expect(existsSync(join(dir, ".claude", "settings.json"))).toBe(false);
+  });
+
+  test("the envelope carries data.quiet next to data.kanban", () => {
+    const dir = withMod("q-envelope");
+    const { code, body } = wipJsonIn(dir, ["upgrade", "--apply-mod"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(loadSchema("upgrade"), body)).toEqual([]);
+    const data = body.data as { kanban: { path: string }; quiet: { path: string } };
+    expect(data.kanban.path).toBe(".claude/skills/wip-kanban/");
+    expect(data.quiet.path).toBe(".claude/skills/wip-quiet/");
   });
 });
 

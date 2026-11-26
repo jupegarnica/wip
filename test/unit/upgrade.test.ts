@@ -12,6 +12,7 @@ import {
   setUpgradeRunnerForTests,
 } from "../../src/commands/upgrade.ts";
 import { KANBAN_MOD } from "../../src/embedded/kanban.ts";
+import { QUIET_MOD } from "../../src/embedded/quiet.ts";
 import { TEMPLATES } from "../../src/embedded/templates.ts";
 import { EXIT, WipError } from "../../src/errors.ts";
 import type { IInstallInfo } from "../../src/install.ts";
@@ -142,6 +143,10 @@ function kanbanOf(body: Record<string, unknown>): Record<string, unknown> | null
   return dataOf(body).kanban as Record<string, unknown> | null;
 }
 
+function quietOf(body: Record<string, unknown>): Record<string, unknown> | null {
+  return dataOf(body).quiet as Record<string, unknown> | null;
+}
+
 function settingsBytes(dir: string): Record<string, string> {
   const files = [".claude/settings.json", ".claude/settings.local.json"];
   return Object.fromEntries(
@@ -168,6 +173,20 @@ function managed(dir: string): Record<string, string> {
       .sort()
       .map((key) => [key, readFileSync(join(root, key), "utf8")]),
   );
+}
+
+function quietManaged(dir: string): Record<string, string> {
+  const root = join(dir, ".claude", "skills", "wip-quiet");
+  return Object.fromEntries(
+    Object.keys(QUIET_MOD)
+      .sort()
+      .map((key) => [key, readFileSync(join(root, key), "utf8")]),
+  );
+}
+
+function quietBackupCount(dir: string): number {
+  const path = join(dir, ".wip", "backups", "quiet");
+  return existsSync(path) ? readdirSync(path).length : 0;
 }
 
 describe("versions", () => {
@@ -483,14 +502,14 @@ describe("wip upgrade (fake npm)", () => {
     expect(readFileSync(config, "utf8")).toBe(before);
   });
 
-  test("--no-kanban --no-defs writes no file and does not look for a project", () => {
+  test("--no-quiet --no-kanban --no-defs writes no file and does not look for a project", () => {
     const dir = withMod("no-kanban");
     const before = settingsBytes(dir);
     const copies = managed(dir);
     const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
     setUpgradeRunnerForTests(fake.run);
     setUpgradeInstallForTests(npmInfo());
-    const { code, body } = json(dir, ["upgrade", "--no-kanban", "--no-defs"]);
+    const { code, body } = json(dir, ["upgrade", "--no-quiet", "--no-kanban", "--no-defs"]);
     expect(code).toBe(EXIT.OK);
     expect(dataOf(body)).toMatchObject({ project: null, kanban: null, defs: null });
     expect(settingsBytes(dir)).toEqual(before);
@@ -887,14 +906,14 @@ describe("wip upgrade definitions (fake npm)", () => {
     });
     setUpgradeRunnerForTests(fake.run);
     setUpgradeInstallForTests(npmInfo());
-    const out = run(["upgrade", "--no-kanban"], { cwd: dir, env: {} });
+    const out = run(["upgrade", "--no-kanban", "--no-quiet"], { cwd: dir, env: {} });
     expect(out.code).toBe(EXIT.OK);
     expect(out.after).toBeUndefined();
     expect(out.stdout).toContain(
       "defs: run `wip upgrade --apply-defs` to compare the definitions with wip 9.9.9",
     );
     expect(fake.calls.some((call) => call.args.includes("--apply-defs"))).toBe(false);
-    const { body } = json(dir, ["upgrade", "--no-kanban"]);
+    const { body } = json(dir, ["upgrade", "--no-kanban", "--no-quiet"]);
     expect(validate(SCHEMA, body)).toEqual([]);
     expect(defsOf(body)).toMatchObject({ version: BUILD_INFO.version });
   });
@@ -908,7 +927,11 @@ describe("wip upgrade definitions (fake npm)", () => {
     });
     setUpgradeRunnerForTests(fake.run);
     setUpgradeInstallForTests(npmInfo());
-    const out = run(["upgrade", "--no-kanban"], { cwd: dir, env: {}, interactive: true });
+    const out = run(["upgrade", "--no-kanban", "--no-quiet"], {
+      cwd: dir,
+      env: {},
+      interactive: true,
+    });
     expect(out.code).toBe(EXIT.OK);
     expect(out.after?.defsAfterInstall).toEqual({
       project: dir,
@@ -922,7 +945,7 @@ describe("wip upgrade definitions (fake npm)", () => {
 
   test("no hook with --no-defs, with --apply-defs-after or after a failed install", () => {
     const cases = [
-      { name: "no-defs", argv: ["upgrade", "--no-kanban", "--no-defs"] },
+      { name: "no-defs", argv: ["upgrade", "--no-quiet", "--no-kanban", "--no-defs"] },
       { name: "apply-defs-after", argv: ["upgrade", "--no-kanban", "--apply-defs-after"] },
       { name: "install-fails", argv: ["upgrade", "--no-kanban"] },
     ];
@@ -1093,7 +1116,10 @@ describe("wip upgrade --apply-defs-after (fake npm)", () => {
     });
     setUpgradeRunnerForTests(fake.run);
     setUpgradeInstallForTests(npmInfo());
-    const out = run(["upgrade", "--no-kanban", "--apply-defs-after"], { cwd: dir, env: {} });
+    const out = run(["upgrade", "--no-kanban", "--no-quiet", "--apply-defs-after"], {
+      cwd: dir,
+      env: {},
+    });
     expect(out.code).toBe(EXIT.OK);
     expect(out.stdout).toContain("created .claude/skills/wip-flow-tasks/guide.md");
     const child = fake.calls.find((call) => call.args.includes("--apply-defs"));
@@ -1104,7 +1130,7 @@ describe("wip upgrade --apply-defs-after (fake npm)", () => {
       "--apply-defs",
       "--json",
     ]);
-    const { body } = json(dir, ["upgrade", "--no-kanban", "--apply-defs-after"]);
+    const { body } = json(dir, ["upgrade", "--no-kanban", "--no-quiet", "--apply-defs-after"]);
     expect(validate(SCHEMA, body)).toEqual([]);
     expect(defsOf(body)).toMatchObject({ action: "applied", version: "9.9.9" });
   });
@@ -1130,6 +1156,7 @@ describe("wip upgrade usage", () => {
     const cases = [
       ["upgrade", "--check", "--dry-run"],
       ["upgrade", "--kanban", "--no-kanban"],
+      ["upgrade", "--quiet", "--no-quiet"],
       ["upgrade", "--channel", "beta"],
       ["upgrade", "extra"],
       ["upgrade", "--apply-mod", "--check"],
@@ -1139,8 +1166,11 @@ describe("wip upgrade usage", () => {
       ["upgrade", "--apply-defs", "--dry-run"],
       ["upgrade", "--apply-defs", "--channel", "next"],
       ["upgrade", "--apply-defs", "--kanban"],
+      ["upgrade", "--apply-defs", "--quiet"],
       ["upgrade", "--apply-defs", "--no-defs"],
       ["upgrade", "--apply-defs", "--apply-mod"],
+      ["upgrade", "--defs-status", "--quiet"],
+      ["upgrade", "--defs-status", "--no-quiet"],
       ["upgrade", "--apply-defs-after", "--check"],
       ["upgrade", "--apply-defs-after", "--dry-run"],
       ["upgrade", "--apply-defs-after", "--apply-defs"],
@@ -1151,5 +1181,94 @@ describe("wip upgrade usage", () => {
       const { code } = json(dir, argv);
       expect(code).toBe(EXIT.USAGE);
     }
+  });
+});
+
+describe("wip upgrade and the Quiet mod (fake npm)", () => {
+  test("--apply-mod refreshes both owned copies and reports data.quiet", () => {
+    const dir = withMod("q-apply");
+    writeFileSync(join(dir, ".claude/skills/wip-quiet/README.md"), "edited\n");
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--apply-mod"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(quietOf(body)).toMatchObject({
+      action: "updated",
+      path: ".claude/skills/wip-quiet/",
+      reason: null,
+    });
+    expect(String(quietOf(body)?.backup).startsWith(".wip/backups/quiet/wip-quiet.")).toBe(true);
+    expect(quietManaged(dir)).toEqual(
+      Object.fromEntries(
+        Object.keys(QUIET_MOD)
+          .sort()
+          .map((key) => [key, QUIET_MOD[key] as string]),
+      ),
+    );
+  });
+
+  test("--apply-mod --quiet installs the copy and the entry; --no-quiet skips it", () => {
+    const dir = project("q-apply-install");
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--apply-mod", "--quiet"]);
+    expect(code).toBe(EXIT.OK);
+    expect(quietOf(body)).toMatchObject({
+      action: "installed",
+      settings: { file: ".claude/settings.json", action: "created" },
+    });
+    expect(quietBackupCount(dir)).toBe(0);
+
+    writeFileSync(join(dir, ".claude/skills/wip-quiet/README.md"), "edited\n");
+    const skipped = json(dir, ["upgrade", "--apply-mod", "--no-quiet", "--no-kanban"]);
+    expect(skipped.code).toBe(EXIT.OK);
+    expect(quietOf(skipped.body)).toBeNull();
+    expect(readFileSync(join(dir, ".claude/skills/wip-quiet/README.md"), "utf8")).toBe("edited\n");
+  });
+
+  test("a quiet step the installed CLI cannot run warns quiet_failed and exits 1", () => {
+    const dir = withMod("q-child-fails");
+    const fake = fakeRun((call) => {
+      if (call.args[0] === "view") return viewOf({ latest: "9.9.9" });
+      if (call.args[0] === "install") return { status: 0 };
+      if (call.args.includes("version")) return envelope({ data: { version: "9.9.9" } });
+      // The installed CLI knows kanban but prints no quiet result.
+      if (call.args.includes("--apply-mod")) {
+        return envelope({
+          data: {
+            kanban: {
+              action: "exists",
+              path: ".claude/skills/wip-kanban/",
+              backup: null,
+              removed: [],
+              settings: null,
+              reason: null,
+            },
+          },
+        });
+      }
+      return { status: 0 };
+    });
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo({ root: "/opt/pkg", prefix: "/opt/pkg" }));
+    const { code, body } = json(dir, ["upgrade", "--no-kanban", "--quiet"]);
+    expect(code).toBe(EXIT.FINDINGS);
+    expect((body.warnings as { code: string }[]).map((w) => w.code)).toContain("quiet_failed");
+    expect(quietOf(body)).toMatchObject({ action: "failed", backup: null });
+  });
+
+  test("--no-quiet alone still resolves the project; the envelope carries data.quiet null", () => {
+    const dir = withMod("q-no-quiet");
+    const fake = fakeRun(() => viewOf({ latest: "0.2.1" }));
+    setUpgradeRunnerForTests(fake.run);
+    setUpgradeInstallForTests(npmInfo());
+    const { code, body } = json(dir, ["upgrade", "--no-quiet"]);
+    expect(code).toBe(EXIT.OK);
+    expect(validate(SCHEMA, body)).toEqual([]);
+    expect(dataOf(body)).toMatchObject({ project: dir });
+    expect(quietOf(body)).toBeNull();
   });
 });

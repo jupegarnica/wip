@@ -61,8 +61,8 @@ local installs) is in [CLAUDE.md](../CLAUDE.md).
 
 ## Upgrade
 
-`wip upgrade` moves the npm install to the newest version and refreshes the current project's Kanban mod from the
-new CLI; the channels, the exact npm command, what it does not touch, the verification and the exit codes are in
+`wip upgrade` moves the npm install to the newest version and refreshes the current project's mods from the new
+CLI; the channels, the exact npm command, what it does not touch, the verification and the exit codes are in
 [`wip upgrade`](upgrade.md).
 
 Read the CHANGELOG first, its "Upgrade notes" above all. **An upgrade migrates the database of every project the new
