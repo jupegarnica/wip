@@ -90,8 +90,8 @@ clones the repository needs their own `wip init` (with or without `--global`).
 `wip init` can install two optional mods for Claude Code:
 
 - **Kanban** (`--kanban`): a read-only pane listing the project's open wip items.
-- **Quiet** (`--quiet`): a quieter transcript that hides every row that is neither the assistant's text nor the
-  person's own messages, with `/wip-quiet` to show them on demand.
+- **Quiet** (`--quiet`): a quieter transcript that folds, hides or shows each row category, with `/wip-quiet` to
+  choose; every row it touches is neither the assistant's text nor the person's own messages.
 
 An installed copy lives in `.claude/skills/wip-kanban/` or `.claude/skills/wip-quiet/`, always in the project, also
 with `--global` (that flag decides where the agents and skills live, never where these copies do). Each is a
