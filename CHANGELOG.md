@@ -4,7 +4,7 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
-## 0.6.7 (unreleased)
+## 0.6.7 (2026-11-26)
 
 - `wip init` installs a second optional Claude Code mod next to the Kanban one: **Quiet** (`--quiet`), a quieter
   transcript that hides every row that is neither the assistant's text nor the person's own messages, with
