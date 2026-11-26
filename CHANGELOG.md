@@ -4,6 +4,8 @@ Each version lists its changes. A version that changes the database schema says 
 command of that version migrates a project's database one way (an older wip then refuses it with exit 10) and keeps
 a copy of it in `.wip/backups/db/` first. While `0.x`, a schema change is a minor bump.
 
+## 0.6.9 (unreleased)
+
 ## 0.6.8 (2026-11-26)
 
 - `wip init` has seven steps: the settings-file question (`--mods-settings-file`) is step 7, after Quiet, and
